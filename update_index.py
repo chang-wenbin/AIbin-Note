@@ -47,12 +47,6 @@ FOLDER_CONFIG = {
         "css_class": "attn-section",
         "default_tag": "Attn",
     },
-    "De_Attn_sm80": {
-        "label":    "De_Attn_sm80 — Ampere 架构专项",
-        "emoji":    "🔬",
-        "css_class": "sm80-section",
-        "default_tag": "SM80",
-    },
 }
 
 # 如果文件夹不在上面的配置里，使用这个默认值
@@ -75,8 +69,6 @@ FILE_META = {
     "cute_divide_ops_v1":               ("🔨", "CuTe 分块操作详解（v1）",        "CuTe 库中分块操作的原理与实现，版本一：基础概念与核心 API 介绍。",                   "CuTe · Divide"),
     "cute_divide_ops_v2":               ("🔧", "CuTe 分块操作详解（v2）",        "CuTe 分块操作进阶篇，版本二：深入 Tiling 策略与实战 kernel 示例。",                 "CuTe · Advanced"),
     "rope_comparison_guide":            ("📐", "RoPE 实现对比指南",              "对比不同 RoPE 实现方案在解码场景下的精度、性能与工程可用性。",                      "RoPE · Decode"),
-    "block_attn_kernel_guide":          ("🖥️", "Block Attention Kernel 指南",   "面向 SM80 架构的 Block Attention CUDA kernel 实现指南，含 warp 分工与内存优化。",   "SM80 · Kernel"),
-    "block_attn_matrix_flow":           ("🌊", "Block Attention 矩阵流程",       "可视化展示 Block Attention 在 SM80 上的矩阵计算流程及 Tensor Core 调度。",           "SM80 · Matrix Flow"),
 }
 # ─────────────────────────────────────────────────────────
 
