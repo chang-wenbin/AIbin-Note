@@ -62,13 +62,13 @@ ibin-notes/
 # 1. 在 GitHub 新建仓库（例如：ibin-notes）
 
 # 2. 初始化本地 git 仓库
-cd ibin-notes/
+cd Aibin_Note/
 git init
 git add -A
 git commit -m "feat: initial commit"
 
 # 3. 关联远程仓库并推送
-git remote add origin https://github.com/adux-user-0316/ibin-notes.git
+git remote add origin https://github.com/chang-wenbin/AIbin-Note.git
 git branch -M main
 git push -u origin main
 
@@ -79,7 +79,7 @@ git push -u origin main
 ### 访问地址
 
 ```
-https://adux-user-0316.github.io/ibin-notes/
+https://chang-wenbin.github.io/AIbin-Note/
 ```
 
 ---

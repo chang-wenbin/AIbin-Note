@@ -1,0 +1,2026 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CuTe · Hopper · Blackwell — GPU 编程学习手册</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Sora:wght@300;400;500;600&display=swap');
+:root {
+  --bg:    #0d0f12;
+  --bg2:   #13161c;
+  --bg3:   #1a1e27;
+  --bg4:   #222736;
+  --line:  rgba(255,255,255,0.07);
+  --line2: rgba(255,255,255,0.13);
+  --fg:    #e2e4ec;
+  --fg2:   #9ba3b8;
+  --fg3:   #5c6478;
+  --acc:   #5b8dee;
+  --acc2:  #3d6fd4;
+  --acc-dim: rgba(91,141,238,0.12);
+  --grn:   #4ade80;
+  --grn-dim: rgba(74,222,128,0.1);
+  --amb:   #fbbf24;
+  --amb-dim: rgba(251,191,36,0.1);
+  --red:   #f87171;
+  --red-dim: rgba(248,113,113,0.1);
+  --pur:   #a78bfa;
+  --pur-dim: rgba(167,139,250,0.1);
+  --cya:   #22d3ee;
+  --cya-dim: rgba(34,211,238,0.08);
+  --pnk:   #f472b6;
+  --r: 8px;
+  --r2: 12px;
+  --font: 'Sora', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', 'Menlo', monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:var(--font);
+  background:var(--bg);
+  color:var(--fg);
+  line-height:1.7;
+  font-size:14px;
+  min-height:100vh;
+}
+
+/* ── LAYOUT ── */
+.shell{display:flex;min-height:100vh;}
+.sidebar{
+  width:240px;min-width:240px;background:var(--bg2);
+  border-right:1px solid var(--line);
+  position:fixed;top:0;left:0;height:100vh;overflow-y:auto;
+  display:flex;flex-direction:column;z-index:100;
+}
+.main{margin-left:240px;flex:1;padding:36px 40px 80px;max-width:960px;}
+
+/* ── SIDEBAR ── */
+.logo{padding:20px 18px 14px;border-bottom:1px solid var(--line);}
+.logo-title{font-size:13px;font-weight:600;color:var(--acc);letter-spacing:.06em;text-transform:uppercase;}
+.logo-sub{font-size:11px;color:var(--fg3);margin-top:2px;}
+
+.nav-group{padding:10px 0;}
+.nav-label{font-size:10px;font-weight:600;color:var(--fg3);letter-spacing:.1em;text-transform:uppercase;padding:8px 18px 4px;}
+.nav-item{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 18px;font-size:12.5px;color:var(--fg2);
+  cursor:pointer;border-left:2px solid transparent;
+  transition:all .15s;user-select:none;
+}
+.nav-item:hover{color:var(--fg);background:var(--bg3);}
+.nav-item.on{color:var(--acc);border-left-color:var(--acc);background:var(--acc-dim);}
+.nav-dot{width:6px;height:6px;border-radius:50%;background:var(--fg3);flex-shrink:0;transition:background .15s;}
+.nav-item.on .nav-dot{background:var(--acc);}
+
+/* ── SECTIONS ── */
+.sec{display:none;animation:fadeIn .2s ease;}
+.sec.on{display:block;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ── TYPOGRAPHY ── */
+h1{font-size:26px;font-weight:600;color:var(--fg);margin-bottom:6px;letter-spacing:-.02em;}
+h2{font-size:18px;font-weight:600;color:var(--fg);margin:32px 0 12px;letter-spacing:-.01em;}
+h3{font-size:14px;font-weight:600;color:var(--fg2);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.06em;}
+p{color:var(--fg2);margin-bottom:12px;line-height:1.8;}
+.lead{font-size:15px;color:var(--fg2);margin-bottom:24px;line-height:1.9;}
+strong{color:var(--fg);font-weight:500;}
+
+/* ── CARDS ── */
+.card{
+  background:var(--bg2);border:1px solid var(--line);
+  border-radius:var(--r2);padding:18px 20px;margin-bottom:16px;
+}
+.card-title{font-size:12px;font-weight:600;color:var(--fg3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;}
+.row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;}
+.row>.card{flex:1;min-width:200px;margin-bottom:0;}
+
+/* COLORED CARDS */
+.card-acc{background:var(--acc-dim);border-color:rgba(91,141,238,.25);}
+.card-grn{background:var(--grn-dim);border-color:rgba(74,222,128,.2);}
+.card-amb{background:var(--amb-dim);border-color:rgba(251,191,36,.2);}
+.card-red{background:var(--red-dim);border-color:rgba(248,113,113,.2);}
+.card-pur{background:var(--pur-dim);border-color:rgba(167,139,250,.2);}
+.card-cya{background:var(--cya-dim);border-color:rgba(34,211,238,.15);}
+
+/* ── CODE ── */
+.code-wrap{position:relative;margin:14px 0;}
+.code-label{
+  position:absolute;top:0;right:0;
+  font-size:10px;font-family:var(--mono);color:var(--fg3);
+  background:var(--bg4);padding:3px 10px;border-radius:0 var(--r) 0 var(--r);
+  border:1px solid var(--line);border-top:none;border-right:none;
+}
+pre{
+  font-family:var(--mono);font-size:12px;
+  background:var(--bg2);
+  padding:16px 18px;border-radius:var(--r2);
+  border:1px solid var(--line2);
+  line-height:1.9;overflow-x:auto;
+  color:var(--fg2);white-space:pre;
+}
+code{
+  font-family:var(--mono);font-size:12px;
+  background:var(--bg3);padding:1px 6px;
+  border-radius:4px;color:var(--cya);
+}
+
+/* Syntax highlighting classes */
+.kw{color:var(--pur);}      /* keywords */
+.ty{color:var(--cya);}      /* types */
+.fn{color:var(--acc);}      /* functions */
+.cm{color:var(--fg3);}      /* comments */
+.st{color:var(--grn);}      /* strings */
+.nm{color:var(--amb);}      /* numbers/macros */
+.pp{color:var(--pnk);}      /* preprocessor */
+
+/* ── BADGES ── */
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:500;font-family:var(--mono);}
+.badge-acc{background:var(--acc-dim);color:var(--acc);border:1px solid rgba(91,141,238,.3);}
+.badge-grn{background:var(--grn-dim);color:var(--grn);border:1px solid rgba(74,222,128,.25);}
+.badge-amb{background:var(--amb-dim);color:var(--amb);border:1px solid rgba(251,191,36,.25);}
+.badge-red{background:var(--red-dim);color:var(--red);border:1px solid rgba(248,113,113,.25);}
+.badge-pur{background:var(--pur-dim);color:var(--pur);border:1px solid rgba(167,139,250,.25);}
+.badge-cya{background:var(--cya-dim);color:var(--cya);border:1px solid rgba(34,211,238,.2);}
+
+/* ── TABLE ── */
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin:12px 0;}
+th{text-align:left;padding:9px 14px;background:var(--bg3);color:var(--fg2);font-weight:500;border:1px solid var(--line2);font-family:var(--mono);}
+td{padding:9px 14px;border:1px solid var(--line);color:var(--fg2);vertical-align:top;}
+tr:hover td{background:var(--bg3);}
+
+/* ── BUTTONS ── */
+.btn{
+  padding:6px 14px;border:1px solid var(--line2);
+  background:var(--bg3);color:var(--fg2);
+  border-radius:var(--r);cursor:pointer;font-size:12px;
+  font-family:var(--font);transition:all .12s;
+}
+.btn:hover{background:var(--bg4);color:var(--fg);}
+.btn.on{background:var(--acc-dim);color:var(--acc);border-color:rgba(91,141,238,.4);}
+
+/* ── TAGS ── */
+.tag-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+
+/* ── PIPELINE DIAGRAM ── */
+.pipeline{overflow-x:auto;margin:14px 0;}
+
+/* ── ARCH CHIP ── */
+.chip{
+  display:grid;gap:3px;padding:14px;
+  background:var(--bg3);border-radius:var(--r2);
+  border:1px solid var(--line2);margin:12px 0;
+}
+.chip-cell{
+  padding:6px 4px;border-radius:5px;text-align:center;
+  font-size:10px;font-family:var(--mono);font-weight:500;
+  border:1px solid rgba(255,255,255,.06);
+}
+
+/* ── PROGRESS BAR ── */
+.bar-wrap{margin:8px 0;}
+.bar-label{display:flex;justify-content:space-between;font-size:11px;font-family:var(--mono);color:var(--fg3);margin-bottom:4px;}
+.bar{height:6px;border-radius:3px;background:var(--bg4);overflow:hidden;}
+.bar-fill{height:100%;border-radius:3px;transition:width 1s ease;}
+
+/* ── STEP INDICATOR ── */
+.steps{display:flex;gap:0;margin:16px 0;}
+.step{
+  flex:1;padding:10px 14px;font-size:12px;
+  background:var(--bg3);border:1px solid var(--line);
+  cursor:pointer;transition:all .12s;text-align:center;color:var(--fg3);
+}
+.step:first-child{border-radius:var(--r) 0 0 var(--r);}
+.step:last-child{border-radius:0 var(--r) var(--r) 0;}
+.step.on{background:var(--acc-dim);color:var(--acc);border-color:rgba(91,141,238,.4);font-weight:500;}
+.step-content{display:none;}.step-content.on{display:block;}
+
+/* ── DIVIDER ── */
+.divider{height:1px;background:var(--line);margin:28px 0;}
+
+/* ── NOTE BOXES ── */
+.note{
+  padding:12px 16px;border-radius:var(--r);margin:14px 0;
+  border-left:3px solid var(--acc);background:var(--acc-dim);
+  font-size:13px;color:var(--fg2);
+}
+.warn{border-left-color:var(--amb);background:var(--amb-dim);}
+.danger{border-left-color:var(--red);background:var(--red-dim);}
+.tip{border-left-color:var(--grn);background:var(--grn-dim);}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-track{background:var(--bg2);}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px;}
+
+/* ── RESPONSIVE ── */
+@media(max-width:768px){
+  .sidebar{position:relative;width:100%;height:auto;min-width:0;}
+  .main{margin-left:0;padding:20px 16px;}
+  .shell{flex-direction:column;}
+}
+
+/* ── SVG COMMON ── */
+.diagram-svg{width:100%;overflow:visible;}
+</style>
+</head>
+<body>
+<div class="shell">
+<!-- ═══════════════ SIDEBAR ═══════════════ -->
+<nav class="sidebar">
+  <div class="logo">
+    <div class="logo-title">GPU 编程手册</div>
+    <div class="logo-sub">CuTe · Hopper · Blackwell</div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-label">CuTe 核心</div>
+    <div class="nav-item on" onclick="nav('cute-layout')"><span class="nav-dot"></span>Layout 代数</div>
+    <div class="nav-item" onclick="nav('cute-tensor')"><span class="nav-dot"></span>Tensor 抽象</div>
+    <div class="nav-item" onclick="nav('cute-mma')"><span class="nav-dot"></span>TiledMMA</div>
+    <div class="nav-item" onclick="nav('cute-copy')"><span class="nav-dot"></span>TiledCopy</div>
+    <div class="nav-item" onclick="nav('cute-swizzle')"><span class="nav-dot"></span>Swizzle</div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-label">Hopper SM90</div>
+    <div class="nav-item" onclick="nav('hopper-arch')"><span class="nav-dot"></span>架构总览</div>
+    <div class="nav-item" onclick="nav('hopper-tma')"><span class="nav-dot"></span>TMA 异步传输</div>
+    <div class="nav-item" onclick="nav('hopper-wgmma')"><span class="nav-dot"></span>WGMMA</div>
+    <div class="nav-item" onclick="nav('hopper-pipeline')"><span class="nav-dot"></span>Ping-Pong 流水线</div>
+    <div class="nav-item" onclick="nav('hopper-gemm')"><span class="nav-dot"></span>完整 GEMM 实现</div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-label">Blackwell SM100</div>
+    <div class="nav-item" onclick="nav('bw-arch')"><span class="nav-dot"></span>架构总览</div>
+    <div class="nav-item" onclick="nav('bw-umma')"><span class="nav-dot"></span>UMMA / UTCCP</div>
+    <div class="nav-item" onclick="nav('bw-cluster')"><span class="nav-dot"></span>Cluster & NVLINK</div>
+    <div class="nav-item" onclick="nav('bw-gemm')"><span class="nav-dot"></span>Blackwell GEMM</div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-label">性能调优</div>
+    <div class="nav-item" onclick="nav('perf-occ')"><span class="nav-dot"></span>Occupancy & 寄存器</div>
+    <div class="nav-item" onclick="nav('perf-mem')"><span class="nav-dot"></span>内存层次结构</div>
+    <div class="nav-item" onclick="nav('perf-profile')"><span class="nav-dot"></span>Nsight 分析方法</div>
+  </div>
+</nav>
+
+<!-- ═══════════════ MAIN ═══════════════ -->
+<main class="main">
+
+<!-- ████████████████ CUTE LAYOUT ████████████████ -->
+<div class="sec on" id="sec-cute-layout">
+<h1>CuTe Layout 代数</h1>
+<p class="lead">CuTe（CUDA Templates）的核心是一套完整的 <strong>Layout 代数系统</strong>，用于在编译期描述任意维度的张量结构，消除手写偏移计算，并让编译器生成最优代码。</p>
+
+<div class="row">
+  <div class="card card-acc">
+    <div class="card-title">Layout = Shape + Stride</div>
+    <p>Layout 将多维坐标映射到线性内存偏移。Shape 描述各维度大小，Stride 描述各维度的步长。</p>
+    <div style="font-family:var(--mono);font-size:13px;color:var(--cya);margin-top:8px">
+      offset = Σ (coord[i] × stride[i])
+    </div>
+  </div>
+  <div class="card card-grn">
+    <div class="card-title">静态 vs 动态</div>
+    <p>静态（<code>Int&lt;N&gt;</code> / <code>_N</code>）：值在类型中，零运行时开销，循环可完全展开。</p>
+    <p>动态（<code>int</code>）：运行时值，灵活但有少量开销。可混用。</p>
+  </div>
+  <div class="card card-pur">
+    <div class="card-title">嵌套结构</div>
+    <p>Shape/Stride 可以是任意嵌套的元组，天然表达 GPU 的层级结构：Thread → Warp → Block → Cluster。</p>
+  </div>
+</div>
+
+<h2>核心 API 与基础示例</h2>
+<div class="code-wrap">
+<span class="code-label">cute_layout_basics.cu</span>
+<pre><span class="pp">#include &lt;cute/layout.hpp&gt;
+#include &lt;cute/tensor.hpp&gt;
+</span><span class="kw">using namespace</span> cute;
+
+<span class="cm">// ─── 1. 创建 Layout ───────────────────────────────────────────</span>
+<span class="cm">// 行主序 4×8 矩阵：stride = (8, 1)</span>
+<span class="kw">auto</span> layout_rm = make_layout(make_shape(_4{}, _8{}), make_stride(_8{}, _1{}));
+
+<span class="cm">// 列主序 4×8 矩阵：stride = (1, 4)</span>
+<span class="kw">auto</span> layout_cm = make_layout(make_shape(_4{}, _8{}), make_stride(_1{}, _4{}));
+
+<span class="cm">// 自动推断 stride（行主序）</span>
+<span class="kw">auto</span> layout_auto = make_layout(make_shape(_4{}, _8{}));  <span class="cm">// stride = (8, 1)</span>
+
+<span class="cm">// ─── 2. 坐标访问 ──────────────────────────────────────────────</span>
+<span class="kw">int</span> offset = layout_rm(<span class="nm">2</span>, <span class="nm">3</span>);  <span class="cm">// = 2×8 + 3×1 = 19</span>
+<span class="kw">int</span> offset2 = layout_rm(make_coord(<span class="nm">2</span>, <span class="nm">3</span>));  <span class="cm">// 等价</span>
+
+<span class="cm">// ─── 3. 嵌套 Layout（表达 Warp/Thread 层级）─────────────────</span>
+<span class="cm">// Shape = (4, (2, 4))：第二维是 rank-2 子 layout</span>
+<span class="kw">auto</span> layout_nested = make_layout(
+    make_shape(_4{}, make_shape(_2{}, _4{})),    <span class="cm">// (4, (2, 4))</span>
+    make_stride(_8{}, make_stride(_4{}, _1{}))   <span class="cm">// (8, (4, 1))</span>
+);
+<span class="cm">// 坐标 (i, (j0, j1)) → offset = i×8 + j0×4 + j1×1</span>
+<span class="kw">int</span> off = layout_nested(<span class="nm">1</span>, make_coord(<span class="nm">0</span>, <span class="nm">3</span>));  <span class="cm">// = 8 + 3 = 11</span>
+
+<span class="cm">// ─── 4. Layout 变换 ───────────────────────────────────────────</span>
+<span class="kw">auto</span> result = tiled_divide(layout_rm, make_shape(_2{}, _4{}));
+<span class="cm">// 原 (4,8) → 结果 ((2,4), (2,2))：tile内坐标, tile编号</span>
+
+<span class="cm">// ─── 5. 打印调试 ──────────────────────────────────────────────</span>
+print_layout(layout_rm);   <span class="cm">// 打印完整坐标映射表</span>
+print(layout_nested);      <span class="cm">// 打印结构描述</span></pre>
+</div>
+
+<h2>Layout 变换族</h2>
+<div id="layout-ops-demo"></div>
+
+<h2>坐标系与 idx2crd / crd2idx</h2>
+<div class="code-wrap">
+<span class="code-label">coords.cu</span>
+<pre><span class="kw">using namespace</span> cute;
+
+<span class="cm">// idx2crd：把线性索引按 Shape 展开为多维坐标（列主序）</span>
+<span class="kw">auto</span> shape = make_shape(_3{}, make_shape(_2{}, _3{}));
+<span class="kw">auto</span> coord = idx2crd(<span class="nm">5</span>, shape);  <span class="cm">// (1, (1, 2)) — 见下方解析</span>
+
+<span class="cm">// crd2idx：多维坐标 → 线性索引</span>
+<span class="kw">int</span> idx = crd2idx(make_coord(<span class="nm">1</span>, make_coord(<span class="nm">1</span>, <span class="nm">2</span>)), shape);  <span class="cm">// = 5</span>
+
+<span class="cm">// 解析：shape(3, (2,3)) 总 size=18
+// slot0: idx%3 = 5%3 = 2 → 但 slot0 size=3, idx=5: coord0 = 5%3 = 2
+// 实际 cute 对每个 slot 独立展开：
+// coord0 = 5 % 3 = 2；剩余 = 5 / 3 = 1
+// 内层 (2,3): coord1_0 = 1 % 2 = 1，coord1_1 = (1/2) % 3 = 0
+// → (2, (1, 0))</span></pre>
+</div>
+
+<div class="note">
+<strong>列主序（Column-Major）规则：</strong>CuTe 的所有多维展开默认按列主序，即低维（shape 左侧）先变化。这与 Fortran/BLAS 一致，但与 C 数组（行主序）相反。理解这一点是 CuTe 坐标系的核心。
+</div>
+
+<h2>静态 vs 动态整数性能对比</h2>
+<div class="row">
+  <div class="card">
+    <div class="card-title">静态整数 Int&lt;N&gt;</div>
+    <div class="code-wrap" style="margin:0">
+<pre><span class="cm">// stride 在编译期已知</span>
+Layout&lt;Shape&lt;_4,_8&gt;,Stride&lt;_8,_1&gt;&gt; layout;
+<span class="cm">// PTX: shl.b32 %r1, %r0, 3  (无乘法)</span>
+<span class="cm">// 循环可完全 unroll</span>
+<span class="cm">// 内存占用：0 字节（空结构体）</span></pre>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">动态整数 int</div>
+    <div class="code-wrap" style="margin:0">
+<pre><span class="cm">// stride 运行时才知道</span>
+<span class="kw">auto</span> layout = make_layout(
+    make_shape(<span class="nm">4</span>, <span class="nm">8</span>),   <span class="cm">// 动态</span>
+    make_stride(<span class="nm">8</span>, <span class="nm">1</span>)  <span class="cm">// 动态</span>
+);
+<span class="cm">// PTX: mul.lo.s32 %r1, %r0, %stride</span>
+<span class="cm">// 内存占用：每个动态值 4 字节</span></pre>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ████████████████ CUTE TENSOR ████████████████ -->
+<div class="sec" id="sec-cute-tensor">
+<h1>CuTe Tensor 抽象</h1>
+<p class="lead">Tensor = <strong>Engine</strong>（数据指针/存储后端）+ <strong>Layout</strong>（形状和步长）。它是 CuTe 所有计算的载体，能透明地表示 Global Memory、Shared Memory、寄存器等不同存储层。</p>
+
+<div class="row">
+  <div class="card card-acc"><div class="card-title">Global Memory Tensor</div><p>指向 HBM/DRAM，通过 TMA 或 ldg 访问。Layout 描述全局矩阵的行列结构。</p></div>
+  <div class="card card-pur"><div class="card-title">Shared Memory Tensor</div><p>指向 SMEM，Layout 通常带有 Swizzle 以消除 Bank 冲突。用于 MMA 的 operand staging。</p></div>
+  <div class="card card-grn"><div class="card-title">Register Tensor</div><p>存储在寄存器文件中，通过 <code>make_fragment_like</code> 或 MMA 的 partition 创建。零地址开销。</p></div>
+</div>
+
+<h2>Tensor 的创建与使用</h2>
+<div class="code-wrap">
+<span class="code-label">tensor_creation.cu</span>
+<pre><span class="pp">#include &lt;cute/tensor.hpp&gt;
+</span><span class="kw">using namespace</span> cute;
+
+<span class="cm">// ─── Global Memory Tensor ──────────────────────────────────────</span>
+<span class="kw">float</span>* ptr_A = <span class="cm">/*...*/</span>;
+<span class="kw">int</span> M = <span class="nm">4096</span>, K = <span class="nm">2048</span>;
+
+<span class="cm">// 动态 shape，行主序</span>
+<span class="kw">auto</span> gA = make_tensor(ptr_A,
+    make_layout(make_shape(M, K), make_stride(K, <span class="nm">1</span>)));
+
+<span class="cm">// 静态 shape（编译期已知）</span>
+<span class="kw">auto</span> gA_static = make_tensor(ptr_A,
+    make_layout(make_shape(Int&lt;<span class="nm">4096</span>&gt;{}, Int&lt;<span class="nm">2048</span>&gt;{})));
+
+<span class="cm">// ─── Shared Memory Tensor ──────────────────────────────────────</span>
+<span class="kw">extern</span> __shared__ <span class="ty">half_t</span> smem_buf[];
+
+<span class="cm">// 带 Swizzle 的 smem layout</span>
+<span class="kw">using</span> SmemLayout = decltype(composition(
+    Swizzle&lt;<span class="nm">3</span>,<span class="nm">4</span>,<span class="nm">3</span>&gt;{},
+    Layout&lt;Shape&lt;_128,_64&gt;, Stride&lt;_64,_1&gt;&gt;{}
+));
+<span class="kw">auto</span> sA = make_tensor(make_smem_ptr(smem_buf), SmemLayout{});
+
+<span class="cm">// ─── Register Tensor ───────────────────────────────────────────</span>
+<span class="kw">auto</span> rC = make_tensor&lt;<span class="ty">float</span>&gt;(make_shape(_16{}, _8{}));  <span class="cm">// 寄存器分配</span>
+<span class="cm">// 等价：auto rC = make_fragment_like&lt;float&gt;(shape);</span>
+
+<span class="cm">// ─── Tensor 切片与 local_tile ──────────────────────────────────</span>
+<span class="cm">// 从全局矩阵切出 block 负责的 tile</span>
+<span class="kw">auto</span> gA_blk = local_tile(gA,
+    make_shape(Int&lt;<span class="nm">128</span>&gt;{}, Int&lt;<span class="nm">64</span>&gt;{}),   <span class="cm">// tile shape</span>
+    make_coord(blockIdx.x, _0{}));         <span class="cm">// block 坐标，K 方向从 0 开始</span>
+<span class="cm">// 返回 shape = (128, 64, K/64)，第三维是 K-tile 迭代轴</span>
+
+<span class="cm">// ─── 按线程/Warp 分区 ─────────────────────────────────────────</span>
+<span class="cm">// 用 TiledMMA 分区（决定每个 thread 负责哪些元素）</span>
+TiledMma tiled_mma;
+<span class="kw">auto</span> [tCsA, tCsB, tCrC] = tiled_mma.partition_fragment_C(sA, sB);
+</pre>
+</div>
+
+<h2>数据流：Global → Shared → Register</h2>
+<div id="tensor-flow-diagram"></div>
+
+<div class="note">
+<strong>make_smem_ptr vs 普通指针：</strong><code>make_smem_ptr</code> 返回一个带有 shared memory 语义标记的包装指针，让 CuTe 知道这块内存需要通过 smem 地址空间访问，在生成 PTX 时使用 <code>.shared</code> 地址空间修饰符。
+</div>
+</div>
+
+<!-- ████████████████ CUTE MMA ████████████████ -->
+<div class="sec" id="sec-cute-mma">
+<h1>TiledMMA — 矩阵乘法抽象</h1>
+<p class="lead">TiledMMA 将单个 MMA atom（如 <code>SM80_16x8x8_F32F16F16F32_TN</code>）在 Warp/Thread 层级铺展，描述整个 Warpgroup 如何协作完成一个大 tile 的矩阵乘法。</p>
+
+<div class="row">
+  <div class="card card-acc">
+    <div class="card-title">MMA Atom</div>
+    <p>硬件 MMA 指令的最小执行单元，例如：</p>
+    <ul style="color:var(--fg2);margin-left:16px;font-size:13px">
+      <li><code>SM80_16x8x8_F32F16F16F32_TN</code> — A100</li>
+      <li><code>SM90_64x128x16_F32BF16BF16_SS</code> — H100 WGMMA</li>
+      <li><code>SM100_64x128x32_S32S8S8_SS</code> — B200 UMMA</li>
+    </ul>
+  </div>
+  <div class="card card-pur">
+    <div class="card-title">Tiling Layout</div>
+    <p>控制 Atom 在 M/N/K 方向如何重复铺展，决定每个 Warp 或 Warpgroup 覆盖的总矩阵大小。</p>
+  </div>
+  <div class="card card-grn">
+    <div class="card-title">Value Layout</div>
+    <p>控制每次 MMA 操作中每个线程拥有多少个 A/B/C 的分量（values）。</p>
+  </div>
+</div>
+
+<h2>TiledMMA 的完整使用</h2>
+<div class="code-wrap">
+<span class="code-label">tiled_mma_usage.cu</span>
+<pre><span class="pp">#include &lt;cute/atom/mma_atom.hpp&gt;
+</span><span class="kw">using namespace</span> cute;
+
+<span class="cm">// ─── 定义 TiledMMA（Ampere SM80 为例）──────────────────────────</span>
+<span class="kw">using</span> MmaAtom = MMA_Atom&lt;SM80_16x8x8_F32F16F16F32_TN&gt;;
+
+<span class="kw">using</span> TiledMma = TiledMMA&lt;
+    MmaAtom,
+    Layout&lt;Shape&lt;_2,_2,_1&gt;&gt;,   <span class="cm">// AtomLayoutMNK：Atom 在 MNK 方向的重复次数</span>
+    Layout&lt;Shape&lt;_1,_2,_1&gt;&gt;    <span class="cm">// ValLayoutMNK：每个线程的 value 铺展</span>
+&gt;;
+<span class="cm">// 总 shape：M=32, N=16, K=8（每 warp 处理）</span>
+
+<span class="cm">// ─── partition：把 smem tensor 分配给当前 thread ───────────────</span>
+TiledMma tiled_mma;
+<span class="kw">auto</span> thr_mma = tiled_mma.get_slice(threadIdx.x);
+
+<span class="cm">// 把 smem tile 切成当前 thread 负责的部分</span>
+<span class="kw">auto</span> tCsA = thr_mma.partition_A(sA);   <span class="cm">// shape: (MMA_M, MMA_K, num_k_tiles)</span>
+<span class="kw">auto</span> tCsB = thr_mma.partition_B(sB);   <span class="cm">// shape: (MMA_N, MMA_K, num_k_tiles)</span>
+
+<span class="cm">// 分配累加寄存器</span>
+<span class="kw">auto</span> tCrC = thr_mma.partition_fragment_C(sA(_, _, <span class="nm">0</span>));  <span class="cm">// shape: (MMA_M, MMA_N)</span>
+clear(tCrC);  <span class="cm">// 清零</span>
+
+<span class="cm">// ─── 分配 A/B 寄存器缓存（从 smem 拷贝后存放）──────────────────</span>
+<span class="kw">auto</span> tCrA = make_fragment_like(tCsA(_, _, <span class="nm">0</span>));  <span class="cm">// shape: (MMA_M, MMA_K)</span>
+<span class="kw">auto</span> tCrB = make_fragment_like(tCsB(_, _, <span class="nm">0</span>));  <span class="cm">// shape: (MMA_N, MMA_K)</span>
+
+<span class="cm">// ─── 主循环：依次累加 K tiles ──────────────────────────────────</span>
+<span class="kw">for</span> (<span class="kw">int</span> k = <span class="nm">0</span>; k &lt; size&lt;<span class="nm">2</span>&gt;(tCsA); ++k) {
+    copy(tCsA(_, _, k), tCrA);   <span class="cm">// smem → reg（带 lds 指令）</span>
+    copy(tCsB(_, _, k), tCrB);
+    gemm(tiled_mma, tCrA, tCrB, tCrC);  <span class="cm">// 执行 MMA 指令</span>
+}</pre>
+</div>
+
+<h2>常用 MMA Atom 速查</h2>
+<table>
+  <tr><th>Atom 名称</th><th>架构</th><th>形状 (M×N×K)</th><th>数据类型</th><th>备注</th></tr>
+  <tr><td><code>SM80_16x8x8_F32F16F16F32_TN</code></td><td>A100</td><td>16×8×8</td><td>F16→F32</td><td>标准 wmma</td></tr>
+  <tr><td><code>SM80_16x8x16_F32F16F16F32_TN</code></td><td>A100</td><td>16×8×16</td><td>F16→F32</td><td>更宽 K</td></tr>
+  <tr><td><code>SM80_16x8x16_F16F16F16F16_TN</code></td><td>A100</td><td>16×8×16</td><td>F16→F16</td><td>半精度累加</td></tr>
+  <tr><td><code>SM90_64x64x16_F32BF16BF16_SS</code></td><td>H100</td><td>64×64×16</td><td>BF16→F32</td><td>WGMMA smem</td></tr>
+  <tr><td><code>SM90_64x128x16_F32BF16BF16_SS</code></td><td>H100</td><td>64×128×16</td><td>BF16→F32</td><td>WGMMA 宽N</td></tr>
+  <tr><td><code>SM90_64x256x16_F32BF16BF16_SS</code></td><td>H100</td><td>64×256×16</td><td>BF16→F32</td><td>超宽N</td></tr>
+  <tr><td><code>SM90_64x128x32_S32S8S8_SS</code></td><td>H100</td><td>64×128×32</td><td>INT8→INT32</td><td>量化推理</td></tr>
+  <tr><td><code>SM100_64x128x32_S32S8S8_SS</code></td><td>B200</td><td>64×128×32</td><td>INT8→INT32</td><td>UMMA</td></tr>
+  <tr><td><code>SM100_64x256x16_F32BF16BF16_SS</code></td><td>B200</td><td>64×256×16</td><td>BF16→F32</td><td>UMMA 更大N</td></tr>
+</table>
+</div>
+
+<!-- ████████████████ CUTE COPY ████████████████ -->
+<div class="sec" id="sec-cute-copy">
+<h1>TiledCopy — 数据搬运抽象</h1>
+<p class="lead">TiledCopy 将单个 Copy Atom（如 <code>SM80_CP_ASYNC_CACHEGLOBAL</code>）在线程层级铺展，描述一个 Warp/Block 如何高效地将数据从 Global Memory 搬到 Shared Memory（或反向）。</p>
+
+<div class="row">
+  <div class="card card-acc"><div class="card-title">Copy Atom</div><p>单个线程的最小复制操作。可以是普通 ld/st、cp.async、TMA 等。</p></div>
+  <div class="card card-grn"><div class="card-title">Vectorized Copy</div><p>通过 <code>SM80_CP_ASYNC_CACHEGLOBAL&lt;cute::uint128_t&gt;</code> 实现 128-bit 向量化异步拷贝，填满内存带宽。</p></div>
+  <div class="card card-cya"><div class="card-title">TMA Copy</div><p>H100 的 TMA（Tensor Memory Accelerator）：单线程触发，硬件自动完成整个 tile 的搬运，支持 Swizzle descriptor。</p></div>
+</div>
+
+<h2>cp.async 异步拷贝（A100/H100 均支持）</h2>
+<div class="code-wrap">
+<span class="code-label">cp_async_copy.cu</span>
+<pre><span class="kw">using namespace</span> cute;
+
+<span class="cm">// ─── 定义 Copy Atom：128-bit 异步 Global→Shared ────────────────</span>
+<span class="kw">using</span> CopyAtom = Copy_Atom&lt;SM80_CP_ASYNC_CACHEGLOBAL&lt;cute::uint128_t&gt;, <span class="ty">half_t</span>&gt;;
+
+<span class="kw">using</span> TiledCopyA = decltype(make_tiled_copy(
+    CopyAtom{},
+    Layout&lt;Shape&lt;_32,_4&gt;, Stride&lt;_4,_1&gt;&gt;{},  <span class="cm">// ThreadLayout: 32×4 线程</span>
+    Layout&lt;Shape&lt;_1,_8&gt;&gt;{}                    <span class="cm">// ValLayout: 每线程 8 个 half_t = 128 bit</span>
+));
+<span class="cm">// 每次 copy：32×4=128 个线程，各搬 8 个 half = 32×32 个 half = 2KB/cycle</span>
+
+TiledCopyA tiled_copy_a;
+<span class="kw">auto</span> thr_copy_a = tiled_copy_a.get_slice(threadIdx.x);
+
+<span class="cm">// partition：把 global/smem tensor 分配给当前 thread</span>
+<span class="kw">auto</span> tAgA = thr_copy_a.partition_S(gA);  <span class="cm">// Global source，shape: (CPY, CPY_M, CPY_K, k_tiles)</span>
+<span class="kw">auto</span> tAsA = thr_copy_a.partition_D(sA);  <span class="cm">// Smem dest，shape: (CPY, CPY_M, CPY_K)</span>
+
+<span class="cm">// 执行异步拷贝（非阻塞）</span>
+copy(tiled_copy_a, tAgA(_, _, _, k), tAsA);
+
+<span class="cm">// 等待所有 cp.async 完成</span>
+cp_async_fence();       <span class="cm">// 插入 fence</span>
+cp_async_wait&lt;<span class="nm">0</span>&gt;();    <span class="cm">// 等待所有未完成的 cp.async</span>
+__syncthreads();        <span class="cm">// 确保 smem 可见</span></pre>
+</div>
+
+<h2>TMA Copy（Hopper H100 专属，推荐）</h2>
+<div class="code-wrap">
+<span class="code-label">tma_copy.cu</span>
+<pre><span class="cm">// ─── Host 端：创建 TMA Descriptor ─────────────────────────────</span>
+<span class="kw">auto</span> tma_load_A = make_tma_copy(
+    SM90_TMA_LOAD{},
+    tensor_A,                         <span class="cm">// global tensor</span>
+    SmemLayoutA{},                    <span class="cm">// smem layout（含 swizzle）</span>
+    make_shape(Int&lt;<span class="nm">128</span>&gt;{}, Int&lt;<span class="nm">64</span>&gt;{}),   <span class="cm">// tile shape</span>
+    Int&lt;<span class="nm">1</span>&gt;{}                          <span class="cm">// multicast（默认 1）</span>
+);
+<span class="cm">// tma_load_A 作为 kernel 参数传入</span>
+
+<span class="cm">// ─── Device 端：触发 TMA Load ──────────────────────────────────</span>
+<span class="kw">__global__</span> <span class="kw">void</span> <span class="fn">kernel</span>(<span class="kw">auto</span> tma_load_A, <span class="kw">auto</span> tma_load_B) {
+    <span class="cm">// 只需一个线程（elected thread）触发 TMA</span>
+    <span class="ty">uint64_t</span>* mbar_ptr = <span class="cm">/*...*/</span>;  <span class="cm">// mbarrier 地址</span>
+
+    <span class="kw">if</span> (elect_one_sync()) {
+        <span class="cm">// 计算 global 坐标（block tile 位置）</span>
+        <span class="kw">auto</span> blk_coord = make_coord(blockIdx.x, blockIdx.y, _0{});
+
+        <span class="cm">// 触发 TMA：自动搬运整个 tile，支持 swizzle</span>
+        copy(tma_load_A, tma_coord_A, sA, mbar_ptr);
+    }
+
+    <span class="cm">// 等待 mbarrier 完成</span>
+    mbarrier_wait(mbar_ptr, phase);
+    <span class="cm">// 此后 sA 中数据已就绪</span>
+}</pre>
+</div>
+
+<div class="note warn">
+<strong>TMA vs cp.async 选择：</strong>H100/B200 内核推荐优先使用 TMA，因为 TMA 卸载了地址计算和搬运逻辑到硬件，释放计算单元用于 WGMMA，是实现最高 TFLOPS 的关键。cp.async 仍可用于 A100 或不需要 TMA 描述符的场景。
+</div>
+</div>
+
+<!-- ████████████████ CUTE SWIZZLE ████████████████ -->
+<div class="sec" id="sec-cute-swizzle">
+<h1>Swizzle — 消除 Bank 冲突</h1>
+<p class="lead">Swizzle 通过对内存地址的部分 bit 做 XOR，使不同行的相同列元素落在不同的 SRAM Bank，彻底消除 Shared Memory 的 Bank 冲突，是 GEMM 内核达到峰值带宽的必要条件。</p>
+
+<div id="swizzle-interactive"></div>
+
+<h2>Swizzle&lt;B, M, S&gt; 参数速查</h2>
+<table>
+  <tr><th>参数</th><th>含义</th><th>影响</th></tr>
+  <tr><td><code>B</code> (Bits)</td><td>参与 XOR 的 bit 数</td><td>Swizzle 周期 = 2<sup>B</sup> 行（通常 B=3，周期=8）</td></tr>
+  <tr><td><code>M</code> (Min)</td><td>XOR 目标 bit 的起始位</td><td>操作粒度 = 2<sup>M</sup> 字节（M=4→16B，M=3→8B）</td></tr>
+  <tr><td><code>S</code> (Shift)</td><td>源到目标的 bit 距离</td><td>关联矩阵行宽，行宽须 ≥ 2<sup>M+S</sup> 字节</td></tr>
+</table>
+
+<h2>常用 Swizzle 配置</h2>
+<div class="code-wrap">
+<span class="code-label">swizzle_configs.cu</span>
+<pre><span class="kw">using namespace</span> cute;
+
+<span class="cm">// ─── Sw&lt;3,4,3&gt;：128-Byte 粒度，H100 TMA 标配 ────────────────────</span>
+<span class="cm">// 适合：float16/bfloat16 矩阵，K≥128 列，LDG.128 / TMA</span>
+<span class="kw">using</span> Sw343 = Swizzle&lt;<span class="nm">3</span>,<span class="nm">4</span>,<span class="nm">3</span>&gt;;
+<span class="kw">using</span> SmemLayoutA_343 = decltype(composition(
+    Sw343{},
+    Layout&lt;Shape&lt;_128,_64&gt;, Stride&lt;_64,_1&gt;&gt;{}
+));
+
+<span class="cm">// ─── Sw&lt;3,3,3&gt;：64-Byte 粒度，A100 / 较窄矩阵 ──────────────────</span>
+<span class="cm">// 适合：float16，K=64 列，LDG.64</span>
+<span class="kw">using</span> Sw333 = Swizzle&lt;<span class="nm">3</span>,<span class="nm">3</span>,<span class="nm">3</span>&gt;;
+<span class="kw">using</span> SmemLayoutA_333 = decltype(composition(
+    Sw333{},
+    Layout&lt;Shape&lt;_64,_32&gt;, Stride&lt;_32,_1&gt;&gt;{}
+));
+
+<span class="cm">// ─── tile_to_shape：将 SwizzleAtom 铺展到完整 tile ──────────────</span>
+<span class="kw">using</span> SmemLayoutAtomA = SmemLayoutA_343;
+<span class="kw">using</span> SmemLayoutA = decltype(tile_to_shape(
+    SmemLayoutAtomA{},
+    Shape&lt;Int&lt;<span class="nm">128</span>&gt;, Int&lt;<span class="nm">128</span>&gt;&gt;{}   <span class="cm">// 完整 smem tile 大小</span>
+));
+
+<span class="cm">// ─── 验证：检查第0列的 bank 分配 ─────────────────────────────────</span>
+<span class="kw">auto</span> layout = SmemLayoutA{};
+<span class="kw">for</span> (<span class="kw">int</span> r = <span class="nm">0</span>; r &lt; <span class="nm">8</span>; ++r) {
+    <span class="kw">int</span> offset = layout(r, <span class="nm">0</span>);
+    <span class="kw">int</span> bank = (offset * <span class="kw">sizeof</span>(<span class="ty">half_t</span>) / <span class="nm">4</span>) % <span class="nm">32</span>;
+    printf(<span class="st">"row=%d bank=%d\n"</span>, r, bank);  <span class="cm">// 各行应不同</span>
+}</pre>
+</div>
+</div>
+
+<!-- ████████████████ HOPPER ARCH ████████████████ -->
+<div class="sec" id="sec-hopper-arch">
+<h1>Hopper SM90 — 架构总览</h1>
+<p class="lead">H100 (SM90) 是 NVIDIA 2022 年推出的数据中心 GPU，引入了 <strong>TMA、WGMMA、Thread Block Cluster</strong> 三大硬件创新，使 A100 到 H100 实现了 ~3× 的 GEMM 性能提升。</p>
+
+<div id="hopper-arch-diagram"></div>
+
+<div class="row">
+  <div class="card card-acc">
+    <div class="card-title">TMA — 张量内存加速器</div>
+    <p>专用硬件单元，负责在 Global↔Shared Memory 间异步搬运整个 tensor tile，支持多维地址生成、Swizzle 和 Multicast，将地址计算完全卸载到硬件。</p>
+    <div class="tag-row"><span class="badge badge-acc">异步</span><span class="badge badge-acc">免地址计算</span><span class="badge badge-acc">Swizzle aware</span></div>
+  </div>
+  <div class="card card-pur">
+    <div class="card-title">WGMMA — Warpgroup MMA</div>
+    <p>4个 Warp（128线程）作为 Warpgroup 协同执行 MMA。直接从 Shared Memory 读取 operand，无需先 load 到寄存器，大幅减少寄存器压力。</p>
+    <div class="tag-row"><span class="badge badge-pur">128线程</span><span class="badge badge-pur">smem直读</span><span class="badge badge-pur">超低寄存器</span></div>
+  </div>
+  <div class="card card-grn">
+    <div class="card-title">Thread Block Cluster</div>
+    <p>最多 8 个 Thread Block 组成 Cluster，共享同一 GPC 内的资源，可通过 Distributed Shared Memory (DSM) 访问相邻 Block 的 smem，实现 Block 间通信。</p>
+    <div class="tag-row"><span class="badge badge-grn">最多8 Block</span><span class="badge badge-grn">DSM</span><span class="badge badge-grn">TMA Multicast</span></div>
+  </div>
+</div>
+
+<h2>H100 关键规格</h2>
+<table>
+  <tr><th>参数</th><th>H100 SXM5</th><th>对比 A100</th></tr>
+  <tr><td>SM 数量</td><td>132</td><td>108</td></tr>
+  <tr><td>BF16 TFLOPS (稀疏)</td><td>3958</td><td>624</td></tr>
+  <tr><td>HBM3 带宽</td><td>3.35 TB/s</td><td>2 TB/s</td></tr>
+  <tr><td>L2 Cache</td><td>50 MB</td><td>40 MB</td></tr>
+  <tr><td>Shared Memory / SM</td><td>228 KB</td><td>164 KB</td></tr>
+  <tr><td>Register File / SM</td><td>65536 × 32bit</td><td>65536 × 32bit</td></tr>
+  <tr><td>WGMMA</td><td><span class="badge badge-grn">✓ 支持</span></td><td>✗ 不支持</td></tr>
+  <tr><td>TMA</td><td><span class="badge badge-grn">✓ 支持</span></td><td>✗ 不支持</td></tr>
+  <tr><td>Thread Block Cluster</td><td><span class="badge badge-grn">✓ 支持</span></td><td>✗ 不支持</td></tr>
+</table>
+
+<h2>SM90 内部结构</h2>
+<div class="card">
+  <p>每个 SM 包含 4 个 Warp Scheduler，128 KB L1 Cache（可配置为 Shared Memory），以及 4 个 Tensor Core 单元。WGMMA 将 4 个 Warp 绑定为一个 Warpgroup 协同使用 Tensor Core。</p>
+  <div id="sm90-structure"></div>
+</div>
+</div>
+
+<!-- ████████████████ HOPPER TMA ████████████████ -->
+<div class="sec" id="sec-hopper-tma">
+<h1>TMA — 张量内存加速器</h1>
+<p class="lead">TMA (Tensor Memory Accelerator) 是 H100 中最重要的硬件创新之一。它将 Global→Shared Memory 的数据搬运完全硬件化，支持最多 5 维张量的地址自动生成。</p>
+
+<div class="row">
+  <div class="card card-acc"><div class="card-title">传统 cp.async 的问题</div><p>每个线程需要计算自己负责的地址，消耗大量 ALU 周期和寄存器。128线程每人算一次地址 → 大量重复计算。</p></div>
+  <div class="card card-grn"><div class="card-title">TMA 的解决方案</div><p><strong>一个线程</strong>触发 TMA descriptor，硬件自动完成整个 tile 的地址生成和搬运，其余线程可以继续计算（或等待 mbarrier）。</p></div>
+</div>
+
+<h2>TMA Descriptor 的组成</h2>
+<div id="tma-descriptor-diagram"></div>
+
+<h2>完整 TMA 使用流程（Host + Device）</h2>
+<div class="code-wrap">
+<span class="code-label">tma_full_example.cu</span>
+<pre><span class="pp">#include &lt;cute/arch/copy_sm90_tma.hpp&gt;
+#include &lt;cute/tensor.hpp&gt;
+</span><span class="kw">using namespace</span> cute;
+
+<span class="cm">// ════════════ HOST SIDE ════════════════════════════════════════</span>
+<span class="kw">void</span> <span class="fn">launch_kernel</span>(<span class="ty">half_t</span>* A, <span class="ty">half_t</span>* B, <span class="ty">float</span>* C,
+                   <span class="kw">int</span> M, <span class="kw">int</span> N, <span class="kw">int</span> K) {
+    <span class="cm">// 1. 创建 global tensor</span>
+    <span class="kw">auto</span> tensor_A = make_tensor(A,
+        make_layout(make_shape(M, K), make_stride(K, <span class="nm">1</span>)));
+
+    <span class="cm">// 2. 定义 smem layout（带 Swizzle）</span>
+    <span class="kw">using</span> SmemLayoutA = decltype(composition(
+        Swizzle&lt;<span class="nm">3</span>,<span class="nm">4</span>,<span class="nm">3</span>&gt;{},
+        Layout&lt;Shape&lt;_128,_64&gt;,Stride&lt;_64,_1&gt;&gt;{}));
+
+    <span class="cm">// 3. 创建 TMA descriptor（host 端）</span>
+    <span class="kw">auto</span> tma_load_A = make_tma_copy(
+        SM90_TMA_LOAD{},
+        tensor_A,           <span class="cm">// global tensor</span>
+        SmemLayoutA{},      <span class="cm">// smem layout（决定 descriptor 中的 swizzle）</span>
+        make_shape(Int&lt;<span class="nm">128</span>&gt;{}, Int&lt;<span class="nm">64</span>&gt;{}),  <span class="cm">// tile shape</span>
+        Int&lt;<span class="nm">1</span>&gt;{}           <span class="cm">// multicast factor</span>
+    );
+
+    <span class="cm">// 4. 启动 kernel（TMA descriptor 作为参数）</span>
+    dim3 grid(N/<span class="nm">128</span>, M/<span class="nm">128</span>);
+    dim3 block(<span class="nm">128</span>);   <span class="cm">// 1 Warpgroup</span>
+    <span class="fn">gemm_kernel</span>&lt;&lt;&lt;grid, block&gt;&gt;&gt;(tma_load_A, <span class="cm">/*...*/</span>);
+}
+
+<span class="cm">// ════════════ DEVICE SIDE ══════════════════════════════════════</span>
+<span class="kw">__global__</span> <span class="kw">void</span> <span class="fn">gemm_kernel</span>(<span class="kw">auto</span> tma_load_A, <span class="kw">auto</span> tma_load_B,
+                              <span class="ty">float</span>* C) {
+    <span class="cm">// 分配 smem（使用 CuTe 的 smem descriptor）</span>
+    <span class="kw">extern</span> __shared__ <span class="ty">half_t</span> smem[];
+    <span class="kw">auto</span> sA = make_tensor(make_smem_ptr(smem), SmemLayoutA{});
+
+    <span class="cm">// ── mbarrier 初始化 ─────────────────────────────────────</span>
+    <span class="kw">__shared__</span> <span class="ty">uint64_t</span> mbar;
+    <span class="kw">if</span> (threadIdx.x == <span class="nm">0</span>) {
+        cute::mbarrier_init(&amp;mbar, <span class="nm">1</span>);  <span class="cm">// expect 1 TMA transaction</span>
+    }
+    __syncthreads();
+
+    <span class="cm">// ── 触发 TMA Load ───────────────────────────────────────</span>
+    <span class="kw">if</span> (threadIdx.x == <span class="nm">0</span>) {
+        <span class="kw">auto</span> blk_coord = make_coord(blockIdx.x * <span class="nm">128</span>, _0{});
+        cute::copy(tma_load_A.with(mbar), blk_coord, sA);
+    }
+
+    <span class="cm">// ── 等待 mbarrier ───────────────────────────────────────</span>
+    cute::mbarrier_wait(&amp;mbar, <span class="nm">0</span> <span class="cm">/*phase*/</span>);
+
+    <span class="cm">// ── 此后 sA 数据就绪，开始 WGMMA ───────────────────────</span>
+    <span class="cm">// ... wgmma code ...</span>
+}</pre>
+</div>
+
+<h2>TMA Multicast（Cluster 场景）</h2>
+<div class="code-wrap">
+<span class="code-label">tma_multicast.cu</span>
+<pre><span class="cm">// Cluster 内多个 Block 共享同一份数据：TMA Multicast
+// 只有 1 个 Block 发起 TMA，其余 Block 直接通过 DSM 访问</span>
+
+<span class="kw">auto</span> tma_load_A_multicast = make_tma_copy(
+    SM90_TMA_LOAD_MULTICAST{},
+    tensor_A, SmemLayoutA{},
+    make_shape(Int&lt;<span class="nm">128</span>&gt;{}, Int&lt;<span class="nm">64</span>&gt;{}),
+    Int&lt;<span class="nm">2</span>&gt;{}   <span class="cm">// multicast to 2 blocks in cluster</span>
+);
+
+<span class="cm">// Device 端：只有 Block 0 触发，两个 Block 都收到数据</span>
+<span class="kw">if</span> (threadIdx.x == <span class="nm">0</span> &amp;&amp; block_rank_in_cluster() == <span class="nm">0</span>) {
+    cute::copy(tma_load_A_multicast.with(mbar, cluster_mask),
+               blk_coord, sA);
+}</pre>
+</div>
+</div>
+
+<!-- ████████████████ HOPPER WGMMA ████████████████ -->
+<div class="sec" id="sec-hopper-wgmma">
+<h1>WGMMA — Warpgroup MMA</h1>
+<p class="lead">WGMMA (Warpgroup Matrix Multiply-Accumulate) 是 H100 的核心计算指令。与 A100 的 HMMA 相比，WGMMA 让 128 个线程（4个Warp）作为整体执行 MMA，<strong>A/B operand 直接从 Shared Memory 读取</strong>，无需先 load 到寄存器，大幅减少寄存器压力和 smem→reg 的数据移动开销。</p>
+
+<div class="row">
+  <div class="card card-red">
+    <div class="card-title">A100 HMMA（旧方式）</div>
+    <div style="font-size:12px;color:var(--fg2)">
+      <div style="margin:4px 0">① 每个线程从 smem load A/B 到寄存器</div>
+      <div style="margin:4px 0">② 执行 MMA（reg × reg → reg）</div>
+      <div style="margin:4px 0">③ 累加到 C 寄存器</div>
+    </div>
+    <p style="margin-top:8px">寄存器压力大，smem→reg 带宽是瓶颈</p>
+  </div>
+  <div class="card card-grn">
+    <div class="card-title">H100 WGMMA（新方式）</div>
+    <div style="font-size:12px;color:var(--fg2)">
+      <div style="margin:4px 0">① 设置 smem descriptor（指向 A/B）</div>
+      <div style="margin:4px 0">② wgmma.mma_async（smem → reg 累加）</div>
+      <div style="margin:4px 0">③ wgmma.commit_group / wait_group</div>
+    </div>
+    <p style="margin-top:8px">A/B 直读 smem，C 在寄存器累加，效率最高</p>
+  </div>
+</div>
+
+<h2>WGMMA 指令与同步语义</h2>
+<div class="code-wrap">
+<span class="code-label">wgmma_detail.cu</span>
+<pre><span class="pp">#include &lt;cute/arch/mma_sm90.hpp&gt;
+</span><span class="kw">using namespace</span> cute;
+
+<span class="cm">// ─── 定义 WGMMA TiledMMA ───────────────────────────────────────</span>
+<span class="kw">using</span> TiledMma = TiledMMA&lt;
+    MMA_Atom&lt;SM90_64x128x16_F32BF16BF16_SS&lt;GMMA::Major::K&gt;&gt;&gt;,
+    Layout&lt;Shape&lt;_2,_2,_1&gt;&gt;,   <span class="cm">// 2×2 Atoms → 128×256×16 per WG</span>
+    Tile&lt;_128, _256, _16&gt;
+&gt;;
+
+<span class="cm">// ─── Device 端使用 ─────────────────────────────────────────────</span>
+TiledMma tiled_mma;
+<span class="kw">auto</span> thr_mma = tiled_mma.get_slice(threadIdx.x);
+
+<span class="kw">auto</span> tCsA = thr_mma.partition_A(sA);  <span class="cm">// smem partition</span>
+<span class="kw">auto</span> tCsB = thr_mma.partition_B(sB);
+<span class="kw">auto</span> tCrC = thr_mma.partition_fragment_C(rC_layout);  <span class="cm">// reg accumulator</span>
+clear(tCrC);
+
+<span class="cm">// ─── WGMMA 执行流程 ────────────────────────────────────────────</span>
+<span class="kw">for</span> (<span class="kw">int</span> k_tile = <span class="nm">0</span>; k_tile &lt; num_k_tiles; ++k_tile) {
+    <span class="cm">// 步骤1：fence（确保 smem 写入对 MMA 可见）</span>
+    cute::warpgroup_fence_operand(tCrC);
+
+    <span class="cm">// 步骤2：WGMMA 指令组（异步执行）</span>
+    cute::warpgroup_arrive();
+    gemm(tiled_mma, tCsA(_, _, k_tile), tCsB(_, _, k_tile), tCrC);
+    cute::warpgroup_commit_batch();
+
+    <span class="cm">// 步骤3：等待当前 batch 完成</span>
+    cute::warpgroup_wait&lt;<span class="nm">0</span>&gt;();  <span class="cm">// 0 = 等待所有未完成的 WGMMA</span>
+    cute::warpgroup_fence_operand(tCrC);
+}
+
+<span class="cm">// ─── 写回 C 到 Global Memory ───────────────────────────────────</span>
+<span class="kw">auto</span> tCgC = thr_mma.partition_C(gC);
+copy(tCrC, tCgC);  <span class="cm">// reg → global（自动向量化）</span></pre>
+</div>
+
+<h2>WGMMA 寄存器布局（D matrix fragment）</h2>
+<div id="wgmma-reg-layout"></div>
+
+<div class="note">
+<strong>warpgroup_wait&lt;N&gt; 的语义：</strong>等待 pipeline 中最多 N 个未完成的 WGMMA batch。<code>wait&lt;0&gt;</code> 等待全部，<code>wait&lt;1&gt;</code> 允许 1 个 batch 在飞（用于 Ping-Pong）。这是流水线优化的关键旋钮。
+</div>
+</div>
+
+<!-- ████████████████ HOPPER PIPELINE ████████████████ -->
+<div class="sec" id="sec-hopper-pipeline">
+<h1>Ping-Pong 流水线</h1>
+<p class="lead">H100 GEMM 的最高性能来自 <strong>TMA 搬运与 WGMMA 计算的完全重叠</strong>。Ping-Pong 方案使用双缓冲（或多缓冲），使得"搬下一个 K-tile"和"计算当前 K-tile"同时进行。</p>
+
+<div id="pipeline-animation"></div>
+
+<h2>Persistent Kernel + Ping-Pong</h2>
+<div class="code-wrap">
+<span class="code-label">pingpong_pipeline.cu</span>
+<pre><span class="cm">// 核心思想：2个 Stage 的 smem 双缓冲
+// Stage 0：TMA load → sA[0], sB[0]；WGMMA 计算 sA[1], sB[1]
+// Stage 1：TMA load → sA[1], sB[1]；WGMMA 计算 sA[0], sB[0]
+// 两组操作完全重叠</span>
+
+<span class="kw">constexpr</span> <span class="kw">int</span> Stages = <span class="nm">2</span>;
+
+<span class="cm">// smem 双缓冲：每个 stage 各一份</span>
+<span class="kw">__shared__</span> <span class="ty">half_t</span> smem_A[Stages][BLK_M * BLK_K];
+<span class="kw">__shared__</span> <span class="ty">half_t</span> smem_B[Stages][BLK_N * BLK_K];
+<span class="kw">__shared__</span> <span class="ty">uint64_t</span> mbar[Stages];
+
+<span class="cm">// 初始化 mbarrier</span>
+<span class="kw">for</span> (<span class="kw">int</span> s = <span class="nm">0</span>; s &lt; Stages; ++s) {
+    <span class="kw">if</span> (threadIdx.x == <span class="nm">0</span>) cute::mbarrier_init(&amp;mbar[s], <span class="nm">1</span>);
+}
+__syncthreads();
+
+<span class="cm">// ── Prologue：预取第0个 K-tile ─────────────────────────────</span>
+<span class="kw">if</span> (threadIdx.x == <span class="nm">0</span>) {
+    copy(tma_A.with(mbar[<span class="nm">0</span>]), coord_A_k0, sA[<span class="nm">0</span>]);
+    copy(tma_B.with(mbar[<span class="nm">0</span>]), coord_B_k0, sB[<span class="nm">0</span>]);
+}
+
+<span class="cm">// ── Main Loop ──────────────────────────────────────────────</span>
+<span class="kw">int</span> phase = <span class="nm">0</span>;
+<span class="kw">for</span> (<span class="kw">int</span> k = <span class="nm">0</span>; k &lt; num_k_tiles; ++k) {
+    <span class="kw">int</span> cur = k % Stages;
+    <span class="kw">int</span> nxt = (k + <span class="nm">1</span>) % Stages;
+
+    <span class="cm">// A：等待当前 stage 的 TMA 完成</span>
+    cute::mbarrier_wait(&amp;mbar[cur], phase);
+
+    <span class="cm">// B：触发下一个 stage 的 TMA（与 WGMMA 重叠）</span>
+    <span class="kw">if</span> (k + <span class="nm">1</span> &lt; num_k_tiles &amp;&amp; threadIdx.x == <span class="nm">0</span>) {
+        cute::mbarrier_arrive_expect_tx(&amp;mbar[nxt], <span class="nm">2</span> * tx_bytes);
+        copy(tma_A.with(mbar[nxt]), coord_A(k+<span class="nm">1</span>), sA[nxt]);
+        copy(tma_B.with(mbar[nxt]), coord_B(k+<span class="nm">1</span>), sB[nxt]);
+    }
+
+    <span class="cm">// C：执行 WGMMA（计算当前 stage，与下一个 TMA 重叠）</span>
+    warpgroup_fence_operand(tCrC);
+    warpgroup_arrive();
+    gemm(tiled_mma, sA[cur], sB[cur], tCrC);
+    warpgroup_commit_batch();
+    warpgroup_wait&lt;<span class="nm">0</span>&gt;();
+    warpgroup_fence_operand(tCrC);
+
+    <span class="kw">if</span> (cur == Stages - <span class="nm">1</span>) phase ^= <span class="nm">1</span>;  <span class="cm">// mbarrier phase flip</span>
+}
+
+<span class="cm">// ── Epilogue：写回结果 ─────────────────────────────────────</span>
+copy(tCrC, tCgC);</pre>
+</div>
+
+<h2>三级流水线（Stage=3，最高利用率）</h2>
+<div class="code-wrap">
+<span class="code-label">3stage_pipeline.cu</span>
+<pre><span class="cm">// Stage=3：允许 warpgroup_wait&lt;1&gt;，WGMMA pipeline depth=2
+// TMA 可以领先 WGMMA 2个 tile，完全隐藏 smem load latency</span>
+
+<span class="kw">constexpr</span> <span class="kw">int</span> Stages = <span class="nm">3</span>;
+
+<span class="cm">// Prologue：预取前 Stages-1 个 K-tile</span>
+<span class="kw">for</span> (<span class="kw">int</span> s = <span class="nm">0</span>; s &lt; min(Stages-<span class="nm">1</span>, num_k_tiles); ++s) {
+    <span class="kw">if</span> (threadIdx.x == <span class="nm">0</span>) {
+        cute::mbarrier_arrive_expect_tx(&amp;mbar[s], tx_bytes);
+        copy(tma_A.with(mbar[s]), coord_A(s), sA[s]);
+        copy(tma_B.with(mbar[s]), coord_B(s), sB[s]);
+    }
+}
+
+<span class="kw">for</span> (<span class="kw">int</span> k = <span class="nm">0</span>; k &lt; num_k_tiles; ++k) {
+    <span class="kw">int</span> cur = k % Stages;
+    <span class="kw">int</span> nxt = (k + Stages - <span class="nm">1</span>) % Stages;
+
+    cute::mbarrier_wait(&amp;mbar[cur], (k / Stages) &amp; <span class="nm">1</span>);
+
+    <span class="kw">if</span> (k + Stages - <span class="nm">1</span> &lt; num_k_tiles &amp;&amp; threadIdx.x == <span class="nm">0</span>) {
+        <span class="kw">int</span> prefetch_k = k + Stages - <span class="nm">1</span>;
+        cute::mbarrier_arrive_expect_tx(&amp;mbar[nxt], tx_bytes);
+        copy(tma_A.with(mbar[nxt]), coord_A(prefetch_k), sA[nxt]);
+        copy(tma_B.with(mbar[nxt]), coord_B(prefetch_k), sB[nxt]);
+    }
+
+    warpgroup_fence_operand(tCrC);
+    warpgroup_arrive();
+    gemm(tiled_mma, sA[cur], sB[cur], tCrC);
+    warpgroup_commit_batch();
+    warpgroup_wait&lt;<span class="nm">1</span>&gt;();  <span class="cm">// 允许1个在飞，进一步重叠</span>
+    warpgroup_fence_operand(tCrC);
+}
+warpgroup_wait&lt;<span class="nm">0</span>&gt;();  <span class="cm">// Epilogue：等待最后的 WGMMA</span></pre>
+</div>
+</div>
+
+<!-- ████████████████ HOPPER GEMM ████████████████ -->
+<div class="sec" id="sec-hopper-gemm">
+<h1>完整 GEMM 实现 (SM90)</h1>
+<p class="lead">将 TMA、WGMMA、Swizzle、Ping-Pong 流水线组合成一个完整的、可编译的 BF16 GEMM kernel。这是 CUTLASS 3.x 的简化版本。</p>
+
+<div class="code-wrap">
+<span class="code-label">hopper_gemm_complete.cu</span>
+<pre><span class="pp">#include &lt;cute/tensor.hpp&gt;
+#include &lt;cute/arch/mma_sm90.hpp&gt;
+#include &lt;cute/arch/copy_sm90_tma.hpp&gt;
+#include &lt;cutlass/arch/barrier.h&gt;
+</span><span class="kw">using namespace</span> cute;
+
+<span class="cm">// ════════════ 编译期配置 ═══════════════════════════════════════</span>
+<span class="kw">using</span> ElementA  = cutlass::bfloat16_t;
+<span class="kw">using</span> ElementB  = cutlass::bfloat16_t;
+<span class="kw">using</span> ElementC  = <span class="ty">float</span>;
+
+<span class="kw">constexpr</span> <span class="kw">int</span> BLK_M = <span class="nm">128</span>, BLK_N = <span class="nm">128</span>, BLK_K = <span class="nm">64</span>;
+<span class="kw">constexpr</span> <span class="kw">int</span> Stages = <span class="nm">3</span>;
+
+<span class="cm">// ── Smem Layout（Swizzle 消除 bank 冲突）────────────────────────</span>
+<span class="kw">using</span> SmemLayoutAtomA = decltype(composition(
+    Swizzle&lt;<span class="nm">3</span>,<span class="nm">4</span>,<span class="nm">3</span>&gt;{},
+    Layout&lt;Shape&lt;_8, _64&gt;, Stride&lt;_64,_1&gt;&gt;{}));
+<span class="kw">using</span> SmemLayoutA = decltype(tile_to_shape(
+    SmemLayoutAtomA{},
+    Shape&lt;Int&lt;BLK_M&gt;, Int&lt;BLK_K&gt;, Int&lt;Stages&gt;&gt;{}));
+
+<span class="kw">using</span> SmemLayoutAtomB = SmemLayoutAtomA;
+<span class="kw">using</span> SmemLayoutB = decltype(tile_to_shape(
+    SmemLayoutAtomB{},
+    Shape&lt;Int&lt;BLK_N&gt;, Int&lt;BLK_K&gt;, Int&lt;Stages&gt;&gt;{}));
+
+<span class="cm">// ── TiledMMA (WGMMA 64x128x16 BF16) ────────────────────────────</span>
+<span class="kw">using</span> TiledMma = TiledMMA&lt;
+    MMA_Atom&lt;SM90_64x128x16_F32BF16BF16_SS&lt;GMMA::Major::K&gt;&gt;&gt;,
+    Layout&lt;Shape&lt;_2,_2,_1&gt;&gt;&gt;;
+<span class="cm">// 每个 WG 处理：128×128×16（2×2 WGMMA atoms）</span>
+
+<span class="cm">// ════════════ KERNEL ════════════════════════════════════════════</span>
+__global__ <span class="kw">void</span> __launch_bounds__(<span class="nm">128</span>, <span class="nm">1</span>)
+<span class="fn">hopper_gemm_kernel</span>(
+    <span class="kw">auto</span> const tma_load_A,   <span class="cm">// TMA descriptor for A</span>
+    <span class="kw">auto</span> const tma_load_B,   <span class="cm">// TMA descriptor for B</span>
+    ElementC* C_ptr,
+    <span class="kw">int</span> M, <span class="kw">int</span> N, <span class="kw">int</span> K)
+{
+    <span class="cm">// ── Smem allocation ─────────────────────────────────────</span>
+    <span class="kw">extern</span> __shared__ <span class="ty">char</span> smem_buf[];
+    ElementA* smem_A = <span class="kw">reinterpret_cast</span>&lt;ElementA*&gt;(smem_buf);
+    ElementB* smem_B = smem_A + BLK_M * BLK_K * Stages;
+
+    <span class="kw">auto</span> sA = make_tensor(make_smem_ptr(smem_A), SmemLayoutA{});
+    <span class="kw">auto</span> sB = make_tensor(make_smem_ptr(smem_B), SmemLayoutB{});
+
+    <span class="cm">// ── mbarrier 初始化 ─────────────────────────────────────</span>
+    <span class="kw">__shared__</span> <span class="ty">uint64_t</span> mbar[Stages];
+    <span class="kw">if</span> (threadIdx.x == <span class="nm">0</span>)
+        <span class="kw">for</span> (<span class="kw">int</span> s = <span class="nm">0</span>; s &lt; Stages; ++s)
+            cute::mbarrier_init(&amp;mbar[s], <span class="nm">1</span>);
+    __syncthreads();
+
+    <span class="cm">// ── TiledMMA partition ──────────────────────────────────</span>
+    TiledMma tiled_mma;
+    <span class="kw">auto</span> thr_mma = tiled_mma.get_slice(threadIdx.x);
+    <span class="kw">auto</span> tCsA = thr_mma.partition_A(sA(_, _, _0{}));
+    <span class="kw">auto</span> tCsB = thr_mma.partition_B(sB(_, _, _0{}));
+    <span class="kw">auto</span> tCrC = thr_mma.partition_fragment_C(
+        make_layout(Shape&lt;Int&lt;BLK_M&gt;, Int&lt;BLK_N&gt;&gt;{}));
+    clear(tCrC);
+
+    <span class="cm">// ── 计算本 block 的 M/N tile 起始坐标 ──────────────────</span>
+    <span class="kw">int</span> m0 = blockIdx.x * BLK_M;
+    <span class="kw">int</span> n0 = blockIdx.y * BLK_N;
+    <span class="kw">int</span> num_k = K / BLK_K;
+
+    <span class="cm">// ── Prologue：预取前 Stages-1 个 K-tile ────────────────</span>
+    <span class="kw">for</span> (<span class="kw">int</span> s = <span class="nm">0</span>; s &lt; Stages-<span class="nm">1</span> &amp;&amp; s &lt; num_k; ++s) {
+        <span class="kw">if</span> (threadIdx.x == <span class="nm">0</span>) {
+            cute::mbarrier_arrive_expect_tx(&amp;mbar[s],
+                BLK_M*BLK_K*<span class="kw">sizeof</span>(ElementA) + BLK_N*BLK_K*<span class="kw">sizeof</span>(ElementB));
+            copy(tma_load_A.with(mbar[s]),
+                 make_coord(m0, s*BLK_K), sA(_, _, s));
+            copy(tma_load_B.with(mbar[s]),
+                 make_coord(n0, s*BLK_K), sB(_, _, s));
+        }
+    }
+
+    <span class="cm">// ── Main Loop ───────────────────────────────────────────</span>
+    <span class="kw">int</span> phase = <span class="nm">0</span>;
+    <span class="kw">for</span> (<span class="kw">int</span> k = <span class="nm">0</span>; k &lt; num_k; ++k) {
+        <span class="kw">int</span> cur = k % Stages;
+        <span class="kw">int</span> nxt = (k + Stages - <span class="nm">1</span>) % Stages;
+
+        <span class="cm">// 等待当前 stage TMA 完成</span>
+        cute::mbarrier_wait(&amp;mbar[cur], (k / Stages) &amp; <span class="nm">1</span>);
+
+        <span class="cm">// 触发下一个 TMA（与 WGMMA 重叠）</span>
+        <span class="kw">int</span> prefetch = k + Stages - <span class="nm">1</span>;
+        <span class="kw">if</span> (prefetch &lt; num_k &amp;&amp; threadIdx.x == <span class="nm">0</span>) {
+            cute::mbarrier_arrive_expect_tx(&amp;mbar[nxt],
+                BLK_M*BLK_K*<span class="kw">sizeof</span>(ElementA) + BLK_N*BLK_K*<span class="kw">sizeof</span>(ElementB));
+            copy(tma_load_A.with(mbar[nxt]),
+                 make_coord(m0, prefetch*BLK_K), sA(_, _, nxt));
+            copy(tma_load_B.with(mbar[nxt]),
+                 make_coord(n0, prefetch*BLK_K), sB(_, _, nxt));
+        }
+
+        <span class="cm">// WGMMA 执行</span>
+        warpgroup_fence_operand(tCrC);
+        warpgroup_arrive();
+        gemm(tiled_mma, tCsA.with_smem(sA(_, _, cur)),
+                        tCsB.with_smem(sB(_, _, cur)), tCrC);
+        warpgroup_commit_batch();
+        warpgroup_wait&lt;<span class="nm">1</span>&gt;();
+        warpgroup_fence_operand(tCrC);
+    }
+    warpgroup_wait&lt;<span class="nm">0</span>&gt;();
+
+    <span class="cm">// ── Epilogue：写回 C ─────────────────────────────────────</span>
+    <span class="kw">auto</span> gC = make_tensor(C_ptr + m0*N + n0,
+        make_layout(Shape&lt;Int&lt;BLK_M&gt;, Int&lt;BLK_N&gt;&gt;{}, Stride&lt;Int&lt;N&gt;, _1&gt;{}));
+    <span class="kw">auto</span> tCgC = thr_mma.partition_C(gC);
+    copy(tCrC, tCgC);
+}</pre>
+</div>
+</div>
+
+<!-- ████████████████ BLACKWELL ARCH ████████████████ -->
+<div class="sec" id="sec-bw-arch">
+<h1>Blackwell SM100 — 架构总览</h1>
+<p class="lead">B200 (SM100) 是 NVIDIA 2024 年发布的最新架构，在 Hopper 基础上引入 <strong>UMMA、UTCCP、第五代 NVLink</strong>，将 FP8 GEMM 性能推向新高度。</p>
+
+<div class="row">
+  <div class="card card-acc">
+    <div class="card-title">UMMA — 统一 MMA</div>
+    <p>取代 WGMMA，支持更大的 MMA tile（最大 256×256），引入新的 Tensor descriptor 直接描述 smem 访问模式，同时支持 FP4/FP8/FP16/BF16/FP32。</p>
+    <div class="tag-row"><span class="badge badge-acc">FP4 支持</span><span class="badge badge-acc">更大tile</span></div>
+  </div>
+  <div class="card card-pur">
+    <div class="card-title">UTCCP — 统一 TMA Copy</div>
+    <p>Blackwell 的 TMA 升级版，支持更高带宽、更大的 multicast 范围，以及新的 TMA store 模式用于 epilogue 写回。</p>
+    <div class="tag-row"><span class="badge badge-pur">更快带宽</span><span class="badge badge-pur">更大multicast</span></div>
+  </div>
+  <div class="card card-grn">
+    <div class="card-title">2nd Gen Transformer Engine</div>
+    <p>原生 FP4/FP6 支持，动态量化无需 Python 包装，Microscaling (MX) 格式支持更细粒度的量化粒度。</p>
+    <div class="tag-row"><span class="badge badge-grn">FP4 native</span><span class="badge badge-grn">MX format</span></div>
+  </div>
+</div>
+
+<h2>B200 vs H100 性能对比</h2>
+<table>
+  <tr><th>参数</th><th>B200 SXM</th><th>H100 SXM5</th><th>提升</th></tr>
+  <tr><td>SM 数量</td><td>170</td><td>132</td><td>~1.3×</td></tr>
+  <tr><td>FP8 TFLOPS（稠密）</td><td>9000</td><td>3958</td><td>~2.3×</td></tr>
+  <tr><td>FP4 TFLOPS（稠密）</td><td>18000</td><td>不支持</td><td>∞</td></tr>
+  <tr><td>HBM3e 带宽</td><td>8 TB/s</td><td>3.35 TB/s</td><td>~2.4×</td></tr>
+  <tr><td>L2 Cache</td><td>100 MB</td><td>50 MB</td><td>2×</td></tr>
+  <tr><td>Shared Memory / SM</td><td>256 KB</td><td>228 KB</td><td>~1.1×</td></tr>
+  <tr><td>NVLink</td><td>第五代 1.8TB/s</td><td>第四代 900GB/s</td><td>2×</td></tr>
+  <tr><td>UMMA</td><td><span class="badge badge-grn">✓</span></td><td>✗（用WGMMA）</td><td>—</td></tr>
+  <tr><td>FP4 数据类型</td><td><span class="badge badge-grn">✓</span></td><td>✗</td><td>—</td></tr>
+</table>
+
+<h2>Blackwell 计算层级</h2>
+<div class="card">
+  <p>Blackwell 引入了新的 <strong>Block Scaling</strong> 概念——在 MMA 之前对 A/B 块进行缩放，让 FP4 量化精度更高。每个 MMA tile 有独立的 scaling factor，存储在额外的 smem 缓冲区中。</p>
+  <div id="bw-hierarchy-diagram"></div>
+</div>
+</div>
+
+<!-- ████████████████ BLACKWELL UMMA ████████████████ -->
+<div class="sec" id="sec-bw-umma">
+<h1>UMMA — Unified MMA</h1>
+<p class="lead">UMMA (Unified Matrix Multiply-Accumulate) 是 Blackwell 对 WGMMA 的全面升级，支持更大 tile、FP4 原生计算和 Block Scaling，是 B200 达到 18 PFLOPS FP4 性能的核心。</p>
+
+<div class="row">
+  <div class="card card-acc">
+    <div class="card-title">WGMMA vs UMMA 对比</div>
+    <table style="margin:0;font-size:11px">
+      <tr><th>特性</th><th>WGMMA (H100)</th><th>UMMA (B200)</th></tr>
+      <tr><td>最大 N</td><td>256</td><td>256+</td></tr>
+      <tr><td>FP4</td><td>✗</td><td>✓</td></tr>
+      <tr><td>Block scaling</td><td>✗</td><td>✓</td></tr>
+      <tr><td>A 来源</td><td>smem/reg</td><td>smem（descriptor）</td></tr>
+    </table>
+  </div>
+  <div class="card card-grn">
+    <div class="card-title">FP4 数据格式</div>
+    <p>E2M1 格式：2位指数 + 1位尾数 + 1位符号。每个元素只有 4bit，需要 Block Scaling factor 来还原精度。适合 LLM 推理的 weight-only 量化。</p>
+  </div>
+</div>
+
+<h2>UMMA 使用（CuTe SM100）</h2>
+<div class="code-wrap">
+<span class="code-label">umma_example.cu</span>
+<pre><span class="pp">#include &lt;cute/arch/mma_sm100.hpp&gt;
+</span><span class="kw">using namespace</span> cute;
+
+<span class="cm">// ─── SM100 UMMA：BF16→FP32 ─────────────────────────────────────</span>
+<span class="kw">using</span> MmaAtom_BF16 = MMA_Atom&lt;SM100_64x128x16_F32BF16BF16_SS&gt;;
+<span class="kw">using</span> TiledMma_BF16 = TiledMMA&lt;MmaAtom_BF16,
+    Layout&lt;Shape&lt;_2,_2,_1&gt;&gt;&gt;;
+
+<span class="cm">// ─── SM100 UMMA：FP8→FP32（更高性能）──────────────────────────</span>
+<span class="kw">using</span> MmaAtom_FP8 = MMA_Atom&lt;SM100_64x128x32_F32E4M3E4M3_SS&gt;;
+<span class="kw">using</span> TiledMma_FP8 = TiledMMA&lt;MmaAtom_FP8,
+    Layout&lt;Shape&lt;_2,_2,_1&gt;&gt;&gt;;
+
+<span class="cm">// ─── SM100 UMMA：FP4→FP32（峰值性能）──────────────────────────</span>
+<span class="kw">using</span> MmaAtom_FP4 = MMA_Atom&lt;SM100_64x128x64_F32E2M1E2M1_SS&gt;;
+
+<span class="cm">// ─── Block Scaling（FP4 场景）──────────────────────────────────</span>
+<span class="cm">// 每 16 个 FP4 元素共享一个 FP32 scaling factor
+// Scale factor 存储在额外的 smem buffer 中</span>
+<span class="kw">__shared__</span> <span class="ty">float</span> smem_scale_A[BLK_M / <span class="nm">16</span>];  <span class="cm">// M 方向每16行一个 scale</span>
+<span class="kw">__shared__</span> <span class="ty">float</span> smem_scale_B[BLK_N / <span class="nm">16</span>];  <span class="cm">// N 方向每16列一个 scale</span>
+
+<span class="cm">// ─── UTCCP：加载 FP4 数据 + scale ──────────────────────────────</span>
+<span class="kw">auto</span> tma_load_A_fp4 = make_tma_copy(
+    SM100_TMA_LOAD{},
+    tensor_A_fp4,     <span class="cm">// FP4 global tensor（4bit/元素）</span>
+    SmemLayoutA_fp4{}, make_shape(Int&lt;<span class="nm">128</span>&gt;{}, Int&lt;<span class="nm">128</span>&gt;{}), Int&lt;<span class="nm">1</span>&gt;{});
+
+<span class="kw">auto</span> tma_load_ScaleA = make_tma_copy(
+    SM100_TMA_LOAD{},
+    tensor_ScaleA,    <span class="cm">// FP32 scale tensor</span>
+    SmemLayoutScale{}, make_shape(Int&lt;<span class="nm">8</span>&gt;{}, Int&lt;<span class="nm">4</span>&gt;{}), Int&lt;<span class="nm">1</span>&gt;{});
+
+<span class="cm">// ─── UMMA Kernel 核心循环 ──────────────────────────────────────</span>
+<span class="kw">for</span> (<span class="kw">int</span> k = <span class="nm">0</span>; k &lt; num_k; ++k) {
+    <span class="cm">// 等待 FP4 数据 + scale 都就绪</span>
+    mbarrier_wait(&amp;mbar[k % Stages], phase);
+
+    <span class="cm">// UMMA with block scaling</span>
+    warpgroup_fence_operand(tCrC);
+    warpgroup_arrive();
+    <span class="cm">// SM100 UMMA 自动读取 scale 并应用</span>
+    gemm_with_scale(tiled_mma_fp4,
+                    sA_fp4(_, _, k%Stages), smem_scale_A,
+                    sB_fp4(_, _, k%Stages), smem_scale_B,
+                    tCrC);
+    warpgroup_commit_batch();
+    warpgroup_wait&lt;<span class="nm">1</span>&gt;();
+    warpgroup_fence_operand(tCrC);
+}</pre>
+</div>
+</div>
+
+<!-- ████████████████ BLACKWELL CLUSTER ████████████████ -->
+<div class="sec" id="sec-bw-cluster">
+<h1>Cluster & NVLink 通信</h1>
+<p class="lead">Blackwell 将 Thread Block Cluster 规模扩展，并通过第五代 NVLink 实现 GPU 间的高带宽低延迟通信，是超大 LLM 推理和训练的基础。</p>
+
+<div class="row">
+  <div class="card card-acc">
+    <div class="card-title">Cluster 规模扩展</div>
+    <p>H100: 最大 8 Block/Cluster<br>B200: 最大 16 Block/Cluster（扩展模式）</p>
+    <p>更大 Cluster 意味着 TMA Multicast 可以一次广播给更多 Block，减少重复的 HBM 读取。</p>
+  </div>
+  <div class="card card-cya">
+    <div class="card-title">DSM（分布式共享内存）</div>
+    <p>Cluster 内的 Block 可以直接读写其他 Block 的 Shared Memory，实现 Block 间高速数据交换，无需经过 HBM，带宽远高于 Global Memory。</p>
+  </div>
+  <div class="card card-grn">
+    <div class="card-title">NVLink 5.0</div>
+    <p>单 GPU 双向带宽 1.8 TB/s，支持最多 576 GPU 互联（NVLink Switch 5）。是 DGX B200 实现超线性 LLM 扩展的基础。</p>
+  </div>
+</div>
+
+<h2>Cluster 编程示例</h2>
+<div class="code-wrap">
+<span class="code-label">cluster_programming.cu</span>
+<pre><span class="cm">// ─── 启动 Kernel with Cluster ──────────────────────────────────</span>
+cudaLaunchConfig_t config;
+config.gridDim  = {M/BLK_M, N/BLK_N, <span class="nm">1</span>};
+config.blockDim = {<span class="nm">128</span>, <span class="nm">1</span>, <span class="nm">1</span>};
+
+cudaLaunchAttribute attrs[<span class="nm">1</span>];
+attrs[<span class="nm">0</span>].id = cudaLaunchAttributeClusterDimension;
+attrs[<span class="nm">0</span>].val.clusterDim = {<span class="nm">2</span>, <span class="nm">1</span>, <span class="nm">1</span>};  <span class="cm">// 2 blocks per cluster</span>
+config.attrs = attrs; config.numAttrs = <span class="nm">1</span>;
+
+cudaLaunchKernelEx(&amp;config, cluster_gemm_kernel, <span class="cm">/*args*/</span>);
+
+<span class="cm">// ─── Kernel 内：Cluster 基本操作 ───────────────────────────────</span>
+__cluster_dims__(<span class="nm">2</span>, <span class="nm">1</span>, <span class="nm">1</span>)
+__global__ <span class="kw">void</span> <span class="fn">cluster_gemm_kernel</span>(<span class="cm">/*...*/</span>) {
+    <span class="cm">// 获取当前 Block 在 Cluster 内的 rank</span>
+    <span class="kw">int</span> block_rank = cute::block_rank_in_cluster();
+    <span class="kw">int</span> cluster_size = cute::cluster_size();
+
+    <span class="cm">// TMA Multicast：Block 0 发起，Cluster 内所有 Block 收到数据</span>
+    <span class="ty">uint16_t</span> cluster_mask = (<span class="nm">1</span> &lt;&lt; cluster_size) - <span class="nm">1</span>;  <span class="cm">// 所有 Block</span>
+    <span class="kw">if</span> (threadIdx.x == <span class="nm">0</span> &amp;&amp; block_rank == <span class="nm">0</span>) {
+        cute::copy(tma_load_A_multicast.with(mbar, cluster_mask),
+                   blk_coord, sA);
+    }
+
+    <span class="cm">// DSM：访问 Cluster 内其他 Block 的 smem</span>
+    <span class="ty">half_t</span>* remote_smem = cute::cluster_local_smem_ptr(
+        smem_ptr, <span class="nm">1</span> - block_rank);  <span class="cm">// 访问另一个 Block 的 smem</span>
+    <span class="kw">auto</span> remote_tensor = make_tensor(
+        make_smem_ptr(remote_smem), SmemLayoutB{});
+
+    <span class="cm">// barrier synchronize across cluster</span>
+    cute::cluster_arrive();
+    cute::cluster_wait();
+}</pre>
+</div>
+</div>
+
+<!-- ████████████████ BLACKWELL GEMM ████████████████ -->
+<div class="sec" id="sec-bw-gemm">
+<h1>Blackwell GEMM 实现要点</h1>
+<p class="lead">B200 的最优 GEMM 策略与 H100 有所不同，主要差异在于 UMMA 的使用、FP4 block scaling 的处理，以及更大 smem 的利用。</p>
+
+<div class="code-wrap">
+<span class="code-label">blackwell_gemm_fp8.cu</span>
+<pre><span class="pp">#include &lt;cute/arch/mma_sm100.hpp&gt;
+#include &lt;cute/arch/copy_sm100.hpp&gt;
+</span><span class="kw">using namespace</span> cute;
+
+<span class="cm">// ── SM100 FP8 GEMM 配置 ─────────────────────────────────────────</span>
+<span class="kw">using</span> ElementA = cutlass::float_e4m3_t;   <span class="cm">// FP8 E4M3</span>
+<span class="kw">using</span> ElementB = cutlass::float_e4m3_t;
+<span class="kw">using</span> ElementC = <span class="ty">float</span>;
+
+<span class="cm">// BLK_K=128（FP8 的 K 比 BF16 大一倍，吞吐翻倍）</span>
+<span class="kw">constexpr</span> <span class="kw">int</span> BLK_M=<span class="nm">128</span>, BLK_N=<span class="nm">128</span>, BLK_K=<span class="nm">128</span>, Stages=<span class="nm">4</span>;
+
+<span class="kw">using</span> TiledMma = TiledMMA&lt;
+    MMA_Atom&lt;SM100_64x128x32_F32E4M3E4M3_SS&gt;,
+    Layout&lt;Shape&lt;_2,_2,_1&gt;&gt;&gt;;
+
+<span class="cm">// Smem layout：FP8 用 Sw&lt;3,4,3&gt;（每个FP8=1B，128元素/行=128B）</span>
+<span class="kw">using</span> SmemLayoutA = decltype(tile_to_shape(
+    composition(Swizzle&lt;<span class="nm">3</span>,<span class="nm">4</span>,<span class="nm">3</span>&gt;{},
+                Layout&lt;Shape&lt;_8,_128&gt;,Stride&lt;_128,_1&gt;&gt;{}),
+    Shape&lt;Int&lt;BLK_M&gt;, Int&lt;BLK_K&gt;, Int&lt;Stages&gt;&gt;{}));
+
+__global__ <span class="kw">void</span> __launch_bounds__(<span class="nm">128</span>)
+<span class="fn">sm100_fp8_gemm</span>(<span class="kw">auto</span> tma_A, <span class="kw">auto</span> tma_B, ElementC* C, <span class="kw">int</span> M, <span class="kw">int</span> N, <span class="kw">int</span> K)
+{
+    <span class="kw">extern</span> __shared__ <span class="ty">char</span> smem[];
+    <span class="kw">auto</span> sA = make_tensor(make_smem_ptr((<span class="ty">ElementA</span>*)smem), SmemLayoutA{});
+    <span class="kw">auto</span> sB = make_tensor(make_smem_ptr(
+        (<span class="ty">ElementB</span>*)(smem + BLK_M*BLK_K*Stages)), SmemLayoutB{});
+
+    TiledMma tiled_mma;
+    <span class="kw">auto</span> thr_mma = tiled_mma.get_slice(threadIdx.x);
+    <span class="kw">auto</span> tCrC = thr_mma.partition_fragment_C(
+        Layout&lt;Shape&lt;Int&lt;BLK_M&gt;,Int&lt;BLK_N&gt;&gt;&gt;{});
+    clear(tCrC);
+
+    <span class="kw">__shared__</span> <span class="ty">uint64_t</span> mbar[Stages];
+    <span class="kw">if</span> (threadIdx.x == <span class="nm">0</span>)
+        <span class="kw">for</span> (<span class="kw">int</span> s=<span class="nm">0</span>; s&lt;Stages; ++s) mbarrier_init(&amp;mbar[s], <span class="nm">1</span>);
+    __syncthreads();
+
+    <span class="kw">int</span> m0=blockIdx.x*BLK_M, n0=blockIdx.y*BLK_N, num_k=K/BLK_K;
+    <span class="kw">constexpr</span> <span class="kw">int</span> tx = BLK_M*BLK_K + BLK_N*BLK_K; <span class="cm">// bytes per stage</span>
+
+    <span class="cm">// Prologue</span>
+    <span class="kw">for</span> (<span class="kw">int</span> s=<span class="nm">0</span>; s&lt;min(Stages-<span class="nm">1</span>,num_k); ++s) {
+        <span class="kw">if</span> (!threadIdx.x) {
+            mbarrier_arrive_expect_tx(&amp;mbar[s], tx);
+            copy(tma_A.with(mbar[s]), make_coord(m0,s*BLK_K), sA(_,_,s));
+            copy(tma_B.with(mbar[s]), make_coord(n0,s*BLK_K), sB(_,_,s));
+        }
+    }
+
+    <span class="kw">for</span> (<span class="kw">int</span> k=<span class="nm">0</span>; k&lt;num_k; ++k) {
+        <span class="kw">int</span> cur=k%Stages, nxt=(k+Stages-<span class="nm">1</span>)%Stages;
+        mbarrier_wait(&amp;mbar[cur], (k/Stages)&amp;<span class="nm">1</span>);
+        <span class="kw">if</span> (k+Stages-<span class="nm">1</span>&lt;num_k &amp;&amp; !threadIdx.x) {
+            <span class="kw">int</span> pk=k+Stages-<span class="nm">1</span>;
+            mbarrier_arrive_expect_tx(&amp;mbar[nxt], tx);
+            copy(tma_A.with(mbar[nxt]), make_coord(m0,pk*BLK_K), sA(_,_,nxt));
+            copy(tma_B.with(mbar[nxt]), make_coord(n0,pk*BLK_K), sB(_,_,nxt));
+        }
+        warpgroup_fence_operand(tCrC);
+        warpgroup_arrive();
+        gemm(tiled_mma, sA(_,_,cur), sB(_,_,cur), tCrC);
+        warpgroup_commit_batch();
+        warpgroup_wait&lt;<span class="nm">1</span>&gt;();
+        warpgroup_fence_operand(tCrC);
+    }
+    warpgroup_wait&lt;<span class="nm">0</span>&gt;();
+
+    <span class="kw">auto</span> gC = make_tensor(C+m0*N+n0,
+        Layout&lt;Shape&lt;Int&lt;BLK_M&gt;,Int&lt;BLK_N&gt;&gt;,Stride&lt;Int&lt;N&gt;,_1&gt;&gt;{});
+    copy(tCrC, thr_mma.partition_C(gC));
+}</pre>
+</div>
+</div>
+
+<!-- ████████████████ PERF OCC ████████████████ -->
+<div class="sec" id="sec-perf-occ">
+<h1>Occupancy & 寄存器优化</h1>
+<p class="lead">GPU 的计算效率取决于 SM 上同时驻留的 Warp 数量（Occupancy）。过多的寄存器使用会降低 Occupancy，而 WGMMA 的大 accumulator fragment 是主要压力来源。</p>
+
+<h2>寄存器预算计算</h2>
+<div class="row">
+  <div class="card card-acc">
+    <div class="card-title">H100 寄存器资源</div>
+    <p>每 SM：65536 个 32-bit 寄存器<br>每 Warpgroup（128线程）：理论最多 512 个/线程<br>实际可用：受 block 数量限制</p>
+  </div>
+  <div class="card card-red">
+    <div class="card-title">WGMMA C 寄存器压力</div>
+    <p>64×128×F32 的 C fragment：<br>每线程需要 64 个 F32 寄存器<br>加上 A/B 缓存 → 轻松超过 128 个寄存器/线程</p>
+  </div>
+</div>
+
+<div class="code-wrap">
+<span class="code-label">register_analysis.cu</span>
+<pre><span class="cm">// ─── 限制寄存器数量（强制提高 Occupancy）──────────────────────</span>
+__global__ <span class="kw">void</span> __launch_bounds__(
+    <span class="nm">128</span>,   <span class="cm">// maxThreadsPerBlock</span>
+    <span class="nm">1</span>      <span class="cm">// minBlocksPerMultiprocessor（SM 上至少 1 个 block）</span>
+) gemm_kernel(<span class="cm">/*...*/</span>) { <span class="cm">/*...*/</span> }
+
+<span class="cm">// ─── 用 nvcc 标志限制寄存器 ───────────────────────────────────</span>
+<span class="cm">// nvcc --maxrregcount=128 gemm.cu
+// 或 per-kernel:
+// #pragma nv_diag_suppress 177  // 忽略警告</span>
+
+<span class="cm">// ─── 检查寄存器使用 ───────────────────────────────────────────</span>
+<span class="cm">// nvcc -Xptxas -v gemm.cu
+// 输出：ptxas info: Used N registers, M bytes smem</span>
+
+<span class="cm">// ─── WGMMA 寄存器估算工具 ─────────────────────────────────────</span>
+<span class="kw">constexpr</span> <span class="kw">int</span> MMA_M = <span class="nm">64</span>, MMA_N = <span class="nm">128</span>;  <span class="cm">// WGMMA tile</span>
+<span class="kw">constexpr</span> <span class="kw">int</span> num_atoms_m = <span class="nm">2</span>, num_atoms_n = <span class="nm">2</span>;  <span class="cm">// tiling</span>
+<span class="cm">// C fragment：每线程负责 (MMA_M * num_atoms_m) / 128 行 × (MMA_N * num_atoms_n) 列
+// = (64×2)/128 × (128×2) = 1 × 256 个 F32
+// = 256 个寄存器（太多了！需要减小 tile）</span></pre>
+</div>
+
+<h2>Occupancy 计算表</h2>
+<table>
+  <tr><th>寄存器/线程</th><th>线程数/Block</th><th>Blocks/SM</th><th>Warps/SM</th><th>Occupancy</th></tr>
+  <tr><td>64</td><td>128</td><td>8</td><td>32</td><td>100%</td></tr>
+  <tr><td>96</td><td>128</td><td>5</td><td>20</td><td>62.5%</td></tr>
+  <tr><td>128</td><td>128</td><td>4</td><td>16</td><td>50%</td></tr>
+  <tr><td>192</td><td>128</td><td>2</td><td>8</td><td>25%</td></tr>
+  <tr><td>256</td><td>128</td><td>2</td><td>8</td><td>25%</td></tr>
+</table>
+
+<div class="note warn">
+<strong>WGMMA 的特殊性：</strong>WGMMA 的寄存器压力很大，但由于其本身的高吞吐量（单 WGMMA 可以在极短时间内完成大量 FLOP），即使 Occupancy 为 25-50%，仍可达到接近理论峰值的性能。不要为了提高 Occupancy 而盲目减小 tile size。
+</div>
+</div>
+
+<!-- ████████████████ PERF MEM ████████████████ -->
+<div class="sec" id="sec-perf-mem">
+<h1>内存层次结构</h1>
+<p class="lead">GPU 内存层次从 HBM 到 L2 Cache、L1/Shared Memory、寄存器，各层的带宽和延迟差异达到数量级，理解并充分利用这一层次是高性能 kernel 的基础。</p>
+
+<div id="memory-hierarchy-diagram"></div>
+
+<h2>关键带宽与延迟数据</h2>
+<table>
+  <tr><th>存储层次</th><th>带宽 (H100)</th><th>延迟</th><th>容量</th><th>访问单位</th></tr>
+  <tr><td>Register File</td><td>~80 TB/s/SM</td><td>0 cycle</td><td>256 KB/SM</td><td>32-bit</td></tr>
+  <tr><td>Shared Memory</td><td>~33 TB/s/SM</td><td>~23 cycle</td><td>228 KB/SM</td><td>128 byte</td></tr>
+  <tr><td>L1 Cache</td><td>~33 TB/s/SM</td><td>~33 cycle</td><td>128 KB/SM</td><td>128 byte</td></tr>
+  <tr><td>L2 Cache</td><td>~12 TB/s</td><td>~200 cycle</td><td>50 MB</td><td>128 byte</td></tr>
+  <tr><td>HBM3 (DRAM)</td><td>3.35 TB/s</td><td>~700 cycle</td><td>80 GB</td><td>32 byte burst</td></tr>
+</table>
+
+<h2>内存访问优化清单</h2>
+<div class="row">
+  <div class="card card-grn">
+    <div class="card-title">✓ 要做的</div>
+    <ul style="color:var(--fg2);font-size:13px;margin-left:16px">
+      <li>使用 128-bit 向量化加载（float4 / uint4）</li>
+      <li>确保全局内存访问合并（coalesced）</li>
+      <li>smem 使用 Swizzle 消除 bank 冲突</li>
+      <li>TMA 替代手写 cp.async</li>
+      <li>预取（prefetch）隐藏内存延迟</li>
+      <li>L2 持久化：<code>cudaStreamAttrValue</code></li>
+    </ul>
+  </div>
+  <div class="card card-red">
+    <div class="card-title">✗ 要避免的</div>
+    <ul style="color:var(--fg2);font-size:13px;margin-left:16px">
+      <li>非对齐的全局内存访问</li>
+      <li>Shared Memory bank 冲突</li>
+      <li>stride = 32 × sizeof(T) 的 smem 访问</li>
+      <li>在热路径上使用原子操作</li>
+      <li>小 tile 导致 HBM 访问量增大</li>
+      <li>L1 thrashing（工作集超过 L1）</li>
+    </ul>
+  </div>
+</div>
+</div>
+
+<!-- ████████████████ PERF PROFILE ████████████████ -->
+<div class="sec" id="sec-perf-profile">
+<h1>Nsight 分析方法</h1>
+<p class="lead">使用 NVIDIA Nsight Compute (ncu) 和 Nsight Systems (nsys) 定量分析 kernel 瓶颈，指导优化方向。</p>
+
+<h2>Nsight Compute 关键指标</h2>
+<div class="code-wrap">
+<span class="code-label">profiling_commands.sh</span>
+<pre><span class="cm"># ── 基础 profiling ──────────────────────────────────────────────</span>
+ncu --set full -o profile ./gemm_kernel
+
+<span class="cm"># ── 只收集关键指标（更快）──────────────────────────────────────</span>
+ncu --metrics \
+    sm__throughput.avg.pct_of_peak_sustained_elapsed,       <span class="cm"># SM 利用率</span>
+    l1tex__throughput.avg.pct_of_peak_sustained_elapsed,    <span class="cm"># L1 带宽利用率</span>
+    lts__throughput.avg.pct_of_peak_sustained_elapsed,      <span class="cm"># L2 带宽利用率</span>
+    gpu__dram_throughput.avg.pct_of_peak_sustained_elapsed, <span class="cm"># HBM 利用率</span>
+    sm__pipe_tensor_op_hmma_cycles_active.avg.pct_of_peak_sustained_elapsed, <span class="cm"># Tensor Core 利用率</span>
+    sm__warps_active.avg.pct_of_peak_sustained_elapsed      <span class="cm"># Warp 占用率</span>
+    -o profile_fast ./gemm_kernel
+
+<span class="cm"># ── GEMM 效率分析 ───────────────────────────────────────────────</span>
+ncu --metrics \
+    sm__pipe_tensor_op_hmma_cycles_active,   <span class="cm"># HMMA 活跃周期</span>
+    smsp__inst_executed_op_hmma.sum,         <span class="cm"># HMMA 指令数</span>
+    l1tex__data_bank_conflicts_pipe_lsu.sum  <span class="cm"># Smem bank 冲突数</span>
+    ./gemm_kernel
+
+<span class="cm"># ── 系统级时间线 ────────────────────────────────────────────────</span>
+nsys profile --trace=cuda,nvtx -o timeline ./gemm_benchmark</pre>
+</div>
+
+<h2>关键指标解读</h2>
+<table>
+  <tr><th>指标</th><th>理想值</th><th>低说明什么</th><th>优化方向</th></tr>
+  <tr><td>Tensor Core 利用率</td><td>&gt;80%</td><td>WGMMA 没有饱和</td><td>增大 tile，减少 epilogue 开销</td></tr>
+  <tr><td>HBM 带宽利用率</td><td>&lt;60%（Compute bound）</td><td>如果 &gt;80% 则内存受限</td><td>增大 tile，减少 HBM 访问</td></tr>
+  <tr><td>L2 带宽利用率</td><td>适中</td><td>—</td><td>—</td></tr>
+  <tr><td>Bank 冲突次数</td><td>0</td><td>&gt;0 则有 bank 冲突</td><td>检查 Swizzle 配置</td></tr>
+  <tr><td>SM 利用率</td><td>&gt;95%</td><td>有 idle SM</td><td>检查 grid size，增加 wave</td></tr>
+</table>
+
+<h2>性能模型：Roofline</h2>
+<div class="code-wrap">
+<span class="code-label">roofline_analysis.py</span>
+<pre><span class="cm"># GEMM Roofline 分析</span>
+M, N, K = <span class="nm">4096</span>, <span class="nm">4096</span>, <span class="nm">4096</span>
+
+<span class="cm"># FLOP：GEMM = 2MNK</span>
+flops = <span class="nm">2</span> * M * N * K  <span class="cm"># = 137.4 GFLOP</span>
+
+<span class="cm"># Bytes：读 A (MK) + B (KN) + 写 C (MN)</span>
+<span class="cm"># BF16 GEMM：A/B = 2B/elem, C = 4B/elem</span>
+bytes_io = (M*K + K*N)*<span class="nm">2</span> + M*N*<span class="nm">4</span>  <span class="cm"># = 101.2 GB</span>
+
+<span class="cm"># Arithmetic Intensity (AI)</span>
+AI = flops / bytes_io  <span class="cm"># = 1.36 FLOP/Byte</span>
+
+<span class="cm"># H100 Ridge Point（BF16 TFLOPS / HBM 带宽）</span>
+ridge_point = <span class="nm">989e12</span> / <span class="nm">3.35e12</span>  <span class="cm"># ≈ 295 FLOP/Byte</span>
+
+<span class="cm"># AI(1.36) << Ridge Point(295) → GEMM 是 Compute Bound ✓</span>
+<span class="cm"># 理论峰值性能受 Tensor Core 限制，而非带宽</span>
+print(<span class="st">f"AI = {AI:.2f} FLOP/Byte"</span>)
+print(<span class="st">f"Ridge Point = {ridge_point:.0f} FLOP/Byte"</span>)
+print(<span class="st">f"Bound: {'Compute' if AI > ridge_point else 'Memory'}"</span>)</pre>
+</div>
+
+<div class="note tip">
+<strong>性能调优优先级：</strong><br>
+① 先确认是 Compute Bound 还是 Memory Bound（Roofline 分析）<br>
+② Compute Bound → 最大化 Tensor Core 利用率，优化 smem layout（Swizzle），增大 tile<br>
+③ Memory Bound → 减少 HBM 访问（融合算子、增大 tile），提高向量化宽度<br>
+④ 最后才考虑 Occupancy（WGMMA 场景下 25-50% 是正常的）
+</div>
+
+<h2>快速调试清单</h2>
+<div class="card">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div>
+      <div style="font-size:12px;font-weight:600;color:var(--grn);margin-bottom:8px">✓ GEMM 上线前检查</div>
+      <div style="font-size:12px;color:var(--fg2);line-height:2">
+        □ print_layout 验证 smem layout 正确<br>
+        □ 用小 M/N/K 做数值正确性验证<br>
+        □ ncu 确认 bank 冲突为 0<br>
+        □ Tensor Core 利用率 &gt; 75%<br>
+        □ TMA descriptor swizzle 与 smem layout 匹配<br>
+        □ warpgroup_wait 语义正确（无 race）<br>
+        □ mbarrier phase 翻转逻辑正确
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:600;color:var(--amb);margin-bottom:8px">⚠ 常见 Bug</div>
+      <div style="font-size:12px;color:var(--fg2);line-height:2">
+        □ smem 大小计算错误（Stage 数 × tile × dtype）<br>
+        □ mbarrier expect_tx 字节数算错<br>
+        □ TMA coord 坐标系搞混（行/列顺序）<br>
+        □ warpgroup_fence 位置不对导致乱序<br>
+        □ Swizzle 与 MMA atom 的 K-major/M-major 不匹配<br>
+        □ Epilogue 时 tCrC 的 layout 理解错误<br>
+        □ Cluster barrier 使用不当导致死锁
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+</main>
+</div>
+
+<!-- ═══════════════ DIAGRAMS JS ═══════════════ -->
+<script>
+// ─── NAV ─────────────────────────────────────────────────────
+function nav(id) {
+  document.querySelectorAll('.sec').forEach(s => s.classList.remove('on'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('on'));
+  const sec = document.getElementById('sec-' + id);
+  if (sec) sec.classList.add('on');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.getAttribute('onclick') === `nav('${id}')`) n.classList.add('on');
+  });
+  renderSection(id);
+}
+
+function renderSection(id) {
+  if (id === 'cute-layout') renderLayoutOps();
+  if (id === 'cute-tensor') renderTensorFlow();
+  if (id === 'cute-swizzle') renderSwizzleInteractive();
+  if (id === 'hopper-arch') { renderHopperArch(); renderSM90(); }
+  if (id === 'hopper-tma') renderTMADescriptor();
+  if (id === 'hopper-wgmma') renderWGMMALayout();
+  if (id === 'hopper-pipeline') renderPipelineAnim();
+  if (id === 'bw-arch') renderBWHierarchy();
+  if (id === 'perf-mem') renderMemHierarchy();
+}
+
+// ─── COLORS ──────────────────────────────────────────────────
+const C = {
+  acc: '#5b8dee', grn: '#4ade80', amb: '#fbbf24', red: '#f87171',
+  pur: '#a78bfa', cya: '#22d3ee', pnk: '#f472b6',
+  bg2: '#13161c', bg3: '#1a1e27', bg4: '#222736',
+  fg: '#e2e4ec', fg2: '#9ba3b8', fg3: '#5c6478',
+  line: 'rgba(255,255,255,0.07)', line2: 'rgba(255,255,255,0.13)'
+};
+
+function svgText(x,y,text,opts={}) {
+  const {size=12,color=C.fg2,anchor='middle',mono=false,weight=400} = opts;
+  return `<text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="central"
+    font-size="${size}" fill="${color}" font-family="${mono?'JetBrains Mono, monospace':'Sora, sans-serif'}"
+    font-weight="${weight}">${text}</text>`;
+}
+function svgRect(x,y,w,h,opts={}) {
+  const {rx=8,fill=C.bg3,stroke=C.line2,sw=1} = opts;
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
+}
+function mkArrow() {
+  return `<defs><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="${C.fg3}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <marker id="arr-acc" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="${C.acc}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker></defs>`;
+}
+
+// ─── LAYOUT OPS DIAGRAM ──────────────────────────────────────
+function renderLayoutOps() {
+  const el = document.getElementById('layout-ops-demo');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+
+  const ops = [
+    { name:'composition', color:C.acc, desc:'A∘B：坐标先经B映射，再经A映射到最终偏移。所有divide内部实现。' },
+    { name:'tiled_divide', color:C.grn, desc:'按tile shape切分。mode0=tile内坐标，mode1=tile编号。GEMM blocking标配。' },
+    { name:'logical_divide', color:C.pur, desc:'tile参数为Layout（可有自定义stride）。支持转置tile等高级用法。' },
+    { name:'zipped_divide', color:C.cya, desc:'按空间维度"拉链"：每mode同时含内层坐标和外层tile编号。' },
+    { name:'flat_divide', color:C.amb, desc:'tile内坐标压平为单一整数（列主序）。适合线性遍历。' },
+  ];
+
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin:14px 0">`;
+  ops.forEach(op => {
+    html += `<div style="background:${C.bg2};border:1px solid ${C.line2};border-left:3px solid ${op.color};
+      border-radius:8px;padding:14px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${op.color};margin-bottom:6px;font-weight:500">${op.name}</div>
+      <div style="font-size:12px;color:${C.fg2};line-height:1.7">${op.desc}</div>
+    </div>`;
+  });
+  html += `</div>`;
+  el.innerHTML = html;
+}
+
+// ─── TENSOR FLOW ─────────────────────────────────────────────
+function renderTensorFlow() {
+  const el = document.getElementById('tensor-flow-diagram');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+
+  const W = 680, H = 160;
+  let svg = `<svg width="100%" viewBox="0 0 ${W} ${H}">${mkArrow()}`;
+
+  const boxes = [
+    { x:20, y:50, w:130, h:60, label:'HBM (Global)', sub:'TMA / ldg', color:C.red },
+    { x:200, y:50, w:140, h:60, label:'L2 Cache', sub:'50MB', color:C.amb },
+    { x:390, y:50, w:140, h:60, label:'Shared Memory', sub:'Swizzled', color:C.acc },
+    { x:580, y:50, w:90, h:60, label:'Register', sub:'WGMMA acc', color:C.grn },
+  ];
+
+  boxes.forEach(b => {
+    svg += svgRect(b.x, b.y, b.w, b.h, {rx:8, fill:C.bg3, stroke:b.color, sw:1.5});
+    svg += svgText(b.x+b.w/2, b.y+22, b.label, {size:12,color:b.color,weight:500});
+    svg += svgText(b.x+b.w/2, b.y+40, b.sub, {size:10,color:C.fg3});
+  });
+
+  const arrows = [
+    {x1:150,y1:80,x2:198,y2:80,label:'3.35 TB/s'},
+    {x1:340,y1:80,x2:388,y2:80,label:'TMA async'},
+    {x1:530,y1:80,x2:578,y2:80,label:'lds/WGMMA'},
+  ];
+  arrows.forEach(a => {
+    svg += `<line x1="${a.x1}" y1="${a.y1}" x2="${a.x2}" y2="${a.y2}"
+      stroke="${C.fg3}" stroke-width="1.5" marker-end="url(#arr)"/>`;
+    svg += svgText((a.x1+a.x2)/2, a.y1-12, a.label, {size:10,color:C.fg3});
+  });
+
+  svg += `</svg>`;
+  el.innerHTML = svg;
+}
+
+// ─── SWIZZLE INTERACTIVE ──────────────────────────────────────
+function renderSwizzleInteractive() {
+  const el = document.getElementById('swizzle-interactive');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+
+  function swIdx(B,M,S,x) {
+    if(!B) return x;
+    return x ^ (((x>>(M+S))&((1<<B)-1))<<M);
+  }
+  function bankOf(B,M,S,r,c,cols,dtypeB) {
+    return (swIdx(B,M,S,r*cols+c)*dtypeB/4)&31;
+  }
+
+  const ROWS=8, COLS=16;
+  const configs = [{B:3,M:4,S:3,label:'Sw<3,4,3>'},{B:3,M:3,S:3,label:'Sw<3,3,3>'},{B:0,M:0,S:0,label:'无 Swizzle'}];
+  let html = `<div style="display:flex;gap:16px;flex-wrap:wrap;margin:14px 0">`;
+
+  configs.forEach(cfg => {
+    let grid = `<div style="display:grid;grid-template-columns:repeat(${COLS},1fr);gap:1px;width:100%">`;
+    const bankCount = {};
+    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) {
+      const b = bankOf(cfg.B,cfg.M,cfg.S,r,c,COLS,2);
+      if(!bankCount[b]) bankCount[b]=0;
+      bankCount[b]++;
+      const hue = Math.round(b*360/32);
+      const bg = `hsl(${hue},55%,38%)`;
+      grid += `<div style="aspect-ratio:1;background:${bg};border-radius:2px;display:flex;
+        align-items:center;justify-content:center;font-size:8px;color:rgba(255,255,255,.9);
+        font-family:'JetBrains Mono',monospace" title="bank=${b}">${b}</div>`;
+    }
+    grid += `</div>`;
+
+    const rowBanks = [];
+    for(let r=0;r<ROWS;r++) {
+      const s = new Set();
+      for(let c=0;c<COLS;c++) s.add(bankOf(cfg.B,cfg.M,cfg.S,r,c,COLS,2));
+      rowBanks.push(s.size);
+    }
+    const noConflict = rowBanks.every(s=>s===COLS);
+    const statusColor = noConflict ? C.grn : C.red;
+    const statusText = noConflict ? '✓ 无冲突' : '⚠ 有冲突';
+
+    html += `<div style="flex:1;min-width:180px;background:${C.bg2};border:1px solid ${C.line2};
+      border-radius:12px;padding:14px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${C.acc};
+        margin-bottom:6px;font-weight:500">${cfg.label}</div>
+      ${grid}
+      <div style="margin-top:8px;font-size:11px;color:${statusColor}">${statusText}</div>
+      <div style="font-size:10px;color:${C.fg3};margin-top:2px">8行×16列 float16 矩阵</div>
+    </div>`;
+  });
+  html += `</div>`;
+  el.innerHTML = html;
+}
+
+// ─── HOPPER ARCH DIAGRAM ──────────────────────────────────────
+function renderHopperArch() {
+  const el = document.getElementById('hopper-arch-diagram');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+
+  const W=680,H=220;
+  let svg=`<svg width="100%" viewBox="0 0 ${W} ${H}">${mkArrow()}`;
+
+  // HBM
+  svg+=svgRect(10,90,80,40,{rx:6,fill:C.bg3,stroke:C.red,sw:1.5});
+  svg+=svgText(50,110,'HBM3',{size:11,color:C.red,weight:500});
+  svg+=`<line x1="90" y1="110" x2="130" y2="110" stroke="${C.red}" stroke-width="1.5" marker-end="url(#arr)"/>`;
+  svg+=svgText(110,100,'3.35TB/s',{size:9,color:C.fg3});
+
+  // L2
+  svg+=svgRect(130,70,100,80,{rx:8,fill:C.bg3,stroke:C.amb,sw:1.5});
+  svg+=svgText(180,100,'L2 Cache',{size:12,color:C.amb,weight:500});
+  svg+=svgText(180,118,'50 MB',{size:10,color:C.fg3});
+  svg+=`<line x1="230" y1="110" x2="260" y2="110" stroke="${C.amb}" stroke-width="1.5" marker-end="url(#arr)"/>`;
+
+  // SM cluster (3 SMs shown)
+  const smX=[260,380,500];
+  smX.forEach((x,i) => {
+    svg+=svgRect(x,20,110,180,{rx:10,fill:C.bg3,stroke:C.acc,sw:1.5});
+    svg+=svgText(x+55,40,`SM ${i}`,{size:11,color:C.acc,weight:500});
+
+    // TMA unit
+    svg+=svgRect(x+8,52,94,24,{rx:4,fill:C.bg4,stroke:C.cya,sw:1});
+    svg+=svgText(x+55,64,'TMA',{size:10,color:C.cya,weight:500});
+
+    // Tensor Core
+    svg+=svgRect(x+8,82,94,32,{rx:4,fill:C.bg4,stroke:C.pur,sw:1});
+    svg+=svgText(x+55,94,'Tensor Core',{size:10,color:C.pur,weight:500});
+    svg+=svgText(x+55,108,'(WGMMA)',{size:9,color:C.fg3});
+
+    // SMEM
+    svg+=svgRect(x+8,120,94,24,{rx:4,fill:C.bg4,stroke:C.grn,sw:1});
+    svg+=svgText(x+55,132,'SMEM 228KB',{size:10,color:C.grn,weight:500});
+
+    // L1
+    svg+=svgRect(x+8,150,94,24,{rx:4,fill:C.bg4,stroke:C.fg3,sw:1});
+    svg+=svgText(x+55,162,'L1 128KB',{size:10,color:C.fg3});
+  });
+
+  // Cluster bracket
+  svg+=`<rect x="255" y="10" width="360" height="200" rx="12" fill="none"
+    stroke="${C.acc}" stroke-width="0.8" stroke-dasharray="5 3" opacity="0.5"/>`;
+  svg+=svgText(435,5,'Thread Block Cluster',{size:10,color:C.acc});
+
+  svg+=`</svg>`;
+  el.innerHTML = svg;
+}
+
+function renderSM90() {
+  const el = document.getElementById('sm90-structure');
+  if (!el) return;
+  const wgs = ['Warp 0-3\n(WarpGroup 0)', 'Warp 4-7\n(WarpGroup 1)', 'Warp 8-11', 'Warp 12-15'];
+  let html = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0">`;
+  wgs.forEach((w,i) => {
+    html += `<div style="background:${C.bg4};border:1px solid ${C.line2};border-radius:8px;padding:10px;text-align:center">
+      <div style="font-size:10px;color:${C.pur};font-weight:500;font-family:'JetBrains Mono',monospace">WG ${i}</div>
+      <div style="font-size:9px;color:${C.fg3};margin-top:4px">32 Thread×4 Warp</div>
+      <div style="font-size:9px;color:${C.acc};margin-top:2px">Tensor Core</div>
+    </div>`;
+  });
+  html += `</div>`;
+  html += `<div style="display:grid;grid-template-columns:2fr 1fr;gap:6px">
+    <div style="background:${C.bg4};border:1px solid ${C.grn};border-radius:8px;padding:10px;text-align:center">
+      <div style="font-size:11px;color:${C.grn};font-weight:500">Shared Memory</div>
+      <div style="font-size:10px;color:${C.fg3}">228 KB（可配置）</div>
+    </div>
+    <div style="background:${C.bg4};border:1px solid ${C.cya};border-radius:8px;padding:10px;text-align:center">
+      <div style="font-size:11px;color:${C.cya};font-weight:500">TMA Unit</div>
+      <div style="font-size:10px;color:${C.fg3}">异步 DMA</div>
+    </div>
+  </div>`;
+  el.innerHTML = html;
+}
+
+// ─── TMA DESCRIPTOR DIAGRAM ──────────────────────────────────
+function renderTMADescriptor() {
+  const el = document.getElementById('tma-descriptor-diagram');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+
+  const fields = [
+    {label:'Global tensor base pointer', w:220, color:C.red},
+    {label:'Tensor dimensions (up to 5D)', w:200, color:C.amb},
+    {label:'Element strides', w:140, color:C.acc},
+    {label:'Swizzle mode', w:120, color:C.pur},
+    {label:'L2 cache policy', w:110, color:C.grn},
+  ];
+  let html = `<div style="margin:14px 0">
+    <div style="font-size:12px;color:${C.fg3};margin-bottom:8px;font-family:'JetBrains Mono',monospace">TMA Descriptor（512 bytes，由 cuTensorMapEncode 创建）</div>
+    <div style="display:flex;gap:2px;height:44px;border-radius:8px;overflow:hidden;border:1px solid ${C.line2}">`;
+  const total = fields.reduce((a,f)=>a+f.w,0);
+  fields.forEach(f => {
+    const pct = f.w/total*100;
+    html+=`<div style="width:${pct}%;background:${f.color}22;border-right:1px solid ${f.color}44;
+      display:flex;align-items:center;justify-content:center;padding:4px">
+      <div style="font-size:9px;color:${f.color};text-align:center;line-height:1.4">${f.label}</div>
+    </div>`;
+  });
+  html += `</div>
+    <div style="margin-top:12px;font-size:12px;color:${C.fg2}">
+      TMA 从 Descriptor 读取所有信息，<strong style="color:${C.fg}">Device 端触发只需1条指令</strong>，
+      无需线程分摊地址计算，大幅减少 ALU 和寄存器消耗。
+    </div>
+  </div>`;
+  el.innerHTML = html;
+}
+
+// ─── WGMMA REG LAYOUT ────────────────────────────────────────
+function renderWGMMALayout() {
+  const el = document.getElementById('wgmma-reg-layout');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+
+  const THREADS=128, N_ELEMS=8; // 每线程持有的 C 寄存器数（简化）
+  const warpColors = [C.acc, C.pur, C.grn, C.amb];
+  let html = `<div style="margin:14px 0">
+    <div style="font-size:12px;color:${C.fg3};margin-bottom:8px">
+      WGMMA 64×128 F32 累加器 — 128线程的寄存器分布（简化示意）
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:2px">`;
+  for(let r=0;r<16;r++) {
+    for(let c=0;c<8;c++) {
+      const warpId = Math.floor(r/4);
+      const color = warpColors[warpId];
+      html+=`<div style="aspect-ratio:1;background:${color}22;border:1px solid ${color}44;
+        border-radius:3px;display:flex;align-items:center;justify-content:center;
+        font-size:7px;color:${color};font-family:'JetBrains Mono',monospace">
+        T${r*8+c}</div>`;
+    }
+  }
+  html+=`</div>
+    <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap">
+    ${warpColors.map((c,i)=>`<span style="font-size:11px;color:${c}">■ Warp ${i}</span>`).join('')}
+    </div>
+  </div>`;
+  el.innerHTML = html;
+}
+
+// ─── PIPELINE ANIMATION ──────────────────────────────────────
+function renderPipelineAnim() {
+  const el = document.getElementById('pipeline-animation');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+
+  const stages = ['K=0','K=1','K=2','K=3','K=4','K=5','K=6','K=7'];
+  const rows = [
+    { label:'TMA Load', color:C.cya, ops:[0,1,2,3,4,5,6,7].map(k=>({k,active:true})) },
+    { label:'WGMMA', color:C.pur, ops:[0,1,2,3,4,5,6,7].map(k=>({k,active:true,delay:1})) },
+  ];
+
+  let html = `<div style="overflow-x:auto;margin:14px 0">
+    <div style="min-width:600px">
+    <div style="display:grid;grid-template-columns:100px repeat(${stages.length},1fr);
+      gap:3px;align-items:center">
+    <div></div>
+    ${stages.map(s=>`<div style="text-align:center;font-size:10px;color:${C.fg3};
+      font-family:'JetBrains Mono',monospace;padding:4px">${s}</div>`).join('')}`;
+
+  const pipeRows = [
+    { label:'TMA(0)', color:C.cya, slots:[1,1,1,1,1,1,1,0] },
+    { label:'TMA(1)', color:C.cya, slots:[0,1,1,1,1,1,1,1] },
+    { label:'WGMMA', color:C.pur, slots:[0,0,1,1,1,1,1,1] },
+    { label:'Epilog', color:C.grn, slots:[0,0,0,0,0,0,0,1] },
+  ];
+  pipeRows.forEach(row => {
+    html+=`<div style="font-size:10px;color:${row.color};text-align:right;padding-right:8px;
+      font-family:'JetBrains Mono',monospace">${row.label}</div>`;
+    row.slots.forEach(s => {
+      html+=`<div style="height:28px;border-radius:4px;
+        background:${s?row.color+'33':C.bg3};
+        border:1px solid ${s?row.color+'66':C.line};
+        display:flex;align-items:center;justify-content:center">
+        ${s?`<span style="font-size:9px;color:${row.color}">●</span>`:''}
+      </div>`;
+    });
+  });
+
+  html += `</div>
+    <div style="margin-top:10px;font-size:12px;color:${C.fg2}">
+      TMA 比 WGMMA 领先 1个tile预取（Prologue），实现计算与搬运的完全重叠。
+      箭头方向：时间轴从左到右，每列是一个 K-tile 的时间片。
+    </div>
+  </div></div>`;
+  el.innerHTML = html;
+}
+
+// ─── BLACKWELL HIERARCHY ─────────────────────────────────────
+function renderBWHierarchy() {
+  const el = document.getElementById('bw-hierarchy-diagram');
+  if (!el || el.dataset.rendered) return;
+  el.dataset.rendered = '1';
+
+  const levels = [
+    { label:'FP4 Element (E2M1)', detail:'4 bit/元素', color:C.red, indent:0 },
+    { label:'Block (16 elements)', detail:'16×4bit = 8B + 1×FP32 scale', color:C.amb, indent:20 },
+    { label:'MMA Tile (64×128)', detail:'UMMA atom：64×128 FP4 + block scales', color:C.pur, indent:40 },
+    { label:'WarpGroup Tile (128×256)', detail:'2×2 atoms，1个 Warpgroup（128线程）', color:C.acc, indent:60 },
+    { label:'Thread Block Tile (256×256)', detail:'2 WGs，TMA 多级预取', color:C.grn, indent:80 },
+  ];
+  let html = `<div style="margin:12px 0">`;
+  levels.forEach(l => {
+    html+=`<div style="margin-left:${l.indent}px;margin-bottom:6px;
+      background:${C.bg3};border:1px solid ${l.color}44;border-left:3px solid ${l.color};
+      border-radius:0 8px 8px 0;padding:8px 14px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${l.color};font-weight:500">${l.label}</span>
+      <span style="font-size:11px;color:${C.fg3}">${l.detail}</span>
+    </div>`;
+  });
+  html+=`</div>`;
+  el.innerHTML = html;
+}
+
+// ─── MEMORY HIERARCHY DIAGRAM ─────────────────────────────────
+function renderMemHierarchy() {
+  const el = document.getElementById('memory-hierarchy-diagram');
+  if(!el || el.dataset.rendered) return;
+  el.dataset.rendered='1';
+
+  const levels = [
+    { label:'Register File', bw:'~80 TB/s/SM', lat:'0 cycle', size:'256KB/SM', color:C.grn, w:100 },
+    { label:'L1 / Shared Memory', bw:'~33 TB/s/SM', lat:'~23 cycle', size:'228KB/SM', color:C.acc, w:75 },
+    { label:'L2 Cache', bw:'~12 TB/s', lat:'~200 cycle', size:'50 MB', color:C.pur, w:55 },
+    { label:'HBM3 (DRAM)', bw:'3.35 TB/s', lat:'~700 cycle', size:'80 GB', color:C.red, w:35 },
+  ];
+  let html = `<div style="margin:14px 0">`;
+  levels.forEach(l => {
+    html+=`<div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
+        <span style="color:${l.color};font-family:'JetBrains Mono',monospace;font-weight:500">${l.label}</span>
+        <span style="color:${C.fg3}">${l.size} &nbsp;|&nbsp; ${l.lat} &nbsp;|&nbsp; ${l.bw}</span>
+      </div>
+      <div style="height:8px;background:${C.bg3};border-radius:4px;overflow:hidden;border:1px solid ${C.line}">
+        <div style="width:${l.w}%;height:100%;background:${l.color}55;border-radius:4px;
+          transition:width 1s"></div>
+      </div>
+    </div>`;
+  });
+  html+=`</div>`;
+  el.innerHTML = html;
+}
+
+// ─── INITIAL RENDER ───────────────────────────────────────────
+renderLayoutOps();
+</script>
+</body>
+</html>

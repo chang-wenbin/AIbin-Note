@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CuTe Swizzle 学习手册</title>
+<style>
+:root{
+  --bg:#ffffff;--bg2:#f5f4f0;--bg3:#ebebea;
+  --fg:#1a1a18;--fg2:#3d3d3a;--fg3:#73726c;
+  --bd:rgba(0,0,0,0.1);--bd2:rgba(0,0,0,0.18);
+  --acc:#185fa5;--acc-bg:#e6f1fb;--acc-lt:#b5d4f4;
+  --red:#a32d2d;--red-bg:#fcebeb;--red-lt:#f7c1c1;
+  --grn:#3b6d11;--grn-bg:#eaf3de;--grn-lt:#c0dd97;
+  --amb:#854f0b;--amb-bg:#faeeda;--amb-lt:#fac775;
+  --pur:#3c3489;--pur-bg:#eeedfe;--pur-lt:#cecbf6;
+  --r:8px;--font:system-ui,-apple-system,sans-serif;--mono:'Menlo','Monaco','Consolas',monospace;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#1a1a18;--bg2:#252523;--bg3:#2e2e2c;
+    --fg:#e8e6de;--fg2:#c2c0b6;--fg3:#888780;
+    --bd:rgba(255,255,255,0.1);--bd2:rgba(255,255,255,0.18);
+    --acc:#85b7eb;--acc-bg:#042c53;--acc-lt:#185fa5;
+    --red:#f09595;--red-bg:#501313;--red-lt:#a32d2d;
+    --grn:#97c459;--grn-bg:#173404;--grn-lt:#3b6d11;
+    --amb:#ef9f27;--amb-bg:#412402;--amb-lt:#854f0b;
+    --pur:#afa9ec;--pur-bg:#26215c;--pur-lt:#534ab7;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font);background:var(--bg);color:var(--fg);line-height:1.75;font-size:15px;}
+h1{font-size:22px;font-weight:500;margin-bottom:4px;}
+h2{font-size:18px;font-weight:500;margin:28px 0 12px;}
+h3{font-size:15px;font-weight:500;margin:20px 0 8px;}
+p{color:var(--fg2);margin-bottom:12px;}
+.wrap{max-width:960px;margin:0 auto;padding:28px 24px;}
+/* NAV TABS */
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--bd);margin-bottom:28px;padding-bottom:0;}
+.tab{padding:8px 16px;border:none;background:none;cursor:pointer;color:var(--fg3);font-size:14px;font-family:var(--font);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s;}
+.tab.on{color:var(--acc);border-bottom-color:var(--acc);font-weight:500;}
+.tab:hover:not(.on){color:var(--fg2);}
+.sec{display:none;}.sec.on{display:block;}
+/* CARDS */
+.card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:18px;margin-bottom:16px;}
+.row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;}
+.row>.card{flex:1;min-width:220px;margin-bottom:0;}
+/* CODE */
+pre{font-family:var(--mono);font-size:12px;background:var(--bg3);padding:14px;border-radius:var(--r);border:1px solid var(--bd);line-height:1.9;overflow-x:auto;color:var(--fg2);white-space:pre;margin:12px 0;}
+code{font-family:var(--mono);font-size:12px;background:var(--bg3);padding:1px 5px;border-radius:4px;color:var(--fg2);}
+/* HIGHLIGHTS */
+.hi{color:var(--acc);font-weight:500;}
+.red{color:var(--red);}
+.grn{color:var(--grn);}
+.amb{color:var(--amb);}
+.pur{color:var(--pur);}
+/* BADGE */
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:500;}
+.badge-red{background:var(--red-bg);color:var(--red);}
+.badge-grn{background:var(--grn-bg);color:var(--grn);}
+.badge-acc{background:var(--acc-bg);color:var(--acc);}
+.badge-amb{background:var(--amb-bg);color:var(--amb);}
+/* BUTTON */
+.btn{padding:6px 14px;border:1px solid var(--bd2);background:var(--bg2);color:var(--fg2);border-radius:var(--r);cursor:pointer;font-size:13px;font-family:var(--font);transition:background .1s;}
+.btn:hover{background:var(--bg3);}
+.btn.on{background:var(--acc-bg);color:var(--acc);border-color:var(--acc-lt);}
+/* TABLE */
+table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0;}
+th{text-align:left;padding:8px 12px;background:var(--bg3);color:var(--fg2);font-weight:500;border:1px solid var(--bd);}
+td{padding:8px 12px;border:1px solid var(--bd);color:var(--fg2);vertical-align:top;}
+/* BANK GRID */
+.bank-grid{display:grid;gap:2px;width:100%;margin:10px 0;}
+.cell{width:100%;padding-top:100%;position:relative;border-radius:3px;cursor:default;}
+.cell-in{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-family:var(--mono);font-weight:500;border-radius:3px;}
+/* BIT DIAGRAM */
+.bit-row{display:flex;gap:2px;align-items:center;margin:4px 0;font-family:var(--mono);font-size:12px;}
+.bit-box{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:4px;border:1.5px solid var(--bd);font-size:11px;font-weight:500;position:relative;}
+.bit-label{font-size:10px;color:var(--fg3);text-align:center;width:28px;}
+.arrow-svg{overflow:visible;}
+/* CONFLICT INDICATOR */
+.conflict-bar{height:8px;border-radius:4px;margin:2px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>CuTe Swizzle 学习手册</h1>
+<p style="margin-bottom:20px;color:var(--fg3)">从 Bank 冲突原理到 Sw&lt;3,4,3&gt; vs Sw&lt;3,3,3&gt; 的完整指南</p>
+
+<div class="tabs">
+  <button class="tab on" onclick="nav(0)">① Bank 冲突基础</button>
+  <button class="tab" onclick="nav(1)">② Swizzle 原理</button>
+  <button class="tab" onclick="nav(2)">③ B/M/S 参数详解</button>
+  <button class="tab" onclick="nav(3)">④ 架构对比</button>
+  <button class="tab" onclick="nav(4)">⑤ CuTe 实战代码</button>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 1: BANK CONFLICT BASICS -->
+<!-- ============================================================ -->
+<div class="sec on" id="s0">
+<h2>什么是 Shared Memory Bank 冲突？</h2>
+
+<div class="row">
+  <div class="card">
+    <h3>Shared Memory 的 Bank 结构</h3>
+    <p>GPU 的 Shared Memory 被分成 <strong>32 个 Bank</strong>，每个 Bank 宽 <strong>4 字节</strong>，相邻地址交错分布：</p>
+    <div style="font-family:var(--mono);font-size:12px;background:var(--bg3);padding:12px;border-radius:var(--r);color:var(--fg2)">
+      Bank 0: 字节  0- 3,  128-131, 256-259 ...<br>
+      Bank 1: 字节  4- 7,  132-135, 260-263 ...<br>
+      Bank 2: 字节  8-11,  136-139, 264-267 ...<br>
+      ···<br>
+      Bank 31: 字节 124-127, 252-255, 380-383 ...
+    </div>
+    <p style="margin-top:12px">Bank 编号公式：<code>bank = (byte_addr / 4) % 32</code></p>
+  </div>
+  <div class="card">
+    <h3>什么情况下产生冲突？</h3>
+    <p><strong class="red">冲突</strong>：一个 Warp（32个线程）中，<strong>多个线程</strong>访问<strong>同一个 Bank</strong> 的<strong>不同地址</strong>时，硬件被迫串行化这些访问。</p>
+    <p><span class="badge badge-grn">✓ 无冲突</span> 每个线程访问不同 Bank</p>
+    <p><span class="badge badge-acc">✓ 广播</span> 所有线程访问同一 Bank 的相同地址（广播，无冲突）</p>
+    <p><span class="badge badge-red">✗ N路冲突</span> N 个线程访问同一 Bank 的不同地址 → 性能降低 N 倍</p>
+  </div>
+</div>
+
+<h2>冲突的典型场景：矩阵列访问</h2>
+<p>以 <strong>8行 × 32列</strong> 的 float32 矩阵存入 Shared Memory 为例（共1024字节）：</p>
+<p>元素 <code>(row, col)</code> 的 Bank = <code>(row×32 + col) % 32 = col</code>（因为 32%32=0，row 无贡献）</p>
+
+<div class="card">
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+    <strong style="font-size:14px">访问模式：</strong>
+    <button class="btn on" id="acc-row" onclick="setAccess('row')">读取第 0 行（无冲突）</button>
+    <button class="btn" id="acc-col" onclick="setAccess('col')">读取第 0 列（8路冲突！）</button>
+  </div>
+  <div id="bank-demo"></div>
+  <div id="conflict-summary" style="margin-top:10px;font-size:13px;color:var(--fg2)"></div>
+</div>
+
+<div class="row">
+  <div class="card" style="background:var(--red-bg);border-color:var(--red-lt)">
+    <h3 class="red">为什么列访问必然冲突？</h3>
+    <p>读第 0 列：线程 t 读 <code>(t, 0)</code>，Bank = <code>t×32 % 32 = 0</code> — <strong>全部落在 Bank 0！</strong></p>
+    <p>这是 stride = 32 × sizeof(float32) = 128字节 = 32个 Bank 的整数倍导致的。这种 stride 直接让每一行的起始 Bank 完全相同，所有行同一列的元素挤进同一个 Bank。</p>
+  </div>
+  <div class="card" style="background:var(--grn-bg);border-color:var(--grn-lt)">
+    <h3 class="grn">行访问为什么没问题？</h3>
+    <p>读第 0 行：线程 t 读 <code>(0, t)</code>，Bank = <code>t</code> — 线程 0→Bank 0，线程 1→Bank 1 ... 线程 31→Bank 31，完美无冲突。</p>
+    <p>但在 GEMM 中，我们通常需要同时在行和列方向高效访问矩阵，单靠行主序布局做不到两全其美。</p>
+  </div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 2: SWIZZLE PRINCIPLE -->
+<!-- ============================================================ -->
+<div class="sec" id="s1">
+<h2>Swizzle：用 XOR 打散 Bank 分配</h2>
+
+<p>Swizzle 的核心思想：<strong>将元素的行号的部分 bit 与列号的部分 bit 做 XOR</strong>，使每一行的起始 Bank 各不相同，从而消除冲突。</p>
+
+<div class="card">
+  <h3>XOR 的几何意义</h3>
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <p>原始：<code>bank(r, c) = c % 32</code><br>→ 每行 Bank 分配完全相同，列访问必然冲突</p>
+      <p>Swizzle 后：<code>bank(r, c) = (c XOR r×k) % 32</code><br>→ 每行的 Bank 分配被整体偏移，所有行 Bank 各不同</p>
+    </div>
+    <div style="flex:2;min-width:280px">
+      <svg id="xor-svg" width="100%" viewBox="0 0 460 110" style="font-family:var(--mono)"></svg>
+    </div>
+  </div>
+</div>
+
+<h2>交互演示：有无 Swizzle 的对比</h2>
+<div class="card">
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+    <strong>矩阵：8×32 float32 &nbsp;|&nbsp; 访问：读第 0 列</strong>
+    <button class="btn on" id="sw-off" onclick="setSw(false)">无 Swizzle</button>
+    <button class="btn" id="sw-on" onclick="setSw(true)">Swizzle&lt;3,2,3&gt;</button>
+  </div>
+  <div id="swizzle-demo"></div>
+  <div id="sw-summary" style="margin-top:10px;font-size:13px"></div>
+</div>
+
+<h2>Swizzle 数学公式</h2>
+<div class="card">
+  <p style="font-size:15px;margin-bottom:8px">对线性索引 <code>x</code>，Swizzle&lt;B, M, S&gt; 的变换：</p>
+  <div style="font-size:18px;font-family:var(--mono);padding:12px;background:var(--bg3);border-radius:var(--r);color:var(--fg);margin-bottom:12px">
+    swizzle(x) = x &nbsp;<span class="pur">XOR</span>&nbsp; ( ((x &gt;&gt; (M+S)) &amp; mask) &lt;&lt; M )
+  </div>
+  <p>其中 <code>mask = (1 &lt;&lt; B) - 1</code>，提取 B 个 bit。</p>
+  <p><strong>等价描述：</strong>把 x 的 <span class="acc">高位段</span>（从位置 M+S 起的 B 个 bit）XOR 进 x 的 <span class="pur">低位段</span>（从位置 M 起的 B 个 bit）。其余 bit 不变。</p>
+  <div id="formula-demo" style="margin-top:16px"></div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 3: PARAMETER DETAIL -->
+<!-- ============================================================ -->
+<div class="sec" id="s2">
+<h2>Swizzle&lt;B, M, S&gt; 三个参数的含义</h2>
+
+<div class="row">
+  <div class="card" style="background:var(--pur-bg);border-color:var(--pur-lt)">
+    <h3 class="pur">B — Bits（位宽）</h3>
+    <p>参与 XOR 的 bit 数，决定 Swizzle 的<strong>周期</strong>。<br>周期 = 2<sup>B</sup> 行，之后模式重复。</p>
+    <p>常见值：<code>B=3</code>（8行为一个周期，足够覆盖32个bank的差异）</p>
+  </div>
+  <div class="card" style="background:var(--acc-bg);border-color:var(--acc-lt)">
+    <h3 class="hi">M — Min/Base（基底偏移）</h3>
+    <p>被 XOR 改写的那段 bit 的<strong>起始位置</strong>，决定 Swizzle 的<strong>最小操作粒度</strong> = 2<sup>M</sup> 字节。</p>
+    <p><code>M=4</code> → 16字节粒度（128-bit对齐，匹配 LDG.128 / TMA）<br>
+       <code>M=3</code> → 8字节粒度（64-bit对齐，匹配 LDG.64）</p>
+  </div>
+  <div class="card" style="background:var(--amb-bg);border-color:var(--amb-lt)">
+    <h3 class="amb">S — Shift（行间跨度）</h3>
+    <p>从"被改写段"到"XOR源段"之间的 bit 距离，关联到矩阵的<strong>行宽</strong>。</p>
+    <p>S 越大 → Swizzle 在行方向上的"步伐"越大，适合更宽的矩阵。<br>常见值：<code>S=3</code>，意味着 M+S 位置往上的3 bit 是行号。</p>
+  </div>
+</div>
+
+<h2>交互式 Bit 图</h2>
+<div class="card">
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    <button class="btn on" id="p-343" onclick="setParam(3,4,3)">Sw&lt;3,4,3&gt; (128B)</button>
+    <button class="btn" id="p-333" onclick="setParam(3,3,3)">Sw&lt;3,3,3&gt; (64B)</button>
+    <button class="btn" id="p-323" onclick="setParam(3,2,3)">Sw&lt;3,2,3&gt; (32B)</button>
+    <button class="btn" id="p-223" onclick="setParam(2,2,3)">Sw&lt;2,2,3&gt;</button>
+  </div>
+  <div id="bit-diagram"></div>
+</div>
+
+<h2>不同矩阵配置的选择指南</h2>
+<table>
+  <tr><th>数据类型</th><th>每行列数 K</th><th>每行字节数</th><th>推荐 Swizzle</th><th>原因</th></tr>
+  <tr><td>float16</td><td>64</td><td>128B</td><td><code>Sw&lt;3,3,3&gt;</code></td><td>64元素对应64bit粒度</td></tr>
+  <tr><td>float16</td><td>128</td><td>256B</td><td><code>Sw&lt;3,4,3&gt;</code></td><td>128bit向量化加载，TMA标配</td></tr>
+  <tr><td>float32</td><td>32</td><td>128B</td><td><code>Sw&lt;3,4,3&gt;</code></td><td>128B = 16字节粒度</td></tr>
+  <tr><td>float32</td><td>16</td><td>64B</td><td><code>Sw&lt;3,3,3&gt;</code></td><td>64B = 8字节粒度</td></tr>
+  <tr><td>bfloat16</td><td>128</td><td>256B</td><td><code>Sw&lt;3,4,3&gt;</code></td><td>同 float16 × 128</td></tr>
+</table>
+
+<h2>Swizzle 模式热力图</h2>
+<p>下图显示对应 Swizzle 参数下，每个元素实际映射到的 Bank 编号（颜色 = Bank，每行颜色各异表示无冲突）：</p>
+<div class="card">
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+    <button class="btn on" id="h-343" onclick="setHeat(3,4,3,'h-343')">Sw&lt;3,4,3&gt;</button>
+    <button class="btn" id="h-333" onclick="setHeat(3,3,3,'h-333')">Sw&lt;3,3,3&gt;</button>
+    <button class="btn" id="h-none" onclick="setHeat(0,0,0,'h-none')">无 Swizzle</button>
+  </div>
+  <div id="heatmap"></div>
+  <div id="heatmap-legend" style="margin-top:8px;font-size:12px;color:var(--fg3)"></div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 4: ARCHITECTURE COMPARISON -->
+<!-- ============================================================ -->
+<div class="sec" id="s3">
+<h2>Sw&lt;3,4,3&gt; vs Sw&lt;3,3,3&gt;：架构与场景差异</h2>
+
+<div class="row">
+  <div class="card">
+    <h3>Sw&lt;3,4,3&gt; — 128-Byte Swizzle</h3>
+    <div style="margin-bottom:10px"><span class="badge badge-acc">H100 / A100 TMA</span> <span class="badge badge-acc">WGMMA</span> <span class="badge badge-acc">cp.async 128bit</span></div>
+    <p><strong>Bit 操作：</strong>bit[4:7] XOR bit[7:10]</p>
+    <p><strong>粒度：</strong>2<sup>4</sup> = 16 字节（128-bit）</p>
+    <p><strong>适配场景：</strong>每次读取128bit（4个float32 或 8个float16），与 LDG.128 / cp.async.cg / TMA 对齐。</p>
+    <p><strong>矩阵宽度要求：</strong>行宽 ≥ 2<sup>M+S</sup> × dtype = 2<sup>7</sup> × 2bytes = 256 bytes（float16 需 K≥128）</p>
+    <div id="bit-343" style="margin-top:12px"></div>
+  </div>
+  <div class="card">
+    <h3>Sw&lt;3,3,3&gt; — 64-Byte Swizzle</h3>
+    <div style="margin-bottom:10px"><span class="badge badge-amb">A100 cp.async 64bit</span> <span class="badge badge-amb">较窄矩阵</span></div>
+    <p><strong>Bit 操作：</strong>bit[3:6] XOR bit[6:9]</p>
+    <p><strong>粒度：</strong>2<sup>3</sup> = 8 字节（64-bit）</p>
+    <p><strong>适配场景：</strong>每次读取64bit（2个float32 或 4个float16）。</p>
+    <p><strong>矩阵宽度要求：</strong>行宽 ≥ 2<sup>6</sup> × 2bytes = 128 bytes（float16 需 K≥64）</p>
+    <div id="bit-333" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<h2>具体区别：在 K=64 float16 矩阵上的对比</h2>
+<div class="card">
+  <p>矩阵：8行 × 64列 float16（每行128字节）。读取第0列时，各行访问的 Bank：</p>
+  <div id="arch-compare"></div>
+</div>
+
+<h2>架构总结表</h2>
+<table>
+  <tr><th>特性</th><th>Sw&lt;3,4,3&gt;</th><th>Sw&lt;3,3,3&gt;</th></tr>
+  <tr><td>XOR 的 bit 位置</td><td>bit[4:7] ← bit[7:10]</td><td>bit[3:6] ← bit[6:9]</td></tr>
+  <tr><td>操作粒度</td><td>16 字节（128-bit）</td><td>8 字节（64-bit）</td></tr>
+  <tr><td>Swizzle 生效的最小行宽</td><td>128 元素（float16）/ 64 元素（float32）</td><td>64 元素（float16）/ 32 元素（float32）</td></tr>
+  <tr><td>H100 TMA descriptor</td><td><span class="badge badge-grn">标配 ✓</span></td><td>可用，但较少见</td></tr>
+  <tr><td>A100 cp.async 128bit</td><td><span class="badge badge-grn">推荐 ✓</span></td><td>也可用</td></tr>
+  <tr><td>WGMMA smem layout</td><td><span class="badge badge-grn">匹配 ✓</span></td><td>需验证</td></tr>
+  <tr><td>32bit 访问（LDG.32）</td><td>不推荐</td><td><span class="badge badge-grn">更合适</span></td></tr>
+</table>
+
+<div class="card" style="background:var(--acc-bg);border-color:var(--acc-lt);margin-top:16px">
+  <h3 class="hi">一句话记忆法</h3>
+  <p><strong>M 决定粒度，S 决定行宽匹配，B 决定周期深度（通常固定为3）。</strong></p>
+  <p>H100 + TMA + float16/bfloat16 + K=128 → 首选 <code>Sw&lt;3,4,3&gt;</code>。<br>
+  A100 + cp.async + float16 + K=64 → 首选 <code>Sw&lt;3,3,3&gt;</code>。</p>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 5: CODE USAGE -->
+<!-- ============================================================ -->
+<div class="sec" id="s4">
+<h2>CuTe 中如何使用 Swizzle</h2>
+
+<h3>① 创建 Swizzled Layout</h3>
+<pre><span style="color:var(--fg3)">// 方式1：composition 直接组合 Swizzle 和 Layout</span>
+using SwizzleAtom = Swizzle&lt;3, 4, 3&gt;;
+
+<span style="color:var(--fg3)">// 128列 float16 的 swizzled smem layout</span>
+auto smem_layout = composition(
+    SwizzleAtom{},
+    make_layout(
+        make_shape (_128{}, _64{}),   <span style="color:var(--fg3)">// 128行, 64列（K方向）</span>
+        make_stride( _64{},  _1{})    <span style="color:var(--fg3)">// 行主序</span>
+    )
+);
+
+<span style="color:var(--fg3)">// 等价的简化写法（CuTe 内置的 swizzled layout helper）</span>
+using SmemLayoutA = decltype(composition(
+    Swizzle&lt;3, 4, 3&gt;{},
+    Layout&lt;Shape&lt;_128, _64&gt;, Stride&lt;_64, _1&gt;&gt;{}
+));</pre>
+
+<h3>② 在 Shared Memory Tensor 上使用</h3>
+<pre><span style="color:var(--fg3)">// 声明 smem 指针</span>
+extern __shared__ half_t smem_buf[];
+auto sA = make_tensor(make_smem_ptr(smem_buf), smem_layout);
+
+<span style="color:var(--fg3)">// 访问元素：CuTe 自动处理 swizzle 的地址计算</span>
+auto elem = sA(row, col);  <span style="color:var(--fg3)">// 逻辑坐标，物理地址已 swizzled</span></pre>
+
+<h3>③ H100 TMA + Swizzle（最常见用法）</h3>
+<pre><span style="color:var(--fg3)">// TMA descriptor 携带 swizzle 信息</span>
+auto tma_load_A = make_tma_copy(
+    SM90_TMA_LOAD{},
+    tensor_A,                          <span style="color:var(--fg3)">// global memory tensor</span>
+    smem_layout_A.layout(),            <span style="color:var(--fg3)">// swizzled smem layout</span>
+    make_shape(bM, bK),               <span style="color:var(--fg3)">// tile shape</span>
+    Int&lt;1&gt;{}                          <span style="color:var(--fg3)">// multicast count</span>
+);
+
+<span style="color:var(--fg3)">// Kernel 内部：TMA load 自动 swizzle</span>
+copy(tma_load_A, tma_coord, sA);       <span style="color:var(--fg3)">// 触发异步 TMA，结果直接写入 swizzled smem</span></pre>
+
+<h3>④ 用 make_smem_layout_A 的便捷宏（CUTLASS风格）</h3>
+<pre><span style="color:var(--fg3)">// CUTLASS 中常见的 smem layout 生成方式</span>
+using SmemLayoutAtomA = decltype(
+    composition(Swizzle&lt;3, 4, 3&gt;{},
+                Layout&lt;Shape &lt;_8,_64&gt;,
+                       Stride&lt;_64, _1&gt;&gt;{})
+);
+
+<span style="color:var(--fg3)">// 然后用 tiled 方式铺开整个 smem tile</span>
+using SmemLayoutA = decltype(
+    tile_to_shape(SmemLayoutAtomA{},
+                  Shape&lt;Int&lt;kM&gt;, Int&lt;kK&gt;&gt;{})
+);</pre>
+
+<h3>⑤ WGMMA 配合 Swizzle 的完整流程</h3>
+<pre><span style="color:var(--fg3)">// 1. 定义 MMA operation</span>
+using MmaOp = SM90_64x128x16_F32BF16BF16_SS&lt;GMMA::Major::K&gt;;
+using TiledMma = TiledMMA&lt;
+    MMA_Atom&lt;MmaOp&gt;,
+    Layout&lt;Shape&lt;_2,_2,_1&gt;&gt;,          <span style="color:var(--fg3)">// warpgroup tiling</span>
+    Tile&lt;_128,_128,_64&gt;               <span style="color:var(--fg3)">// MN K tile</span>
+&gt;;
+
+<span style="color:var(--fg3)">// 2. 定义 Swizzled smem layout（必须与 WGMMA 期望的 layout 匹配）</span>
+using SmemLayoutA = decltype(composition(
+    Swizzle&lt;3, 4, 3&gt;{},
+    Layout&lt;Shape&lt;_128, _64&gt;, Stride&lt;_64, _1&gt;&gt;{}
+));
+
+<span style="color:var(--fg3)">// 3. Kernel 内：TMA load → smem（自动 swizzle），smem → WGMMA</span>
+__shared__ bf16 smem_A[128 * 64];
+auto sA = make_tensor(make_smem_ptr(smem_A), SmemLayoutA{});
+
+copy(tma_load_A, tAgA, sA);           <span style="color:var(--fg3)">// async TMA load</span>
+cute::cp_async_fence();
+
+gemm(tiled_mma, tCrA, tCrB, tCrC);   <span style="color:var(--fg3)">// WGMMA 读 smem，无 bank 冲突</span></pre>
+
+<h3>⑥ 如何验证 Swizzle 是否正确消除冲突</h3>
+<pre><span style="color:var(--fg3)">// CuTe 提供的 layout print 工具</span>
+print_layout(smem_layout);   <span style="color:var(--fg3)">// 打印 layout 的坐标映射关系</span>
+
+<span style="color:var(--fg3)">// 检查任意一行的 bank 分配：</span>
+for (int c = 0; c &lt; K; ++c) {
+    int offset = smem_layout(0, c);   <span style="color:var(--fg3)">// swizzled linear offset</span>
+    int bank   = (offset * sizeof(T) / 4) % 32;
+    printf("col=%d bank=%d\n", c, bank);
+}
+<span style="color:var(--fg3)">// 正确时：同一行中，每32个元素组内没有重复 bank</span></pre>
+
+<div class="card" style="background:var(--amb-bg);border-color:var(--amb-lt);margin-top:16px">
+  <h3 class="amb">⚠ 常见踩坑点</h3>
+  <table style="margin:8px 0 0">
+    <tr><th>问题</th><th>原因</th><th>解决</th></tr>
+    <tr><td>WGMMA 结果错误</td><td>smem layout 的 swizzle 与 MMA atom 期望不匹配</td><td>使用 CUTLASS 推荐的 SmemLayoutAtom</td></tr>
+    <tr><td>TMA store 地址错误</td><td>store 的 swizzle descriptor 与 load 不同</td><td>store/load 用同一个 smem_layout</td></tr>
+    <tr><td>Sm80 用了 Sm90 的 swizzle</td><td>H100 的 Sw&lt;3,4,3&gt; 在 A100 cp.async 下 bank 分配错误</td><td>根据架构和向量宽度选择 M 值</td></tr>
+    <tr><td>矩阵太窄，swizzle 没效果</td><td>行宽 &lt; 2<sup>M+S</sup> × dtype，高位 bit 始终为0</td><td>换用更小 S 的 swizzle，或 padding</td></tr>
+  </table>
+</div>
+</div>
+
+</div><!-- /wrap -->
+
+<script>
+// ============================================================
+// CORE SWIZZLE LOGIC
+// ============================================================
+function swizzleIdx(B, M, S, x) {
+  if (B === 0) return x;
+  const mask = (1 << B) - 1;
+  return x ^ (((x >> (M + S)) & mask) << M);
+}
+function bank(elemIdx, dtypeBytes) {
+  return ((elemIdx * dtypeBytes) >> 2) & 31;
+}
+function bankSwizzled(B, M, S, elemIdx, dtypeBytes) {
+  return bank(swizzleIdx(B, M, S, elemIdx), dtypeBytes);
+}
+
+// 32 bank colors
+function bankColor(b) {
+  const hue = Math.round(b * 360 / 32);
+  return `hsl(${hue}, 60%, 52%)`;
+}
+function bankColorDark(b) {
+  const hue = Math.round(b * 360 / 32);
+  return `hsl(${hue}, 50%, 30%)`;
+}
+function getBankColor(b) {
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? bankColorDark(b) : bankColor(b);
+}
+
+// ============================================================
+// SECTION 1: BANK DEMO
+// ============================================================
+let accessMode = 'row';
+function setAccess(mode) {
+  accessMode = mode;
+  document.getElementById('acc-row').classList.toggle('on', mode==='row');
+  document.getElementById('acc-col').classList.toggle('on', mode==='col');
+  renderBankDemo();
+}
+
+function renderBankDemo() {
+  const ROWS = 8, COLS = 32;
+  const accessed = {};
+  const conflicts = new Set();
+  const bankToThreads = {};
+
+  for (let t = 0; t < 32; t++) {
+    let r, c;
+    if (accessMode === 'row') { r = 0; c = t; }
+    else { r = t % ROWS; c = 0; }
+    if (r >= ROWS) continue;
+    const b = (r * COLS + c) % 32;
+    const key = `${r},${c}`;
+    accessed[key] = { thread: t, bank: b };
+    if (!bankToThreads[b]) bankToThreads[b] = [];
+    bankToThreads[b].push({ r, c, t });
+  }
+  for (const b in bankToThreads) {
+    if (bankToThreads[b].length > 1) {
+      bankToThreads[b].forEach(({r,c}) => conflicts.add(`${r},${c}`));
+    }
+  }
+
+  const cellW = Math.floor(100 / COLS);
+  let html = `<div class="bank-grid" style="grid-template-columns:repeat(${COLS},1fr)">`;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const b = (r * COLS + c) % 32;
+      const key = `${r},${c}`;
+      const isAccessed = !!accessed[key];
+      const isConflict = conflicts.has(key);
+      let bg, color, border;
+      if (isConflict) {
+        bg = '#a32d2d'; color = '#fff'; border = '2px solid #7a1f1f';
+      } else if (isAccessed) {
+        bg = '#3b6d11'; color = '#fff'; border = '2px solid #27500a';
+      } else {
+        bg = getBankColor(b); color = '#fff'; border = '1px solid rgba(0,0,0,0.1)';
+      }
+      const th = accessed[key] ? accessed[key].thread : '';
+      const label = isAccessed ? (isConflict ? '⚠' : `T${th}`) : b;
+      html += `<div class="cell" title="bank=${b} elem=(${r},${c})">
+        <div class="cell-in" style="background:${bg};color:${color};border:${border};font-size:${isAccessed?8:8}px">${label}</div></div>`;
+    }
+  }
+  html += '</div>';
+
+  // Legend
+  const maxConflict = Math.max(...Object.values(bankToThreads).map(a=>a.length), 0);
+  let summary = '';
+  if (accessMode === 'row') {
+    summary = '<span class="grn">✓ 无冲突！</span> 每个线程访问不同 Bank（0..31），完美分布。';
+  } else {
+    const conflictBanks = Object.keys(bankToThreads).filter(b=>bankToThreads[b].length>1);
+    summary = `<span class="red">⚠ ${maxConflict}路 Bank 冲突！</span> Bank ${conflictBanks.join(', ')} 各有 ${maxConflict} 个线程竞争。Shared Memory 吞吐降低 ${maxConflict}×。`;
+  }
+  document.getElementById('bank-demo').innerHTML = html;
+  document.getElementById('conflict-summary').innerHTML = summary;
+}
+
+// ============================================================
+// SECTION 2: SWIZZLE DEMO
+// ============================================================
+let useSwizzle = false;
+function setSw(sw) {
+  useSwizzle = sw;
+  document.getElementById('sw-off').classList.toggle('on', !sw);
+  document.getElementById('sw-on').classList.toggle('on', sw);
+  renderSwizzleDemo();
+}
+
+function renderSwizzleDemo() {
+  const ROWS = 8, COLS = 32;
+  const B = 3, M = 2, S = 3;
+  const bankToThreads = {};
+
+  let html = `<div class="bank-grid" style="grid-template-columns:repeat(${COLS},1fr)">`;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const idx = r * COLS + c;
+      const b = useSwizzle ? bankSwizzled(B, M, S, idx, 4) : bank(idx, 4);
+      if (c === 0) { // Thread t reads col 0, row t
+        if (!bankToThreads[b]) bankToThreads[b] = [];
+        bankToThreads[b].push(r);
+      }
+      const isAccessed = c === 0;
+      const label = isAccessed ? `T${r}` : b;
+      const bg = isAccessed ? getBankColor(b) : getBankColor(b);
+      const border = isAccessed ? '2px solid rgba(0,0,0,0.4)' : '1px solid rgba(0,0,0,0.05)';
+      const opacity = isAccessed ? 1 : 0.35;
+      html += `<div class="cell" title="bank=${b}"><div class="cell-in" style="background:${bg};opacity:${opacity};border:${border};color:#fff;font-size:8px">${isAccessed?label:b}</div></div>`;
+    }
+  }
+  html += '</div>';
+
+  const conflicts = Object.values(bankToThreads).filter(a=>a.length>1).length;
+  let summary;
+  if (useSwizzle) {
+    const banks = Object.keys(bankToThreads).sort((a,b)=>+a-+b).join(', ');
+    summary = `<span class="grn">✓ 无冲突！</span> 8个线程分别访问 Bank：${banks}。每个 Bank 仅被1个线程访问。`;
+  } else {
+    summary = `<span class="red">⚠ 8路冲突！</span> 所有线程访问 Bank 0（因为 col=0 的 bank = 0，与 row 无关）。吞吐降低 8×。`;
+  }
+  document.getElementById('swizzle-demo').innerHTML = html;
+  document.getElementById('sw-summary').innerHTML = summary;
+}
+
+// XOR SVG for section 2
+function renderXorSvg() {
+  const svg = document.getElementById('xor-svg');
+  if (!svg) return;
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const fg = dark ? '#c2c0b6' : '#3d3d3a';
+  const fg3 = dark ? '#888780' : '#73726c';
+  const acc = dark ? '#85b7eb' : '#185fa5';
+  const pur = dark ? '#afa9ec' : '#534ab7';
+  const grn = dark ? '#97c459' : '#3b6d11';
+  const red = dark ? '#f09595' : '#a32d2d';
+
+  svg.innerHTML = `
+<text x="10" y="20" font-size="11" fill="${fg3}">无 Swizzle：</text>
+<text x="10" y="40" font-size="12" font-family="var(--mono)" fill="${red}">bank(row=3, col=5) = 5</text>
+<text x="10" y="55" font-size="12" font-family="var(--mono)" fill="${red}">bank(row=7, col=5) = 5</text>
+<text x="250" y="40" font-size="11" fill="${red}">← 冲突！</text>
+
+<text x="10" y="80" font-size="11" fill="${fg3}">Swizzle后：</text>
+<text x="10" y="100" font-size="12" font-family="var(--mono)" fill="${grn}">bank(row=3, col=5) = 5 XOR (3×4) = 9</text>
+<text x="10" y="115" font-size="12" font-family="var(--mono)" fill="${grn}">bank(row=7, col=5) = 5 XOR (7×4) = 25</text>
+<text x="350" y="100" font-size="11" fill="${grn}">← 不同！</text>`;
+}
+
+// Formula demo for section 2
+function renderFormulaDemo() {
+  const el = document.getElementById('formula-demo');
+  if (!el) return;
+  // Show a concrete example: Sw<3,2,3> on x=32 (row=1, col=0 in 32-wide matrix)
+  const B=3,M=2,S=3,x=32;
+  const mask = (1<<B)-1;
+  const high = (x>>(M+S)) & mask;
+  const shifted = high << M;
+  const result = x ^ shifted;
+  el.innerHTML = `
+<p style="font-size:13px;color:var(--fg3)">例：Sw&lt;3,2,3&gt; 处理索引 x = 32（行1, 列0 的 8×32 矩阵）：</p>
+<div style="font-family:var(--mono);font-size:13px;padding:10px;background:var(--bg3);border-radius:var(--r)">
+  x = ${x} = 0b${x.toString(2).padStart(8,'0')}<br>
+  x &gt;&gt; (M+S) = ${x} &gt;&gt; ${M+S} = ${x>>(M+S)} &nbsp; <span style="color:var(--fg3)">(取高位行号 bits)</span><br>
+  (x&gt;&gt;${M+S}) & mask = ${x>>(M+S)} & ${mask} = ${high} &nbsp; <span style="color:var(--fg3)">(保留 B=${B} 个 bit)</span><br>
+  high &lt;&lt; M = ${high} &lt;&lt; ${M} = ${shifted} = 0b${shifted.toString(2).padStart(8,'0')}<br>
+  <strong>result = ${x} XOR ${shifted} = <span class="hi">${result}</span> = 0b${result.toString(2).padStart(8,'0')}</strong><br><br>
+  <span class="grn">bank(原始) = ${bank(x,4)}　→　bank(swizzled) = ${bank(result,4)}</span>
+</div>`;
+}
+
+// ============================================================
+// SECTION 3: BIT DIAGRAM
+// ============================================================
+let paramB=3, paramM=4, paramS=3;
+function setParam(B, M, S) {
+  paramB=B; paramM=M; paramS=S;
+  ['343','333','323','223'].forEach(id => {
+    const btn = document.getElementById(`p-${id}`);
+    if (btn) btn.classList.remove('on');
+  });
+  const key = `${B}${M}${S}`;
+  const btn = document.getElementById(`p-${key}`);
+  if (btn) btn.classList.add('on');
+  renderBitDiagram('bit-diagram', B, M, S, true);
+}
+
+function renderBitDiagram(containerId, B, M, S, interactive) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const NBITS = 11;
+
+  const colors = {
+    xor_src: '#185fa5',  // M+S to M+S+B-1
+    xor_dst: '#534ab7',  // M to M+B-1
+    other: '',
+  };
+
+  let bits = [];
+  for (let i = NBITS-1; i >= 0; i--) {
+    let role = 'other';
+    if (i >= M && i < M+B) role = 'dst';
+    if (i >= M+S && i < M+S+B) role = 'src';
+    if (i >= M && i < M+B && i >= M+S && i < M+S+B) role = 'both';
+    bits.push({ i, role });
+  }
+
+  const boxW = 28, gap = 2, total = NBITS * (boxW+gap);
+  const svgH = interactive ? 140 : 120;
+
+  let svg = `<svg width="100%" viewBox="0 0 ${total+20} ${svgH}" style="font-family:var(--mono);overflow:visible">`;
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const fg = dark ? '#c2c0b6' : '#3d3d3a';
+  const fg3 = dark ? '#888780' : '#73726c';
+
+  // Bit index labels (top)
+  bits.forEach(({i}, idx) => {
+    const x = 10 + idx*(boxW+gap) + boxW/2;
+    svg += `<text x="${x}" y="14" text-anchor="middle" font-size="9" fill="${fg3}">${i}</text>`;
+  });
+
+  // Bit boxes
+  bits.forEach(({i, role}, idx) => {
+    const x = 10 + idx*(boxW+gap);
+    const y = 20;
+    let fill, stroke, textColor;
+    if (role === 'src') {
+      fill = dark ? '#042c53' : '#e6f1fb'; stroke = '#185fa5'; textColor = '#185fa5';
+    } else if (role === 'dst') {
+      fill = dark ? '#26215c' : '#eeedfe'; stroke = '#534ab7'; textColor = '#534ab7';
+    } else if (role === 'both') {
+      fill = dark ? '#042c53' : '#e6f1fb'; stroke = '#185fa5'; textColor = '#185fa5';
+    } else {
+      fill = dark ? '#2a2a28' : '#f5f4f0'; stroke = dark ? '#444441' : '#d3d1c7'; textColor = fg3;
+    }
+    svg += `<rect x="${x}" y="${y}" width="${boxW}" height="${boxW}" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${role==='other'?0.8:1.5}"/>`;
+    svg += `<text x="${x+boxW/2}" y="${y+boxW/2+1}" text-anchor="middle" dominant-baseline="central" font-size="9" fill="${textColor}">b${i}</text>`;
+  });
+
+  // XOR arrows (from src bits to dst bits)
+  for (let b = 0; b < B; b++) {
+    const srcBit = M+S+b; // high bits
+    const dstBit = M+b;   // low bits
+    const srcIdx = NBITS - 1 - srcBit;
+    const dstIdx = NBITS - 1 - dstBit;
+    const srcX = 10 + srcIdx*(boxW+gap) + boxW/2;
+    const dstX = 10 + dstIdx*(boxW+gap) + boxW/2;
+    const y1 = 50, yMid = 75, y2 = 92;
+    svg += `<path d="M${srcX} ${y1} Q${srcX} ${yMid} ${dstX} ${y2}" fill="none" stroke="#185fa5" stroke-width="1.5" stroke-dasharray="4 2" marker-end="url(#arr)"/>`;
+  }
+
+  // XOR symbols
+  for (let b = 0; b < B; b++) {
+    const dstBit = M+b;
+    const dstIdx = NBITS - 1 - dstBit;
+    const dstX = 10 + dstIdx*(boxW+gap) + boxW/2;
+    svg += `<text x="${dstX}" y="110" text-anchor="middle" font-size="12" fill="#534ab7" font-weight="bold">⊕</text>`;
+  }
+
+  // Legend
+  svg += `<rect x="10" y="${svgH-24}" width="10" height="10" rx="2" fill="${dark?'#042c53':'#e6f1fb'}" stroke="#185fa5" stroke-width="1.2"/>`;
+  svg += `<text x="24" y="${svgH-16}" font-size="10" fill="${fg3}">XOR 源 (bit ${M+S}..${M+S+B-1})</text>`;
+  svg += `<rect x="160" y="${svgH-24}" width="10" height="10" rx="2" fill="${dark?'#26215c':'#eeedfe'}" stroke="#534ab7" stroke-width="1.2"/>`;
+  svg += `<text x="174" y="${svgH-16}" font-size="10" fill="${fg3}">XOR 目标 (bit ${M}..${M+B-1})</text>`;
+
+  svg += `<defs><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M2 1L8 5L2 9" fill="none" stroke="#185fa5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>`;
+  svg += '</svg>';
+
+  // Parameter description
+  let desc = `<div style="font-size:13px;color:var(--fg2);margin-top:8px">
+    <strong>Swizzle&lt;B=${B}, M=${M}, S=${S}&gt;</strong>：将 bit <span class="hi">[${M+S}, ${M+S+B-1}]</span> XOR 进 bit <span class="pur">[${M}, ${M+B-1}]</span>。
+    操作粒度 = 2<sup>${M}</sup> = ${1<<M} 字节，生效行宽 ≥ 2<sup>${M+S}</sup> = ${1<<(M+S)} 元素（float32）。
+  </div>`;
+
+  el.innerHTML = svg + desc;
+}
+
+// ============================================================
+// SECTION 3: HEATMAP
+// ============================================================
+let heatB=3, heatM=4, heatS=3;
+function setHeat(B, M, S, activeId) {
+  heatB=B; heatM=M; heatS=S;
+  ['h-343','h-333','h-none'].forEach(id=>{
+    const b=document.getElementById(id); if(b)b.classList.remove('on');
+  });
+  const btn = document.getElementById(activeId);
+  if(btn) btn.classList.add('on');
+  renderHeatmap();
+}
+
+function renderHeatmap() {
+  const ROWS=8, COLS=32;
+  let html = `<div class="bank-grid" style="grid-template-columns:repeat(${COLS},1fr)">`;
+  for (let r=0; r<ROWS; r++) {
+    for (let c=0; c<COLS; c++) {
+      const idx = r*COLS + c;
+      const b = bankSwizzled(heatB, heatM, heatS, idx, 4);
+      const bg = getBankColor(b);
+      html += `<div class="cell" title="(${r},${c}) → bank ${b}"><div class="cell-in" style="background:${bg};color:rgba(255,255,255,0.9);font-size:7px">${b}</div></div>`;
+    }
+  }
+  html += '</div>';
+
+  // Check row uniqueness
+  let allRowsUnique = true;
+  for (let r=0; r<ROWS; r++) {
+    const banks = new Set();
+    for (let c=0; c<32; c++) {
+      const idx=r*COLS+c;
+      const b = bankSwizzled(heatB,heatM,heatS,idx,4);
+      if(banks.has(b)){allRowsUnique=false;break;}
+      banks.add(b);
+    }
+    if(!allRowsUnique) break;
+  }
+
+  let legend = allRowsUnique
+    ? '<span class="grn">✓ 每行 Bank 分配各不相同，相同列不同行不会冲突</span>'
+    : '<span class="red">⚠ 部分行的 Bank 分配相同，存在冲突风险</span>';
+  if (heatB===0) legend = '<span class="red">⚠ 无 Swizzle：每行 Bank 分配完全相同（因 32列 stride 为 32 banks 的整数倍）</span>';
+
+  document.getElementById('heatmap').innerHTML = html;
+  document.getElementById('heatmap-legend').innerHTML = legend;
+}
+
+// ============================================================
+// SECTION 4: ARCH COMPARE
+// ============================================================
+function renderArchCompare() {
+  // K=64 float16, 8 rows, read col 0
+  const configs = [
+    { label:'Sw&lt;3,4,3&gt;', B:3, M:4, S:3 },
+    { label:'Sw&lt;3,3,3&gt;', B:3, M:3, S:3 },
+    { label:'无 Swizzle', B:0, M:0, S:0 },
+  ];
+  const K=64, ROWS=8, dtype=2; // float16 = 2 bytes
+
+  let html = '<div style="display:flex;gap:12px;flex-wrap:wrap">';
+  configs.forEach(({label, B, M, S}) => {
+    const bankToThreads = {};
+    const rowBanks = [];
+    for (let r=0; r<ROWS; r++) {
+      const idx = r*K + 0; // col=0
+      const b = bankSwizzled(B, M, S, idx, dtype);
+      rowBanks.push(b);
+      if(!bankToThreads[b]) bankToThreads[b]=[];
+      bankToThreads[b].push(r);
+    }
+    const maxConflict = Math.max(...Object.values(bankToThreads).map(a=>a.length));
+    const hasConflict = maxConflict > 1;
+
+    let rows = rowBanks.map((b,r) => {
+      const isConflict = bankToThreads[b].length > 1;
+      const bg = isConflict ? 'var(--red-bg)' : 'var(--grn-bg)';
+      const color = isConflict ? 'var(--red)' : 'var(--grn)';
+      return `<tr><td>T${r} (row ${r})</td><td><span style="color:${color}">Bank ${b}</span></td><td>${isConflict?'<span class="red">⚠冲突</span>':'<span class="grn">✓</span>'}</td></tr>`;
+    }).join('');
+
+    html += `<div style="flex:1;min-width:200px">
+      <div style="font-weight:500;margin-bottom:8px;font-size:13px">${label}</div>
+      <div style="margin-bottom:6px;font-size:12px">${hasConflict?`<span class="badge badge-red">${maxConflict}路冲突</span>`:'<span class="badge badge-grn">无冲突</span>'}</div>
+      <table style="font-size:12px"><tr><th>线程</th><th>Bank</th><th>状态</th></tr>${rows}</table>
+    </div>`;
+  });
+  html += '</div>';
+  const el = document.getElementById('arch-compare');
+  if(el) el.innerHTML = html;
+}
+
+function renderSection4BitDiagrams() {
+  renderBitDiagram('bit-343', 3, 4, 3, false);
+  renderBitDiagram('bit-333', 3, 3, 3, false);
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function nav(idx) {
+  document.querySelectorAll('.sec').forEach((s,i) => s.classList.toggle('on', i===idx));
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('on', i===idx));
+  if (idx===0) { renderBankDemo(); }
+  if (idx===1) { renderSwizzleDemo(); renderXorSvg(); renderFormulaDemo(); }
+  if (idx===2) { renderBitDiagram('bit-diagram', paramB, paramM, paramS, true); renderHeatmap(); }
+  if (idx===3) { renderSection4BitDiagrams(); renderArchCompare(); }
+}
+
+// Initial render
+renderBankDemo();
+</script>
+</body>
+</html>

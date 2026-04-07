@@ -428,7 +428,7 @@
   </p>
   <div class="hero-stats">
     <div class="stat-item">
-      <span class="stat-num" id="totalDocs">13</span>
+      <span class="stat-num" id="totalDocs">15</span>
       <span class="stat-label">技术文档</span>
     </div>
     <div class="stat-item">
@@ -488,6 +488,12 @@
   </div>
 
   <!-- ─── SECTION: MLA_DSA ─── -->
+
+  <!-- ─── SECTION: De_Attn ─── -->
+
+  <!-- ─── SECTION: De_Attn_sm80 ─── -->
+
+
   <!-- AUTO-SECTION:MLA_DSA:START -->
   <div class="section mla-section" data-section="mla-dsa">
     <div class="section-header">
@@ -508,7 +514,6 @@
           <span class="card-arrow">→</span>
         </div>
       </a>
-
       <a class="card" href="MLA_DSA/MLA_DSA_Inference_Guide.html" target="_blank">
         <div class="card-emoji">📘</div>
         <div class="card-title">MLA DSA 推理指南</div>
@@ -518,7 +523,6 @@
           <span class="card-arrow">→</span>
         </div>
       </a>
-
       <a class="card" href="MLA_DSA/MLA_GEMM_Visual.html" target="_blank">
         <div class="card-emoji">📊</div>
         <div class="card-title">MLA GEMM 可视化分析</div>
@@ -528,27 +532,24 @@
           <span class="card-arrow">→</span>
         </div>
       </a>
-
       <a class="card" href="MLA_DSA/MLA_Matrix_Absorption.html" target="_blank">
         <div class="card-emoji">🔗</div>
         <div class="card-title">MLA 矩阵吸收原理</div>
-        <div class="card-desc">深入解析 MLA 的矩阵吸收（Matrix Absorption）技术，理解其如何减少 KV Cache 显存占用。</div>
+        <div class="card-desc">深入解析 MLA 的矩阵吸收技术，理解其如何减少 KV Cache 显存占用。</div>
         <div class="card-footer">
           <span class="card-tag">MLA · KV Cache</span>
           <span class="card-arrow">→</span>
         </div>
       </a>
-
       <a class="card" href="MLA_DSA/MLA_Prefix_Cache_ChunkedPrefill.html" target="_blank">
         <div class="card-emoji">⚡</div>
-        <div class="card-title">MLA Prefix Cache & Chunked Prefill</div>
+        <div class="card-title">MLA Prefix Cache &amp; Chunked Prefill</div>
         <div class="card-desc">MLA 场景下 Prefix Cache 与 Chunked Prefill 的结合应用，提升长序列推理吞吐量。</div>
         <div class="card-footer">
           <span class="card-tag">MLA · Prefill</span>
           <span class="card-arrow">→</span>
         </div>
       </a>
-
       <a class="card" href="MLA_DSA/MLA_Simplified_Diagram.html" target="_blank">
         <div class="card-emoji">🗺️</div>
         <div class="card-title">MLA 简化架构图解</div>
@@ -558,22 +559,18 @@
           <span class="card-arrow">→</span>
         </div>
       </a>
-
       <a class="card" href="MLA_DSA/RoPE_Variants_Comparison.html" target="_blank">
         <div class="card-emoji">🔄</div>
         <div class="card-title">RoPE 位置编码变体对比</div>
-        <div class="card-desc">系统比较 RoPE 各变体（YaRN、LongRoPE、NTK 等）在长序列外推上的表现与适用场景。</div>
+        <div class="card-desc">系统比较 RoPE 各变体在长序列外推上的表现与适用场景。</div>
         <div class="card-footer">
           <span class="card-tag">RoPE · Variants</span>
           <span class="card-arrow">→</span>
         </div>
       </a>
-
     </div>
   </div>
   <!-- AUTO-SECTION:MLA_DSA:END -->
-
-  <!-- ─── SECTION: De_Attn ─── -->
   <!-- AUTO-SECTION:De_Attn:START -->
   <div class="section attn-section" data-section="de-attn">
     <div class="section-header">
@@ -581,30 +578,19 @@
       <div>
         <div class="section-title">De_Attn — Decode Attention 优化</div>
       </div>
-      <span class="section-subtitle section-tag">4 篇文档</span>
+      <span class="section-subtitle section-tag">6 篇文档</span>
     </div>
     <div class="cards-grid">
-
-      <a class="card" href="De_Attn/flash_decoding_guide.html" target="_blank">
-        <div class="card-emoji">💥</div>
-        <div class="card-title">Flash Decoding 推理优化指南</div>
-        <div class="card-desc">Flash Decoding 算法详解，揭示其如何通过并行化 KV 序列维度大幅提升解码吞吐。</div>
-        <div class="card-footer">
-          <span class="card-tag">Flash Decoding</span>
-          <span class="card-arrow">→</span>
-        </div>
-      </a>
 
       <a class="card" href="De_Attn/cute_divide_ops_v1.html" target="_blank">
         <div class="card-emoji">🔨</div>
         <div class="card-title">CuTe 分块操作详解（v1）</div>
-        <div class="card-desc">CuTe 库中分块（divide）操作的原理与实现，版本一：基础概念与核心 API 介绍。</div>
+        <div class="card-desc">CuTe 库中分块操作的原理与实现，版本一：基础概念与核心 API 介绍。</div>
         <div class="card-footer">
           <span class="card-tag">CuTe · Divide</span>
           <span class="card-arrow">→</span>
         </div>
       </a>
-
       <a class="card" href="De_Attn/cute_divide_ops_v2.html" target="_blank">
         <div class="card-emoji">🔧</div>
         <div class="card-title">CuTe 分块操作详解（v2）</div>
@@ -614,7 +600,33 @@
           <span class="card-arrow">→</span>
         </div>
       </a>
-
+      <a class="card" href="De_Attn/cute_swizzle_guide.html" target="_blank">
+        <div class="card-emoji">📄</div>
+        <div class="card-title">CuTe Swizzle 学习手册</div>
+        <div class="card-desc"></div>
+        <div class="card-footer">
+          <span class="card-tag">Attn</span>
+          <span class="card-arrow">→</span>
+        </div>
+      </a>
+      <a class="card" href="De_Attn/flash_decoding_guide.html" target="_blank">
+        <div class="card-emoji">💥</div>
+        <div class="card-title">Flash Decoding 推理优化指南</div>
+        <div class="card-desc">Flash Decoding 算法详解，揭示其如何通过并行化 KV 维度大幅提升解码吞吐。</div>
+        <div class="card-footer">
+          <span class="card-tag">Flash Decoding</span>
+          <span class="card-arrow">→</span>
+        </div>
+      </a>
+      <a class="card" href="De_Attn/gpu_programming_guide.html" target="_blank">
+        <div class="card-emoji">📄</div>
+        <div class="card-title">CuTe · Hopper · Blackwell — GPU 编程学习手册</div>
+        <div class="card-desc"></div>
+        <div class="card-footer">
+          <span class="card-tag">Attn</span>
+          <span class="card-arrow">→</span>
+        </div>
+      </a>
       <a class="card" href="De_Attn/rope_comparison_guide.html" target="_blank">
         <div class="card-emoji">📐</div>
         <div class="card-title">RoPE 实现对比指南</div>
@@ -624,12 +636,9 @@
           <span class="card-arrow">→</span>
         </div>
       </a>
-
     </div>
   </div>
   <!-- AUTO-SECTION:De_Attn:END -->
-
-  <!-- ─── SECTION: De_Attn_sm80 ─── -->
   <!-- AUTO-SECTION:De_Attn_sm80:START -->
   <div class="section sm80-section" data-section="de-attn-sm80">
     <div class="section-header">
@@ -644,23 +653,21 @@
       <a class="card" href="De_Attn_sm80/block_attn_kernel_guide.html" target="_blank">
         <div class="card-emoji">🖥️</div>
         <div class="card-title">Block Attention Kernel 指南</div>
-        <div class="card-desc">面向 SM80（Ampere）架构的 Block Attention CUDA kernel 实现指南，涵盖 warp 分工与内存层级优化。</div>
+        <div class="card-desc">面向 SM80 架构的 Block Attention CUDA kernel 实现指南，含 warp 分工与内存优化。</div>
         <div class="card-footer">
           <span class="card-tag">SM80 · Kernel</span>
           <span class="card-arrow">→</span>
         </div>
       </a>
-
       <a class="card" href="De_Attn_sm80/block_attn_matrix_flow.html" target="_blank">
         <div class="card-emoji">🌊</div>
         <div class="card-title">Block Attention 矩阵流程</div>
-        <div class="card-desc">可视化展示 Block Attention 在 SM80 上的矩阵计算流程，包括 Tensor Core 调度与 pipeline 设计。</div>
+        <div class="card-desc">可视化展示 Block Attention 在 SM80 上的矩阵计算流程及 Tensor Core 调度。</div>
         <div class="card-footer">
           <span class="card-tag">SM80 · Matrix Flow</span>
           <span class="card-arrow">→</span>
         </div>
       </a>
-
     </div>
   </div>
   <!-- AUTO-SECTION:De_Attn_sm80:END -->
@@ -709,7 +716,7 @@
     });
 
     document.getElementById('noResults').style.display = totalVisible === 0 && query ? 'block' : 'none';
-    document.getElementById('totalDocs').textContent = query ? totalVisible : 13;
+    document.getElementById('totalDocs').textContent = query ? totalVisible : 15;
   }
 </script>
 
