@@ -2,8 +2,8 @@
 
 > Ibin! 在 AI 推理引擎、GPU 优化与大模型加速领域的工作笔记与可视化文档集合
 
-[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Live-brightgreen)](https://adux-user-0316.github.io/ibin-notes/)
-![文档数量](https://img.shields.io/badge/文档-13篇-blue)
+[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Live-brightgreen)](https://chang-wenbin.github.io/AIbin-Note/)
+![文档数量](https://img.shields.io/badge/文档-15篇-blue)
 ![持续更新](https://img.shields.io/badge/状态-持续更新-orange)
 
 ---
