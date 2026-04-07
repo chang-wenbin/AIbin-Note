@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLA 最佳算子全景调研 — 2025/2026</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Noto Sans SC", sans-serif;
+    background: #f0f2f5; color: #333; line-height: 1.7;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px 24px; }
+  .header {
+    background: linear-gradient(135deg, #1a237e, #283593);
+    color: white; padding: 36px; border-radius: 12px; margin-bottom: 28px;
+    text-align: center;
+  }
+  .header h1 { font-size: 1.7em; }
+  .header p { opacity: 0.85; margin-top: 6px; font-size: 1.05em; }
+
+  .card {
+    background: white; border-radius: 12px; padding: 30px 34px;
+    margin-bottom: 26px; box-shadow: 0 1px 5px rgba(0,0,0,0.07);
+  }
+  .card h2 {
+    font-size: 1.3em; color: #1565c0; margin-bottom: 16px;
+    border-left: 4px solid #1565c0; padding-left: 12px;
+  }
+  .card h3 { font-size: 1.1em; margin: 18px 0 10px; color: #333; }
+  .card p { margin-bottom: 12px; font-size: 1em; }
+
+  .svg-wrap { text-align: center; margin: 16px 0; overflow-x: auto; }
+  .svg-wrap svg { max-width: 100%; height: auto; }
+
+  .callout {
+    border-radius: 8px; padding: 16px 18px; margin: 14px 0;
+    font-size: 0.95em;
+  }
+  .callout-green { background: #e8f5e9; border-left: 4px solid #2e7d32; }
+  .callout-red { background: #fce4ec; border-left: 4px solid #c62828; }
+  .callout-blue { background: #e3f2fd; border-left: 4px solid #1565c0; }
+  .callout-orange { background: #fff3e0; border-left: 4px solid #e65100; }
+  .callout-purple { background: #f3e5f5; border-left: 4px solid #6a1b9a; }
+  .callout-gold { background: #fffde7; border-left: 4px solid #f9a825; }
+
+  table {
+    width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.92em;
+  }
+  th { background: #e3f2fd; color: #1565c0; padding: 10px 12px; text-align: left; border: 1px solid #bbdefb; }
+  td { padding: 10px 12px; border: 1px solid #e0e0e0; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafafa; }
+
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 0.82em; font-weight: 600; margin-right: 4px;
+  }
+  .badge-gold { background: #fff8e1; color: #e65100; border: 1px solid #ffcc80; }
+  .badge-silver { background: #eceff1; color: #546e7a; border: 1px solid #b0bec5; }
+  .badge-bronze { background: #efebe9; color: #6d4c41; border: 1px solid #bcaaa4; }
+  .badge-new { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+  .badge-nvidia { background: #e8eaf6; color: #283593; border: 1px solid #9fa8da; }
+  .badge-amd { background: #fce4ec; color: #880e4f; border: 1px solid #f48fb1; }
+  .badge-oss { background: #e0f7fa; color: #006064; border: 1px solid #80deea; }
+
+  .crown { font-size: 1.2em; }
+  .perf-bar {
+    height: 22px; border-radius: 4px; display: inline-block; vertical-align: middle;
+    min-width: 8px;
+  }
+  .toc a { color: #1565c0; text-decoration: none; display: block; padding: 4px 0; }
+  .toc a:hover { text-decoration: underline; }
+
+  .rank-row td:first-child { font-weight: bold; text-align: center; font-size: 1.1em; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ============ HEADER ============ -->
+<div class="header">
+  <h1>MLA 最佳算子全景调研</h1>
+  <p>Decode / Prefill / Sparse — 各平台最强 MLA Kernel 横评 (2025-2026)</p>
+</div>
+
+<!-- ============ TOC ============ -->
+<div class="card toc">
+  <h2>目录</h2>
+  <a href="#s1">1. MLA 算子生态总览</a>
+  <a href="#s2">2. Decode 算子排行榜 (Hopper / H100 / H800)</a>
+  <a href="#s3">3. Decode 算子排行榜 (Blackwell / B200 / B300)</a>
+  <a href="#s4">4. Prefill 算子排行榜</a>
+  <a href="#s5">5. Sparse MLA (DSA) 算子</a>
+  <a href="#s6">6. AMD ROCm 平台 MLA 算子</a>
+  <a href="#s7">7. 各框架默认算子选择策略</a>
+  <a href="#s8">8. 总结与推荐</a>
+</div>
+
+<!-- ============ SECTION 1 ============ -->
+<div class="card" id="s1">
+  <h2>1. MLA 算子生态总览</h2>
+  <p>当前 MLA 算子生态已经相当丰富，主要分为 Decode（memory-bound, Absorbed 路径）和 Prefill（compute-bound, Non-Absorbed 路径）两大类：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 950 420" xmlns="http://www.w3.org/2000/svg">
+      <text x="475" y="25" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">MLA 算子生态图谱</text>
+
+      <!-- Decode column -->
+      <rect x="30" y="50" width="420" height="355" rx="12" fill="#e8eaf6" stroke="#283593" stroke-width="2"/>
+      <text x="240" y="78" text-anchor="middle" font-size="15" font-weight="bold" fill="#283593">Decode 算子 (Absorbed / MQA)</text>
+      <text x="240" y="96" text-anchor="middle" font-size="11" fill="#5c6bc0">Memory-bound, 直接用 c_t + k_rope</text>
+
+      <rect x="50" y="112" width="380" height="38" rx="6" fill="#c5cae9" stroke="#3949ab" stroke-width="1.5"/>
+      <text x="60" y="136" font-size="13" font-weight="bold" fill="#1a237e">FlashMLA</text>
+      <text x="300" y="136" text-anchor="end" font-size="11" fill="#5c6bc0">DeepSeek | Hopper/Blackwell | OSS</text>
+      <text x="420" y="136" text-anchor="end" font-size="12" fill="#e65100">660 TFLOPS</text>
+
+      <rect x="50" y="158" width="380" height="38" rx="6" fill="#ffcc80" stroke="#e65100" stroke-width="2"/>
+      <text x="60" y="182" font-size="13" font-weight="bold" fill="#bf360c">ThunderMLA</text>
+      <text x="300" y="182" text-anchor="end" font-size="11" fill="#e65100">Stanford Hazy | Hopper | OSS</text>
+      <text x="420" y="182" text-anchor="end" font-size="12" fill="#c62828">+20-35%</text>
+
+      <rect x="50" y="204" width="380" height="38" rx="6" fill="#c5cae9" stroke="#3949ab" stroke-width="1.5"/>
+      <text x="60" y="228" font-size="13" font-weight="bold" fill="#1a237e">FlashMLA-ETAP</text>
+      <text x="300" y="228" text-anchor="end" font-size="11" fill="#5c6bc0">H20 优化 | 长序列 | OSS</text>
+      <text x="420" y="228" text-anchor="end" font-size="12" fill="#e65100">2.78x @64K</text>
+
+      <rect x="50" y="250" width="380" height="38" rx="6" fill="#c5cae9" stroke="#3949ab" stroke-width="1.5"/>
+      <text x="60" y="274" font-size="13" font-weight="bold" fill="#1a237e">FlashInfer MLA</text>
+      <text x="300" y="274" text-anchor="end" font-size="11" fill="#5c6bc0">MLSys Best Paper | 通用 | OSS</text>
+      <text x="420" y="274" text-anchor="end" font-size="12" fill="#5c6bc0">FP8 支持</text>
+
+      <rect x="50" y="296" width="380" height="38" rx="6" fill="#9fa8da" stroke="#283593" stroke-width="1.5"/>
+      <text x="60" y="320" font-size="13" font-weight="bold" fill="#1a237e">CutlassMLA</text>
+      <text x="300" y="320" text-anchor="end" font-size="11" fill="#3949ab">NVIDIA | Blackwell SM100 | 闭源</text>
+      <text x="420" y="320" text-anchor="end" font-size="12" fill="#283593">CUTLASS 3.9</text>
+
+      <rect x="50" y="342" width="380" height="38" rx="6" fill="#9fa8da" stroke="#283593" stroke-width="1.5"/>
+      <text x="60" y="366" font-size="13" font-weight="bold" fill="#1a237e">TRTLLM MLA</text>
+      <text x="300" y="366" text-anchor="end" font-size="11" fill="#3949ab">NVIDIA TensorRT-LLM | Blackwell</text>
+      <text x="420" y="366" text-anchor="end" font-size="12" fill="#283593">生产级</text>
+
+      <!-- Prefill column -->
+      <rect x="500" y="50" width="420" height="220" rx="12" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="710" y="78" text-anchor="middle" font-size="15" font-weight="bold" fill="#2e7d32">Prefill 算子 (Non-Absorbed / MHA)</text>
+      <text x="710" y="96" text-anchor="middle" font-size="11" fill="#66bb6a">Compute-bound, 需要解压 c_t → full K/V</text>
+
+      <rect x="520" y="112" width="380" height="38" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="530" y="136" font-size="13" font-weight="bold" fill="#1b5e20">FlashAttention-4 (FA4)</text>
+      <text x="770" y="136" text-anchor="end" font-size="11" fill="#2e7d32">NVIDIA | Blackwell</text>
+      <text x="890" y="136" text-anchor="end" font-size="12" fill="#e65100">1605 TFLOPS</text>
+
+      <rect x="520" y="158" width="380" height="38" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="530" y="182" font-size="13" font-weight="bold" fill="#1b5e20">FlashAttention-3 (FA3)</text>
+      <text x="770" y="182" text-anchor="end" font-size="11" fill="#2e7d32">Tri Dao | Hopper</text>
+      <text x="890" y="182" text-anchor="end" font-size="12" fill="#2e7d32">标准基线</text>
+
+      <rect x="520" y="204" width="380" height="38" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="530" y="228" font-size="13" font-weight="bold" fill="#1b5e20">FlashInfer Prefill</text>
+      <text x="770" y="228" text-anchor="end" font-size="11" fill="#2e7d32">通用 | FP8 | MLA 适配</text>
+      <text x="890" y="228" text-anchor="end" font-size="12" fill="#2e7d32">灵活</text>
+
+      <!-- Sparse column -->
+      <rect x="500" y="290" width="420" height="115" rx="12" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+      <text x="710" y="318" text-anchor="middle" font-size="15" font-weight="bold" fill="#c62828">Sparse MLA (DSA) 算子</text>
+      <text x="710" y="336" text-anchor="middle" font-size="11" fill="#e57373">DeepSeek V3.2 Sparse Attention</text>
+
+      <rect x="520" y="348" width="380" height="38" rx="6" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+      <text x="530" y="372" font-size="13" font-weight="bold" fill="#b71c1c">FlashMLA Sparse</text>
+      <text x="770" y="372" text-anchor="end" font-size="11" fill="#c62828">Prefill 640 / Decode 410 TFLOPS</text>
+      <text x="890" y="372" text-anchor="end" font-size="12" fill="#c62828">H800</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ============ SECTION 2 ============ -->
+<div class="card" id="s2">
+  <h2>2. Decode 算子排行榜 <span class="badge badge-nvidia">Hopper / H100 / H800</span></h2>
+
+  <table>
+    <tr>
+      <th style="width:50px">排名</th>
+      <th>算子名称</th>
+      <th>来源</th>
+      <th>峰值性能</th>
+      <th>vs FlashMLA</th>
+      <th>核心特点</th>
+    </tr>
+    <tr class="rank-row">
+      <td><span class="crown">&#x1F947;</span></td>
+      <td><strong>ThunderMLA</strong></td>
+      <td>Stanford Hazy Research</td>
+      <td><strong>183 TFLOPS, 1520 GB/s</strong><br>(H100 SXM)</td>
+      <td><strong>+20~35%</strong></td>
+      <td>完全融合的 "megakernel"，消除多次 kernel launch 开销；单 kernel 完成 absorption + attention + output projection</td>
+    </tr>
+    <tr class="rank-row">
+      <td><span class="crown">&#x1F948;</span></td>
+      <td><strong>FlashMLA</strong></td>
+      <td>DeepSeek (开源)</td>
+      <td><strong>660 TFLOPS, 3000 GB/s</strong><br>(H800 SXM5)</td>
+      <td>基线</td>
+      <td>Paged KV Cache 支持，变长序列优化，BF16/FP8 支持；Hopper 标杆实现</td>
+    </tr>
+    <tr class="rank-row">
+      <td><span class="crown">&#x1F949;</span></td>
+      <td><strong>FlashMLA-ETAP</strong></td>
+      <td>社区 (H20 优化)</td>
+      <td><strong>89 TFLOPS</strong><br>(H20, BS=16, 64K seq)</td>
+      <td><strong>2.78x @64K</strong> (H20)</td>
+      <td>转置注意力流水线，减少 padding 开销；专为 H20 (低带宽) 设计，长序列场景大幅领先</td>
+    </tr>
+    <tr class="rank-row">
+      <td>4</td>
+      <td><strong>FlashInfer MLA</strong></td>
+      <td>FlashInfer Team</td>
+      <td>接近 FlashMLA</td>
+      <td>~1x</td>
+      <td>FP8 KV Cache 原生支持，CUDA Graph 兼容，Paged + Ragged 灵活布局；MLSys 2025 最佳论文</td>
+    </tr>
+    <tr class="rank-row">
+      <td>5</td>
+      <td><strong>TileLang MLA</strong></td>
+      <td>TileLang (开源 DSL)</td>
+      <td>接近 FlashMLA</td>
+      <td>~1x</td>
+      <td>用户可自定义 tile 策略，与 FlashMLA 性能持平，显著优于 Triton 实现</td>
+    </tr>
+  </table>
+
+  <div class="callout callout-gold">
+    <strong>Hopper 冠军：ThunderMLA</strong> — 在 H100 SXM 上，ThunderMLA 以 183 TFLOPS / 1520 GB/s 的成绩超越 FlashMLA (144 TFLOPS / 1199 GB/s) 约 27%，是目前 Hopper 平台已知最快的 MLA decode kernel。其核心创新是完全融合的 megakernel 设计，避免了 FlashMLA 多次 kernel launch 的开销。
+  </div>
+
+  <div class="callout callout-blue">
+    <strong>注意 H800 vs H100：</strong>FlashMLA 在 H800 SXM5 上报告的 660 TFLOPS / 3000 GB/s 与 ThunderMLA 在 H100 SXM 上的 183 TFLOPS 不能直接比较——H800 的数字是在更大 batch size 下 compute-bound 区域的峰值，而 ThunderMLA 的数字是 representative 实际负载下的表现。相同条件下 ThunderMLA 更快 20-35%。
+  </div>
+</div>
+
+<!-- ============ SECTION 3 ============ -->
+<div class="card" id="s3">
+  <h2>3. Decode 算子排行榜 <span class="badge badge-nvidia">Blackwell / B200 / B300</span></h2>
+
+  <table>
+    <tr>
+      <th style="width:50px">排名</th>
+      <th>算子名称</th>
+      <th>来源</th>
+      <th>峰值性能</th>
+      <th>核心特点</th>
+    </tr>
+    <tr class="rank-row">
+      <td><span class="crown">&#x1F947;</span></td>
+      <td><strong>FlashMLA (Blackwell)</strong></td>
+      <td>DeepSeek</td>
+      <td><strong>~1450 TFLOPS</strong> (B200)</td>
+      <td>Blackwell 原生 tcgen05.mma 支持，FP8/FP4 KV Cache，Paged Attention</td>
+    </tr>
+    <tr class="rank-row">
+      <td><span class="crown">&#x1F948;</span></td>
+      <td><strong>CutlassMLA</strong></td>
+      <td>NVIDIA (CUTLASS 3.9)</td>
+      <td>接近 FlashMLA</td>
+      <td>SM100 原生，CUTLASS 模板库，weight-absorbed decoding；与 Fused Reduction 配合</td>
+    </tr>
+    <tr class="rank-row">
+      <td><span class="crown">&#x1F949;</span></td>
+      <td><strong>TRTLLM MLA</strong></td>
+      <td>NVIDIA TensorRT-LLM</td>
+      <td>生产级优化</td>
+      <td>端到端推理引擎集成，自动 kernel 选择，FP4 MoE + MLA 联合优化</td>
+    </tr>
+    <tr class="rank-row">
+      <td>4</td>
+      <td><strong>FlashInfer MLA</strong></td>
+      <td>FlashInfer</td>
+      <td>默认后端</td>
+      <td>Blackwell 上 vLLM/SGLang 的默认 MLA decode 后端，FP8 支持</td>
+    </tr>
+  </table>
+
+  <div class="callout callout-orange">
+    <strong>Blackwell 冠军：FlashMLA (Blackwell)</strong> — 在 B200 上峰值可达 ~1450 TFLOPS，是 Hopper 的 2x+ 提升。NVIDIA 的 CutlassMLA 和 TRTLLM MLA 也提供了接近水平的生产级实现。Blackwell 的 tcgen05.mma 指令 (128×256×K) 相比 Hopper 的 WGMMA 有显著优势。
+  </div>
+</div>
+
+<!-- ============ SECTION 4 ============ -->
+<div class="card" id="s4">
+  <h2>4. Prefill 算子排行榜</h2>
+  <p>Prefill 阶段 MLA 走 Non-Absorbed (MHA) 路径，本质上使用标准的 FlashAttention 变体，只是 head_dim 不同：</p>
+
+  <table>
+    <tr>
+      <th style="width:50px">排名</th>
+      <th>算子名称</th>
+      <th>平台</th>
+      <th>峰值性能</th>
+      <th>核心特点</th>
+    </tr>
+    <tr class="rank-row">
+      <td><span class="crown">&#x1F947;</span></td>
+      <td><strong>FlashAttention-4 (FA4)</strong></td>
+      <td>Blackwell</td>
+      <td><strong>1605 TFLOPS</strong> (B200)<br>硬件利用率 71%</td>
+      <td>Blackwell 原生，tcgen05.mma + Tensor Memory，MLA prefill 最优选择</td>
+    </tr>
+    <tr class="rank-row">
+      <td><span class="crown">&#x1F948;</span></td>
+      <td><strong>SageAttention3 (FP4)</strong></td>
+      <td>Blackwell</td>
+      <td><strong>1038 TOPS</strong> (RTX 5090)<br>5x vs FA on 5090</td>
+      <td>FP4 量化注意力，利用 Blackwell FP4 Tensor Core；精度 tradeoff</td>
+    </tr>
+    <tr class="rank-row">
+      <td><span class="crown">&#x1F949;</span></td>
+      <td><strong>FlashAttention-3 (FA3)</strong></td>
+      <td>Hopper</td>
+      <td>标准基线</td>
+      <td>WGMMA + TMA 异步流水线，SGLang chunked prefix cache 唯一支持的后端</td>
+    </tr>
+    <tr class="rank-row">
+      <td>4</td>
+      <td><strong>FlashInfer Prefill</strong></td>
+      <td>Ampere+</td>
+      <td>接近 FA3</td>
+      <td>灵活的 Ragged/Paged 布局，FP8 Q/K，cascade attention 支持</td>
+    </tr>
+    <tr class="rank-row">
+      <td>5</td>
+      <td><strong>FlashMLA Sparse Prefill</strong></td>
+      <td>Hopper</td>
+      <td><strong>640 TFLOPS</strong> (H800)</td>
+      <td>Token-level sparse attention for DSA，仅 V3.2+ 模型</td>
+    </tr>
+  </table>
+
+  <div class="callout callout-green">
+    <strong>Prefill 冠军：FA4 (Blackwell)</strong> — 1605 TFLOPS，71% 硬件利用率。<strong>FA3 (Hopper)</strong> 仍然是 Hopper 平台的标准选择，且是 SGLang chunked prefix cache 的唯一后端。
+  </div>
+</div>
+
+<!-- ============ SECTION 5 ============ -->
+<div class="card" id="s5">
+  <h2>5. Sparse MLA (DSA) 算子</h2>
+  <p>DeepSeek V3.2 引入了 DeepSeek Sparse Attention (DSA)，在 token 级别做稀疏注意力，需要专门的 sparse kernel：</p>
+
+  <table>
+    <tr><th>算子</th><th>阶段</th><th>峰值性能 (H800)</th><th>峰值性能 (B200)</th><th>说明</th></tr>
+    <tr>
+      <td><strong>FlashMLA Sparse Prefill</strong></td>
+      <td>Prefill</td>
+      <td><strong>640 TFLOPS</strong></td>
+      <td>开发中</td>
+      <td>token-level 稀疏 prefill，FP8 KV Cache 支持</td>
+    </tr>
+    <tr>
+      <td><strong>FlashMLA Sparse Decode</strong></td>
+      <td>Decode</td>
+      <td><strong>410 TFLOPS</strong></td>
+      <td>~350 TFLOPS</td>
+      <td>token-level 稀疏 decode，与 DSA selection mask 配合</td>
+    </tr>
+    <tr>
+      <td><strong>FlashInfer Sparse MLA</strong></td>
+      <td>Decode</td>
+      <td>支持中</td>
+      <td>支持中</td>
+      <td>FP8 KV cache + CUDA Graph，vLLM 默认 FP8 后端</td>
+    </tr>
+  </table>
+
+  <div class="callout callout-red">
+    <strong>Sparse MLA 现状：</strong>目前仅 DeepSeek V3.2+ 模型使用 DSA 稀疏注意力。FlashMLA Sparse 在 H800 上 prefill 达到 640 TFLOPS，decode 达到 410 TFLOPS。Blackwell 上的 sparse kernel 优化仍在进行中（B200 decode 约 350 TFLOPS）。
+  </div>
+</div>
+
+<!-- ============ SECTION 6 ============ -->
+<div class="card" id="s6">
+  <h2>6. AMD ROCm 平台 MLA 算子 <span class="badge badge-amd">AMD</span></h2>
+
+  <table>
+    <tr><th>算子</th><th>GPU</th><th>性能</th><th>核心特点</th></tr>
+    <tr>
+      <td><strong>AITER MLA</strong></td>
+      <td>MI300X / MI325X / MI355X</td>
+      <td><strong>17x</strong> vs non-AITER baseline<br>1.2-1.6x vs Triton MLA</td>
+      <td>AMD 官方 AI Tensor Engine，手工优化汇编级 kernel，vLLM 推荐默认后端</td>
+    </tr>
+    <tr>
+      <td><strong>FlashInfer MLA (ROCm)</strong></td>
+      <td>MI300X+</td>
+      <td>与 AITER 持平</td>
+      <td>FlashInfer 0.2 ROCm 移植，FP8 prefill 支持</td>
+    </tr>
+    <tr>
+      <td><strong>TileLang MLA</strong></td>
+      <td>MI300X</td>
+      <td>接近 AITER</td>
+      <td>DSL 生成，自动调优，与 AITER 手工汇编达到 performance parity</td>
+    </tr>
+    <tr>
+      <td><strong>Triton MLA</strong></td>
+      <td>MI300X+</td>
+      <td>基线</td>
+      <td>Triton 后端，通用但较慢</td>
+    </tr>
+  </table>
+
+  <div class="callout callout-purple">
+    <strong>AMD 冠军：AITER MLA</strong> — AMD 官方的 AI Tensor Engine for ROCm，在 MI300X 上相比无优化基线提速 17x，比 Triton MLA 快 1.2-1.6x。vLLM 在 ROCm 上推荐 ROCM_AITER_MLA 作为默认后端。
+  </div>
+</div>
+
+<!-- ============ SECTION 7 ============ -->
+<div class="card" id="s7">
+  <h2>7. 各框架默认算子选择策略</h2>
+
+  <h3>vLLM 的自动选择</h3>
+  <table>
+    <tr><th>GPU</th><th>Prefill 默认</th><th>Decode 默认</th><th>FP8 KV Cache</th></tr>
+    <tr><td>Hopper (H100/H800)</td><td>FA3 / FlashInfer</td><td>FlashMLA</td><td>FlashInfer Sparse MLA</td></tr>
+    <tr><td>Blackwell (B200/B300)</td><td>FA4</td><td>CutlassMLA / FlashInfer</td><td>FlashInfer MLA</td></tr>
+    <tr><td>AMD MI300X</td><td>AITER FA</td><td>AITER MLA</td><td>AITER MLA</td></tr>
+  </table>
+
+  <h3>SGLang 的选择</h3>
+  <table>
+    <tr><th>GPU</th><th>Prefill 默认</th><th>Decode 默认</th><th>Chunked Prefix Cache</th></tr>
+    <tr><td>Hopper</td><td>FA3</td><td>FlashMLA / FlashInfer / CutlassMLA</td><td>仅 FA3</td></tr>
+    <tr><td>Blackwell</td><td>FA3/FA4</td><td>TRTLLM MLA / FlashMLA</td><td>仅 FA3</td></tr>
+    <tr><td>Ampere</td><td>FlashInfer</td><td>FlashInfer MLA</td><td>不支持</td></tr>
+  </table>
+</div>
+
+<!-- ============ SECTION 8 ============ -->
+<div class="card" id="s8">
+  <h2>8. 总结与推荐</h2>
+
+  <h3>按场景推荐</h3>
+  <table>
+    <tr><th>场景</th><th>推荐算子</th><th>原因</th></tr>
+    <tr>
+      <td><strong>Hopper Decode (极致性能)</strong></td>
+      <td><span class="badge badge-gold">ThunderMLA</span></td>
+      <td>比 FlashMLA 快 20-35%，完全融合的 megakernel</td>
+    </tr>
+    <tr>
+      <td><strong>Hopper Decode (生产稳定)</strong></td>
+      <td><span class="badge badge-gold">FlashMLA</span></td>
+      <td>DeepSeek 官方，Paged KV Cache，生态最成熟</td>
+    </tr>
+    <tr>
+      <td><strong>Hopper Decode (H20 长序列)</strong></td>
+      <td><span class="badge badge-gold">FlashMLA-ETAP</span></td>
+      <td>H20 上 64K 序列比 FlashMLA 快 2.78x</td>
+    </tr>
+    <tr>
+      <td><strong>Blackwell Decode</strong></td>
+      <td><span class="badge badge-gold">FlashMLA Blackwell</span></td>
+      <td>~1450 TFLOPS on B200，tcgen05 原生</td>
+    </tr>
+    <tr>
+      <td><strong>Blackwell Prefill</strong></td>
+      <td><span class="badge badge-gold">FA4</span></td>
+      <td>1605 TFLOPS, 71% 硬件利用率</td>
+    </tr>
+    <tr>
+      <td><strong>Hopper Prefill</strong></td>
+      <td><span class="badge badge-gold">FA3</span></td>
+      <td>标准选择，SGLang chunked prefix cache 唯一后端</td>
+    </tr>
+    <tr>
+      <td><strong>Sparse MLA (DSA)</strong></td>
+      <td><span class="badge badge-gold">FlashMLA Sparse</span></td>
+      <td>目前唯一成熟的 DSA sparse kernel</td>
+    </tr>
+    <tr>
+      <td><strong>AMD MI300X</strong></td>
+      <td><span class="badge badge-gold">AITER MLA</span></td>
+      <td>AMD 官方优化，17x 加速，vLLM 默认</td>
+    </tr>
+    <tr>
+      <td><strong>FP8 KV Cache (通用)</strong></td>
+      <td><span class="badge badge-gold">FlashInfer MLA</span></td>
+      <td>最广泛的 FP8 支持，跨平台兼容</td>
+    </tr>
+  </table>
+
+  <div class="callout callout-gold">
+    <strong>2026 年 Q1 最强 MLA 算子总结：</strong><br><br>
+    <strong>Decode (Hopper)：</strong>ThunderMLA (Stanford Hazy) — 183 TFLOPS / 1520 GB/s on H100，比 FlashMLA 快 20-35%<br>
+    <strong>Decode (Blackwell)：</strong>FlashMLA Blackwell — ~1450 TFLOPS on B200<br>
+    <strong>Decode (H20 长序列)：</strong>FlashMLA-ETAP — 2.78x speedup @64K<br>
+    <strong>Prefill (Blackwell)：</strong>FlashAttention-4 — 1605 TFLOPS on B200<br>
+    <strong>Prefill (Hopper)：</strong>FlashAttention-3 — 最成熟，支持 chunked prefix cache<br>
+    <strong>Sparse (DSA)：</strong>FlashMLA Sparse — Prefill 640 / Decode 410 TFLOPS on H800<br>
+    <strong>AMD：</strong>AITER MLA — MI300X 默认最优
+  </div>
+</div>
+
+<!-- ============ FOOTER ============ -->
+<div style="text-align: center; padding: 20px; color: #999; font-size: 0.85em;">
+  MLA 最佳算子全景调研 | 2025-2026 | 基于公开 benchmark 数据整理
+</div>
+
+</div>
+</body>
+</html>

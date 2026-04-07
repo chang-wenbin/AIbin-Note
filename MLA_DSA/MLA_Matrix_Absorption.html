@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLA 矩阵吸收 & 吸收分离 原理详解</title>
+<style>
+  :root {
+    --blue: #1565c0; --blue-light: #e3f2fd; --blue-bg: #bbdefb;
+    --red: #c62828; --red-light: #fce4ec; --red-bg: #ffcdd2;
+    --green: #2e7d32; --green-light: #e8f5e9; --green-bg: #c8e6c9;
+    --orange: #e65100; --orange-light: #fff3e0; --orange-bg: #ffe0b2;
+    --purple: #6a1b9a; --purple-light: #f3e5f5; --purple-bg: #e1bee7;
+    --gray: #424242; --gray-light: #f5f5f5;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Noto Sans SC", sans-serif;
+    background: #f0f2f5; color: #333; line-height: 1.75; font-size: 15px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 20px 24px; }
+  .header {
+    background: linear-gradient(135deg, #1a237e, #4a148c);
+    color: white; padding: 40px 36px; border-radius: 14px; margin-bottom: 28px;
+  }
+  .header h1 { font-size: 1.8em; margin-bottom: 6px; }
+  .header .sub { opacity: 0.8; font-size: 1em; }
+
+  .card {
+    background: white; border-radius: 12px; padding: 28px 30px;
+    margin-bottom: 24px; box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+  }
+  .card h2 {
+    font-size: 1.3em; color: var(--blue); border-left: 4px solid var(--blue);
+    padding-left: 12px; margin-bottom: 16px;
+  }
+  .card h3 {
+    font-size: 1.1em; color: #333; margin: 18px 0 10px;
+  }
+  .card p { margin-bottom: 12px; }
+
+  .formula-box {
+    background: #fafafa; border: 1px solid #e0e0e0; border-radius: 8px;
+    padding: 16px 20px; margin: 14px 0; font-family: "Fira Code", "Consolas", monospace;
+    font-size: 0.92em; overflow-x: auto; line-height: 2;
+  }
+  .formula-box .step-label {
+    display: inline-block; background: var(--blue); color: white;
+    padding: 1px 8px; border-radius: 4px; font-size: 0.85em; margin-right: 6px;
+    font-family: sans-serif;
+  }
+  .formula-box .eq { color: var(--blue); font-weight: 700; }
+  .formula-box .highlight { background: #fff9c4; padding: 2px 4px; border-radius: 3px; }
+  .formula-box .cancel { text-decoration: line-through; color: #999; }
+  .formula-box .absorb { background: #e8f5e9; padding: 2px 6px; border-radius: 3px; border: 1px dashed var(--green); }
+
+  .callout {
+    border-radius: 8px; padding: 14px 18px; margin: 14px 0;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .callout-icon { font-size: 1.2em; flex-shrink: 0; margin-top: 2px; }
+  .callout-blue { background: var(--blue-light); border-left: 4px solid var(--blue); }
+  .callout-green { background: var(--green-light); border-left: 4px solid var(--green); }
+  .callout-red { background: var(--red-light); border-left: 4px solid var(--red); }
+  .callout-orange { background: var(--orange-light); border-left: 4px solid var(--orange); }
+  .callout-purple { background: var(--purple-light); border-left: 4px solid var(--purple); }
+
+  .compare-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 14px 0;
+  }
+  .compare-box {
+    border-radius: 10px; padding: 16px 18px; border: 2px solid;
+  }
+  .compare-box h4 { margin-bottom: 8px; font-size: 1em; }
+  .compare-box ul { padding-left: 18px; font-size: 0.93em; }
+  .compare-box li { margin-bottom: 4px; }
+  .box-before { border-color: #bdbdbd; background: #fafafa; }
+  .box-before h4 { color: var(--gray); }
+  .box-after { border-color: var(--green); background: var(--green-light); }
+  .box-after h4 { color: var(--green); }
+
+  .svg-wrap { text-align: center; margin: 16px 0; overflow-x: auto; }
+  .svg-wrap svg { max-width: 100%; height: auto; }
+
+  table {
+    width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.92em;
+  }
+  th, td { padding: 9px 12px; border: 1px solid #e0e0e0; text-align: left; }
+  th { background: var(--blue); color: white; font-weight: 600; }
+  tr:nth-child(even) { background: #f8f9fa; }
+  .good { background: #e8f5e9 !important; font-weight: 600; }
+
+  @media (max-width: 768px) {
+    .compare-row { grid-template-columns: 1fr; }
+    .container { padding: 12px 14px; }
+    .card { padding: 18px 16px; }
+  }
+  code {
+    background: #f1f3f4; padding: 1px 5px; border-radius: 3px;
+    font-family: "Fira Code", monospace; font-size: 0.9em;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Header -->
+<div class="header">
+  <h1>MLA 矩阵吸收 & 吸收分离 原理详解</h1>
+  <div class="sub">Weight Absorption · Decode 阶段如何避免解压 KV Cache · 以 DeepSeek-V3 为例</div>
+</div>
+
+<!-- ==================== Section 0: 一句话总结 ==================== -->
+<div class="card">
+  <h2>0. 一句话直觉</h2>
+  <div class="callout callout-green">
+    <div class="callout-icon">&#128161;</div>
+    <div>
+      <strong>矩阵吸收的本质：</strong>利用矩阵乘法的<strong>结合律</strong> <code>(A × B) × C = A × (B × C)</code>，
+      把原本需要「先解压 KV Cache，再算注意力」的两步操作，重新组合成「先把解压矩阵吸收进 Q，再直接用压缩后的 Cache 算注意力」。
+      这样 Decode 时就<strong>不需要从显存读取庞大的 K/V</strong>，只读取极小的潜向量 c_t，显存带宽开销降到 1/50+。
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Section 1: 前置知识 ==================== -->
+<div class="card">
+  <h2>1. 前置知识回顾：MLA 的 KV 压缩</h2>
+  <p>在 MLA 中，输入 hidden state 经过<strong>下投影</strong>压缩成低维潜向量 <code>c_t</code>，推理时缓存 <code>c_t</code>（而非完整 K/V）。需要计算注意力时，再通过<strong>上投影</strong>还原：</p>
+
+  <div class="formula-box">
+    <span class="step-label">下投影</span> c_t = h_t × W<sub>DKV</sub> &nbsp;&nbsp; <span style="color:#888;">// h_t:[d_model] → c_t:[d_c]，d_c=512 ≪ d_model=7168</span><br>
+    <span class="step-label">上投影</span> K = c_t × W<sub>UK</sub> &nbsp;&nbsp; <span style="color:#888;">// c_t:[d_c] → K:[n_h × d_h]，512 → 128×128</span><br>
+    <span class="step-label">上投影</span> V = c_t × W<sub>UV</sub> &nbsp;&nbsp; <span style="color:#888;">// c_t:[d_c] → V:[n_h × d_h]，512 → 128×128</span>
+  </div>
+
+  <p>问题来了：在 <strong>Decode 阶段</strong>（每步只生成 1 个 token），每一步都要对所有历史 token 做上投影还原 K、V。这需要从显存<strong>读取每个历史 token 的 c_t</strong>，然后做<strong>大矩阵乘</strong>解压——非常浪费带宽和算力。</p>
+
+  <div class="callout callout-red">
+    <div class="callout-icon">&#10060;</div>
+    <div><strong>Non-Absorbed 的 Decode 问题：</strong>假设历史长度 L=4096，则每步需要将 4096 个 c_t 都通过 W_UK/W_UV 解压成完整 K/V，产生 4096 × 128 × 128 × 2 = 128M 参数的中间张量，再做 attention。Decode 本该是一步极轻的操作，却被解压拖慢。</div>
+  </div>
+</div>
+
+<!-- ==================== Section 2: 矩阵吸收推导 ==================== -->
+<div class="card">
+  <h2>2. 矩阵吸收：逐步推导</h2>
+
+  <h3>2.1 Attention Score 的吸收（K 侧）</h3>
+  <p>标准注意力分数计算：<code>score = Q × K<sup>T</sup></code>。将 K 的定义代入：</p>
+
+  <div class="formula-box">
+    <span class="step-label">原始</span> score = Q × K<sup>T</sup><br><br>
+    <span class="step-label">展开 K</span> score = Q × <span class="highlight">(c_t × W<sub>UK</sub>)<sup>T</sup></span><br><br>
+    <span class="step-label">转置展开</span> score = Q × W<sub>UK</sub><sup>T</sup> × c_t<sup>T</sup><br><br>
+    <span class="step-label">结合律</span> score = <span class="absorb">(Q × W<sub>UK</sub><sup>T</sup>)</span> × c_t<sup>T</sup><br><br>
+    <span class="step-label">定义</span> <span class="absorb">Q' = Q × W<sub>UK</sub><sup>T</sup></span> &nbsp;&nbsp; ← <strong>W<sub>UK</sub> 被「吸收」进了 Q</strong><br><br>
+    <span class="step-label">最终</span> score <span class="eq">=</span> <strong>Q' × c_t<sup>T</sup></strong> &nbsp;&nbsp; ← <strong>直接用压缩后的 c_t 计算！</strong>
+  </div>
+
+  <!-- 可视化图解 -->
+  <div class="svg-wrap">
+    <svg viewBox="0 0 950 380" xmlns="http://www.w3.org/2000/svg" style="max-width:920px;">
+      <rect x="0" y="0" width="950" height="380" fill="#fafbfc" rx="10"/>
+
+      <!-- BEFORE -->
+      <text x="235" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="#757575">BEFORE：Non-Absorbed</text>
+      <rect x="10" y="36" width="450" height="165" rx="8" fill="#fafafa" stroke="#bdbdbd" stroke-width="1.5"/>
+
+      <!-- Q -->
+      <rect x="30" y="60" width="90" height="55" rx="6" fill="#bbdefb" stroke="#1565c0" stroke-width="2"/>
+      <text x="75" y="85" text-anchor="middle" font-size="12" font-weight="700" fill="#0d47a1">Q</text>
+      <text x="75" y="105" text-anchor="middle" font-size="9" fill="#555">[1, 128, 192]</text>
+
+      <!-- × -->
+      <text x="138" y="93" text-anchor="middle" font-size="18" fill="#333">×</text>
+
+      <!-- W_UK^T applied to c_t first -->
+      <rect x="155" y="50" width="80" height="35" rx="5" fill="#ffe0b2" stroke="#e65100" stroke-width="1.5"/>
+      <text x="195" y="73" text-anchor="middle" font-size="10" font-weight="600" fill="#e65100">c_t</text>
+      <text x="195" y="48" text-anchor="middle" font-size="8" fill="#888">[L, 512]</text>
+      <!-- arrow down -->
+      <line x1="195" y1="85" x2="195" y2="102" stroke="#e65100" stroke-width="1.5" marker-end="url(#ar)"/>
+      <!-- W_UK -->
+      <rect x="155" y="102" width="80" height="35" rx="5" fill="#ff9800" stroke="#e65100" stroke-width="2"/>
+      <text x="195" y="124" text-anchor="middle" font-size="10" font-weight="700" fill="white">W_UK</text>
+      <!-- arrow down -->
+      <line x1="195" y1="137" x2="195" y2="155" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+      <!-- K result -->
+      <rect x="148" y="155" width="95" height="35" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="2"/>
+      <text x="195" y="178" text-anchor="middle" font-size="11" font-weight="700" fill="#c62828">K (巨大!)</text>
+      <text x="195" y="195" text-anchor="middle" font-size="8" fill="#c62828">[L, 128, 128]</text>
+
+      <!-- × K^T -->
+      <text x="265" y="93" text-anchor="middle" font-size="14" fill="#555">→ K<tspan font-size="9" baseline-shift="super">T</tspan></text>
+
+      <!-- = score -->
+      <text x="310" y="93" text-anchor="middle" font-size="14" fill="#555">=</text>
+      <rect x="330" y="65" width="110" height="40" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="2"/>
+      <text x="385" y="90" text-anchor="middle" font-size="12" font-weight="700" fill="#6a1b9a">score</text>
+
+      <!-- Problem annotation -->
+      <rect x="30" y="140" width="100" height="45" rx="5" fill="#fce4ec" stroke="#e91e63" stroke-width="1.5"/>
+      <text x="80" y="160" text-anchor="middle" font-size="9" font-weight="700" fill="#c62828">每步都要</text>
+      <text x="80" y="175" text-anchor="middle" font-size="9" font-weight="700" fill="#c62828">解压 c_t→K</text>
+      <line x1="130" y1="162" x2="148" y2="170" stroke="#e91e63" stroke-width="1" stroke-dasharray="3,2"/>
+
+      <!-- AFTER -->
+      <text x="720" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="var(--green)">AFTER：Absorbed (矩阵吸收)</text>
+      <rect x="490" y="36" width="450" height="165" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+
+      <!-- Q -->
+      <rect x="510" y="60" width="90" height="45" rx="6" fill="#bbdefb" stroke="#1565c0" stroke-width="2"/>
+      <text x="555" y="82" text-anchor="middle" font-size="12" font-weight="700" fill="#0d47a1">Q</text>
+      <text x="555" y="98" text-anchor="middle" font-size="9" fill="#555">[1, 128, 192]</text>
+
+      <!-- × W_UK^T absorbed into Q -->
+      <text x="618" y="85" text-anchor="middle" font-size="16" fill="#333">×</text>
+      <rect x="635" y="58" width="85" height="50" rx="6" fill="#43a047" stroke="#2e7d32" stroke-width="2"/>
+      <text x="677" y="80" text-anchor="middle" font-size="10" font-weight="700" fill="white">W_UK<tspan font-size="8" baseline-shift="super">T</tspan></text>
+      <text x="677" y="98" text-anchor="middle" font-size="8" fill="#c8e6c9">[192, 512]</text>
+
+      <!-- = Q' -->
+      <text x="738" y="85" text-anchor="middle" font-size="14" fill="#555">=</text>
+      <rect x="755" y="58" width="85" height="50" rx="6" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="797" y="78" text-anchor="middle" font-size="12" font-weight="700" fill="white">Q'</text>
+      <text x="797" y="95" text-anchor="middle" font-size="9" fill="#c8e6c9">[1, 128, 512]</text>
+
+      <!-- Q' × c_t^T -->
+      <line x1="797" y1="108" x2="797" y2="130" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="650" y="148" font-size="12" fill="#333">Q' &nbsp;× &nbsp;c_t<tspan font-size="9" baseline-shift="super">T</tspan></text>
+
+      <!-- c_t (small!) -->
+      <rect x="725" y="130" width="100" height="40" rx="6" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+      <text x="775" y="150" text-anchor="middle" font-size="11" font-weight="700" fill="#e65100">c_t (小!)</text>
+      <text x="775" y="165" text-anchor="middle" font-size="9" fill="#e65100">[L, 512]</text>
+
+      <!-- = score -->
+      <text x="843" y="155" text-anchor="middle" font-size="14" fill="#555">=</text>
+      <rect x="858" y="134" width="70" height="38" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="2"/>
+      <text x="893" y="158" text-anchor="middle" font-size="12" font-weight="700" fill="#6a1b9a">score</text>
+
+      <!-- Benefit annotation -->
+      <rect x="510" y="140" width="155" height="45" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="587" y="158" text-anchor="middle" font-size="9" font-weight="700" fill="#1b5e20">W_UK 吸收进 Q 侧</text>
+      <text x="587" y="173" text-anchor="middle" font-size="9" font-weight="700" fill="#1b5e20">无需解压! 直接读 c_t</text>
+
+      <!-- =============== V 侧吸收 =============== -->
+      <text x="235" y="230" text-anchor="middle" font-size="15" font-weight="700" fill="#757575">V 侧同理 (Output 吸收)</text>
+      <rect x="10" y="240" width="450" height="130" rx="8" fill="#fafafa" stroke="#bdbdbd" stroke-width="1.5"/>
+
+      <text x="30" y="270" font-size="12" fill="#333">
+        <tspan font-weight="600">原始: </tspan> O = Attn × V = Attn × (c_t × W<tspan font-size="9" baseline-shift="sub">UV</tspan>)
+      </text>
+      <text x="30" y="300" font-size="12" fill="#333">
+        <tspan font-weight="600">结合律: </tspan> O = (Attn × c_t) × W<tspan font-size="9" baseline-shift="sub">UV</tspan>
+      </text>
+      <text x="30" y="330" font-size="12" fill="var(--green)" font-weight="700">
+        先在潜空间算 O' = Attn × c_t，再一次性 W_UV 投影
+      </text>
+      <text x="30" y="355" font-size="11" fill="#888">
+        O' shape: [1, 128, 512] → × W_UV → [1, 128, 128]
+      </text>
+
+      <text x="720" y="230" text-anchor="middle" font-size="15" font-weight="700" fill="var(--green)">V 侧吸收效果</text>
+      <rect x="490" y="240" width="450" height="130" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+
+      <text x="510" y="275" font-size="12" fill="#333">
+        <tspan font-weight="700" fill="var(--green)">&#9989; Attn 计算在 d_c=512 维度完成</tspan>
+      </text>
+      <text x="510" y="300" font-size="12" fill="#333">
+        <tspan font-weight="700" fill="var(--green)">&#9989; 不需要先解压出完整 V [128×128]</tspan>
+      </text>
+      <text x="510" y="325" font-size="12" fill="#333">
+        <tspan font-weight="700" fill="var(--green)">&#9989; W_UV 只做一次，与历史长度 L 无关</tspan>
+      </text>
+      <text x="510" y="355" font-size="11" fill="#888">
+        相当于 MQA：所有 head 共享同一个 d_c 维 KV cache
+      </text>
+
+      <defs>
+        <marker id="ar" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+          <path d="M0,0 L7,2.5 L0,5 Z" fill="#555"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <h3>2.2 完整对比</h3>
+  <div class="compare-row">
+    <div class="compare-box box-before">
+      <h4>&#10060; Non-Absorbed（Prefill 阶段用）</h4>
+      <ul>
+        <li><code>K = c_t × W_UK</code> → 先解压</li>
+        <li><code>V = c_t × W_UV</code> → 先解压</li>
+        <li><code>score = Q × K<sup>T</sup></code> → 标准 MHA</li>
+        <li><code>O = softmax(score) × V</code></li>
+        <li>需要物化完整 K/V：<strong>[L, 128, 128]</strong></li>
+        <li>优点：大 batch 时 GEMM 效率高</li>
+      </ul>
+    </div>
+    <div class="compare-box box-after">
+      <h4>&#9989; Absorbed（Decode 阶段用）</h4>
+      <ul>
+        <li><code>Q' = Q × W_UK<sup>T</sup></code> → 吸收到 Q 侧</li>
+        <li><code>score = Q' × c_t<sup>T</sup></code> → 直接用潜向量</li>
+        <li><code>O' = softmax(score) × c_t</code> → 潜空间</li>
+        <li><code>O = O' × W_UV</code> → 最后一次投影</li>
+        <li>Cache 只读 <strong>[L, 512]</strong>，缩小 ~32 倍</li>
+        <li>优点：极省带宽，等效 MQA</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Section 3: 生活化类比 ==================== -->
+<div class="card">
+  <h2>3. 形象类比：「翻译官」的故事</h2>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 900 310" xmlns="http://www.w3.org/2000/svg" style="max-width:870px;">
+      <rect x="0" y="0" width="900" height="310" fill="#fafbfc" rx="10"/>
+
+      <!-- Scenario A -->
+      <text x="225" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#757575">场景 A：Non-Absorbed（每次都翻译）</text>
+      <rect x="10" y="38" width="430" height="260" rx="10" fill="#fff8e1" stroke="#ffc107" stroke-width="1.5"/>
+
+      <!-- Book shelf (c_t) -->
+      <rect x="30" y="65" width="100" height="80" rx="6" fill="#ffe0b2" stroke="#e65100" stroke-width="2"/>
+      <text x="80" y="95" text-anchor="middle" font-size="11" font-weight="700" fill="#e65100">书架</text>
+      <text x="80" y="112" text-anchor="middle" font-size="10" fill="#e65100">(c_t 压缩存储)</text>
+      <text x="80" y="128" text-anchor="middle" font-size="9" fill="#888">中文速记笔记</text>
+      <text x="80" y="140" text-anchor="middle" font-size="8" fill="#888">512 维</text>
+
+      <!-- Translator (W_UK) -->
+      <line x1="130" y1="100" x2="170" y2="100" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+      <rect x="170" y="70" width="90" height="65" rx="8" fill="#ff9800" stroke="#e65100" stroke-width="2"/>
+      <text x="215" y="95" text-anchor="middle" font-size="10" font-weight="700" fill="white">翻译官</text>
+      <text x="215" y="112" text-anchor="middle" font-size="9" fill="#fff3e0">(W_UK)</text>
+      <text x="215" y="127" text-anchor="middle" font-size="8" fill="#fff3e0">中文→英文</text>
+
+      <!-- Full K document -->
+      <line x1="260" y1="100" x2="300" y2="100" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+      <rect x="300" y="62" width="110" height="80" rx="6" fill="#ffcdd2" stroke="#c62828" stroke-width="2"/>
+      <text x="355" y="88" text-anchor="middle" font-size="10" font-weight="700" fill="#c62828">完整英文文档</text>
+      <text x="355" y="106" text-anchor="middle" font-size="10" fill="#c62828">(K: 巨大!)</text>
+      <text x="355" y="122" text-anchor="middle" font-size="9" fill="#888">128 heads×128 dim</text>
+      <text x="355" y="136" text-anchor="middle" font-size="8" fill="#c62828">每次 decode 都重翻!</text>
+
+      <!-- Reader -->
+      <rect x="300" y="165" width="110" height="50" rx="6" fill="#bbdefb" stroke="#1565c0" stroke-width="2"/>
+      <text x="355" y="190" text-anchor="middle" font-size="11" font-weight="700" fill="#0d47a1">读者 (Q)</text>
+      <text x="355" y="205" text-anchor="middle" font-size="9" fill="#555">只能读英文</text>
+      <line x1="355" y1="142" x2="355" y2="165" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <!-- Pain -->
+      <rect x="50" y="190" width="190" height="90" rx="8" fill="#fce4ec" stroke="#e91e63"/>
+      <text x="145" y="215" text-anchor="middle" font-size="11" font-weight="700" fill="#c62828">痛点：</text>
+      <text x="145" y="235" text-anchor="middle" font-size="10" fill="#c62828">每次提问都要把整个</text>
+      <text x="145" y="252" text-anchor="middle" font-size="10" fill="#c62828">书架的中文笔记重新</text>
+      <text x="145" y="269" text-anchor="middle" font-size="10" fill="#c62828">翻译成完整英文文档!</text>
+
+      <!-- Scenario B -->
+      <text x="680" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="var(--green)">场景 B：Absorbed（教读者学中文）</text>
+      <rect x="460" y="38" width="430" height="260" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+
+      <!-- Q learns Chinese (absorb W_UK into Q) -->
+      <rect x="480" y="65" width="130" height="75" rx="8" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="545" y="88" text-anchor="middle" font-size="10" font-weight="700" fill="white">读者先学翻译</text>
+      <text x="545" y="108" text-anchor="middle" font-size="10" fill="#c8e6c9">Q' = Q × W_UK<tspan font-size="8" baseline-shift="super">T</tspan></text>
+      <text x="545" y="126" text-anchor="middle" font-size="9" fill="#c8e6c9">一次性学习!</text>
+
+      <!-- Directly read book -->
+      <line x1="610" y1="100" x2="660" y2="100" stroke="#2e7d32" stroke-width="2" marker-end="url(#ar)"/>
+
+      <!-- Book shelf direct -->
+      <rect x="660" y="65" width="100" height="75" rx="6" fill="#ffe0b2" stroke="#e65100" stroke-width="2"/>
+      <text x="710" y="88" text-anchor="middle" font-size="10" font-weight="700" fill="#e65100">书架</text>
+      <text x="710" y="106" text-anchor="middle" font-size="10" fill="#e65100">(c_t 原样)</text>
+      <text x="710" y="122" text-anchor="middle" font-size="9" fill="#888">中文速记</text>
+      <text x="710" y="134" text-anchor="middle" font-size="8" fill="#888">512 维</text>
+
+      <!-- = result -->
+      <line x1="760" y1="100" x2="800" y2="100" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+      <rect x="800" y="72" width="75" height="55" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="2"/>
+      <text x="837" y="100" text-anchor="middle" font-size="11" font-weight="700" fill="#6a1b9a">score</text>
+      <text x="837" y="118" text-anchor="middle" font-size="9" fill="#6a1b9a">&#9989;</text>
+
+      <!-- No translator needed -->
+      <rect x="490" y="170" width="120" height="45" rx="6" fill="#c8e6c9" stroke="#2e7d32"/>
+      <text x="550" y="193" text-anchor="middle" font-size="10" font-weight="700" fill="#1b5e20">不需要翻译官!</text>
+      <text x="550" y="208" text-anchor="middle" font-size="9" fill="#2e7d32">W_UK 已被吸收</text>
+
+      <!-- Benefits -->
+      <rect x="490" y="225" width="370" height="60" rx="8" fill="white" stroke="#2e7d32"/>
+      <text x="675" y="248" text-anchor="middle" font-size="11" font-weight="700" fill="#2e7d32">&#128640; 好处：</text>
+      <text x="675" y="268" text-anchor="middle" font-size="10" fill="#333">不管书架有多少笔记(L)，读者都直接读中文速记，无需翻译</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ==================== Section 4: 吸收分离 ==================== -->
+<div class="card">
+  <h2>4. 矩阵吸收「分离」：RoPE 带来的特殊处理</h2>
+
+  <p>矩阵吸收看似完美，但有一个<strong>无法吸收</strong>的部分——<strong>RoPE（旋转位置编码）</strong>。</p>
+
+  <div class="callout callout-orange">
+    <div class="callout-icon">&#9888;&#65039;</div>
+    <div><strong>为什么 RoPE 不能被吸收？</strong> RoPE 是<strong>位置相关</strong>的变换，每个 token 位置的旋转矩阵 R(pos) 不同。而矩阵吸收要求 W 是<strong>固定权重</strong>（所有位置共享）。RoPE 作用在 K 上之后，Q×K<sup>T</sup> 中的位置信息就无法简单用结合律挪到 Q 侧了。</div>
+  </div>
+
+  <h3>4.1「分离」的核心思路</h3>
+  <p>MLA 的解决方案是：把 Key 分成<strong>两部分</strong>——可以吸收的和不能吸收的——分别处理后合并。</p>
+
+  <div class="formula-box">
+    <span class="step-label">Key 分拆</span><br>
+    &nbsp;&nbsp;K = [K<sub>nope</sub> , K<sub>rope</sub>] &nbsp;&nbsp; <span style="color:#888;">// 拼接成完整 Key</span><br><br>
+
+    <span class="step-label">K<sub>nope</sub></span> = c_t × W<sub>UK</sub> &nbsp;&nbsp; <span style="color:var(--green);">// &#9989; 可吸收! 位置无关的静态投影</span><br>
+    <span class="step-label">K<sub>rope</sub></span> = RoPE(k_pe) &nbsp;&nbsp; <span style="color:var(--red);">// &#10060; 不可吸收! 位置相关的动态变换</span><br><br>
+
+    <span class="step-label">对应 Q</span><br>
+    &nbsp;&nbsp;Q = [Q<sub>nope</sub> , Q<sub>rope</sub>] &nbsp;&nbsp; <span style="color:#888;">// 也分成两部分</span><br><br>
+
+    <span class="step-label">Score 计算（分拆后）</span><br>
+    &nbsp;&nbsp;score = Q<sub>nope</sub> × K<sub>nope</sub><sup>T</sup> &nbsp;+&nbsp; Q<sub>rope</sub> × K<sub>rope</sub><sup>T</sup><br><br>
+
+    <span class="step-label">吸收第一项</span><br>
+    &nbsp;&nbsp;score = <span class="absorb">(Q<sub>nope</sub> × W<sub>UK</sub><sup>T</sup>)</span> × c_t<sup>T</sup> &nbsp;+&nbsp; Q<sub>rope</sub> × K<sub>rope</sub><sup>T</sup><br><br>
+
+    &nbsp;&nbsp;= <span class="absorb">Q'<sub>nope</sub></span> × c_t<sup>T</sup> &nbsp;+&nbsp; Q<sub>rope</sub> × RoPE(k_pe)<sup>T</sup>
+  </div>
+
+  <h3>4.2 图解：分离吸收的数据流</h3>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 950 500" xmlns="http://www.w3.org/2000/svg" style="max-width:920px;">
+      <rect x="0" y="0" width="950" height="500" fill="#fafbfc" rx="10"/>
+      <text x="475" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="#333">Absorbed Decode 完整数据流（含 RoPE 分离）</text>
+
+      <!-- ===== Q 侧 (左) ===== -->
+      <text x="200" y="60" text-anchor="middle" font-size="13" font-weight="700" fill="var(--blue)">Q 侧</text>
+
+      <!-- Q_nope -->
+      <rect x="30" y="80" width="150" height="42" rx="7" fill="#bbdefb" stroke="#1565c0" stroke-width="2"/>
+      <text x="105" y="100" text-anchor="middle" font-size="11" font-weight="700" fill="#0d47a1">Q_nope</text>
+      <text x="105" y="116" text-anchor="middle" font-size="9" fill="#555">[1, 128, 128]</text>
+
+      <!-- Q_rope -->
+      <rect x="220" y="80" width="150" height="42" rx="7" fill="#ffcdd2" stroke="#c62828" stroke-width="2"/>
+      <text x="295" y="100" text-anchor="middle" font-size="11" font-weight="700" fill="#c62828">Q_rope</text>
+      <text x="295" y="116" text-anchor="middle" font-size="9" fill="#555">[1, 128, 64] + RoPE</text>
+
+      <!-- Absorb W_UK into Q_nope -->
+      <line x1="105" y1="122" x2="105" y2="155" stroke="var(--green)" stroke-width="2" marker-end="url(#ar)"/>
+      <rect x="30" y="155" width="150" height="42" rx="7" fill="#43a047" stroke="#2e7d32" stroke-width="2"/>
+      <text x="105" y="172" text-anchor="middle" font-size="10" font-weight="700" fill="white">× W_UK<tspan font-size="8" baseline-shift="super">T</tspan> (吸收!)</text>
+      <text x="105" y="190" text-anchor="middle" font-size="9" fill="#c8e6c9">[128, 512]</text>
+
+      <!-- Q'_nope -->
+      <line x1="105" y1="197" x2="105" y2="230" stroke="var(--green)" stroke-width="2" marker-end="url(#ar)"/>
+      <rect x="30" y="230" width="150" height="42" rx="7" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="105" y="248" text-anchor="middle" font-size="11" font-weight="700" fill="white">Q'_nope</text>
+      <text x="105" y="264" text-anchor="middle" font-size="9" fill="#c8e6c9">[1, 128, 512]</text>
+
+      <!-- Q_rope stays -->
+      <line x1="295" y1="122" x2="295" y2="230" stroke="#c62828" stroke-width="1.5" stroke-dasharray="5,3"/>
+      <rect x="220" y="230" width="150" height="42" rx="7" fill="#c62828" stroke="#b71c1c" stroke-width="2"/>
+      <text x="295" y="248" text-anchor="middle" font-size="11" font-weight="700" fill="white">Q_rope</text>
+      <text x="295" y="264" text-anchor="middle" font-size="9" fill="#ffcdd2">[1, 128, 64] 不变</text>
+
+      <!-- ===== KV Cache 侧 (右) ===== -->
+      <text x="700" y="60" text-anchor="middle" font-size="13" font-weight="700" fill="var(--orange)">KV Cache (仅存这两个!)</text>
+
+      <!-- c_t -->
+      <rect x="560" y="80" width="140" height="55" rx="8" fill="#e91e63" stroke="#c2185b" stroke-width="2"/>
+      <text x="630" y="102" text-anchor="middle" font-size="12" font-weight="700" fill="white">c_t (compress_kv)</text>
+      <text x="630" y="122" text-anchor="middle" font-size="10" fill="#fce4ec">[L, 512]</text>
+      <text x="630" y="132" text-anchor="middle" font-size="8" fill="#f8bbd0">← KV Cache 主体</text>
+
+      <!-- k_rope_cache -->
+      <rect x="740" y="80" width="140" height="55" rx="8" fill="#e91e63" stroke="#c2185b" stroke-width="2"/>
+      <text x="810" y="102" text-anchor="middle" font-size="12" font-weight="700" fill="white">k_rope_cache</text>
+      <text x="810" y="122" text-anchor="middle" font-size="10" fill="#fce4ec">[L, 1, 64]</text>
+      <text x="810" y="132" text-anchor="middle" font-size="8" fill="#f8bbd0">← 位置编码缓存</text>
+
+      <!-- ===== Score 计算 (中间) ===== -->
+
+      <!-- Score 1: Q'_nope × c_t^T -->
+      <line x1="105" y1="272" x2="105" y2="310" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+      <line x1="630" y1="135" x2="320" y2="325" stroke="var(--orange)" stroke-width="1.5" stroke-dasharray="5,3"/>
+
+      <rect x="50" y="310" width="260" height="45" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="180" y="330" text-anchor="middle" font-size="11" font-weight="700" fill="#2e7d32">score_nope = Q'_nope × c_t<tspan font-size="8" baseline-shift="super">T</tspan></text>
+      <text x="180" y="348" text-anchor="middle" font-size="9" fill="#555">[1,128,512] × [512,L] → [1,128,L]</text>
+
+      <!-- Score 2: Q_rope × k_rope^T -->
+      <line x1="295" y1="272" x2="600" y2="310" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+      <line x1="810" y1="135" x2="710" y2="310" stroke="var(--orange)" stroke-width="1.5" stroke-dasharray="5,3"/>
+
+      <rect x="540" y="310" width="260" height="45" rx="8" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+      <text x="670" y="330" text-anchor="middle" font-size="11" font-weight="700" fill="#c62828">score_rope = Q_rope × k_pe<tspan font-size="8" baseline-shift="super">T</tspan></text>
+      <text x="670" y="348" text-anchor="middle" font-size="9" fill="#555">[1,128,64] × [64,L] → [1,128,L]</text>
+
+      <!-- + -->
+      <text x="425" y="340" text-anchor="middle" font-size="24" font-weight="700" fill="#333">+</text>
+
+      <!-- Total score -->
+      <line x1="180" y1="355" x2="400" y2="390" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+      <line x1="670" y1="355" x2="450" y2="390" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+      <rect x="330" y="390" width="190" height="38" rx="8" fill="#9c27b0" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="425" y="410" text-anchor="middle" font-size="12" font-weight="700" fill="white">score (完整)</text>
+      <text x="425" y="422" text-anchor="middle" font-size="9" fill="#e1bee7">[1, 128, L]</text>
+
+      <!-- Softmax + × c_t -->
+      <line x1="425" y1="428" x2="425" y2="460" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+      <rect x="280" y="460" width="290" height="32" rx="6" fill="#7b1fa2"/>
+      <text x="425" y="481" text-anchor="middle" font-size="11" font-weight="600" fill="white">softmax → × c_t → × W_UV → Output</text>
+
+      <!-- 标注框 -->
+      <rect x="720" y="230" width="200" height="65" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="820" y="252" text-anchor="middle" font-size="10" font-weight="700" fill="#2e7d32">「分离」的含义</text>
+      <text x="820" y="270" text-anchor="middle" font-size="9" fill="#333">nope 部分 → 可吸收</text>
+      <text x="820" y="286" text-anchor="middle" font-size="9" fill="#333">rope 部分 → 不可吸收</text>
+
+      <rect x="720" y="375" width="200" height="50" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.5"/>
+      <text x="820" y="395" text-anchor="middle" font-size="10" font-weight="700" fill="#e65100">Cache 总计 per token</text>
+      <text x="820" y="414" text-anchor="middle" font-size="10" fill="#e65100">512 + 64 = 576 维</text>
+    </svg>
+  </div>
+
+  <div class="callout callout-purple">
+    <div class="callout-icon">&#128270;</div>
+    <div>
+      <strong>「分离」总结：</strong>
+      <br>① 将 K 拆成 <code>K_nope</code>（无位置编码）和 <code>K_rope</code>（有 RoPE）两部分
+      <br>② <code>K_nope</code> 来自 <code>c_t × W_UK</code>，可以用结合律把 <code>W_UK</code> 吸收进 Q 侧 → <strong>不需要解压</strong>
+      <br>③ <code>K_rope</code> 经过 RoPE 位置编码，无法吸收 → 必须<strong>单独缓存</strong>（仅 64 维，很小）
+      <br>④ 最终 score = 吸收部分得分 + RoPE部分得分，两者<strong>相加</strong>后做 softmax
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Section 5: 量化对比 ==================== -->
+<div class="card">
+  <h2>5. 量化对比：吸收带来的收益</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>指标</th>
+        <th>Non-Absorbed (Prefill)</th>
+        <th>Absorbed (Decode)</th>
+        <th>收益</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>每 token KV 读取量</strong></td>
+        <td>128×128×2(K+V) = 32,768 维</td>
+        <td class="good">512 + 64 = 576 维</td>
+        <td class="good">~57x 减少</td>
+      </tr>
+      <tr>
+        <td><strong>KV 等效行为</strong></td>
+        <td>标准 MHA（多头独立 KV）</td>
+        <td class="good">等效 MQA（共享单潜头）</td>
+        <td>带宽友好</td>
+      </tr>
+      <tr>
+        <td><strong>Arithmetic Intensity</strong></td>
+        <td>低（Decode 单 token 利用率差）</td>
+        <td class="good">~2x 提升（数据复用率高）</td>
+        <td class="good">更接近计算瓶颈</td>
+      </tr>
+      <tr>
+        <td><strong>额外计算开销</strong></td>
+        <td>无</td>
+        <td>Q × W_UK<sup>T</sup>（一次性小矩阵乘）</td>
+        <td>可忽略</td>
+      </tr>
+      <tr>
+        <td><strong>模型效果</strong></td>
+        <td>无损</td>
+        <td class="good">无损（数学等价变换）</td>
+        <td class="good">完全等价</td>
+      </tr>
+      <tr>
+        <td><strong>推荐场景</strong></td>
+        <td>Prefill（大 batch GEMM 效率高）</td>
+        <td class="good">Decode（单 token 省带宽）</td>
+        <td>动态切换</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-green">
+    <div class="callout-icon">&#128640;</div>
+    <div><strong>核心要点：</strong>矩阵吸收是<strong>纯数学等价变换</strong>（结合律），不引入任何近似或精度损失。它只是重新安排了矩阵乘法的计算顺序——在 Decode 阶段，先把固定权重 W_UK 乘进 Q（计算量小，只做一次），从而避免对每个历史 token 都做耗带宽的 KV 解压。这就是 MLA 在 Decode 时能以 MQA 级别的 KV cache 成本达到 MHA 级别效果的秘密。</div>
+  </div>
+</div>
+
+<!-- ==================== Section 6: 动态切换 ==================== -->
+<div class="card">
+  <h2>6. 实际工程：Prefill vs Decode 动态切换</h2>
+
+  <p>在实际推理系统（SGLang、vLLM）中，MLA 会根据当前阶段动态选择路径：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 800 260" xmlns="http://www.w3.org/2000/svg" style="max-width:780px;">
+      <rect x="0" y="0" width="800" height="260" fill="#fafbfc" rx="10"/>
+
+      <!-- Decision -->
+      <rect x="280" y="20" width="240" height="40" rx="8" fill="#ff9800" stroke="#e65100" stroke-width="2"/>
+      <text x="400" y="45" text-anchor="middle" font-size="13" font-weight="700" fill="white">新 token 数量 x = ?</text>
+
+      <!-- Left: large x -->
+      <line x1="340" y1="60" x2="160" y2="100" stroke="#1565c0" stroke-width="2" marker-end="url(#ar)"/>
+      <text x="220" y="78" font-size="11" fill="#1565c0" font-weight="600">x ≥ 阈值 (如 ≥ 64)</text>
+
+      <rect x="30" y="100" width="260" height="140" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="160" y="125" text-anchor="middle" font-size="13" font-weight="700" fill="#0d47a1">Non-Absorbed (MHA)</text>
+      <text x="160" y="148" text-anchor="middle" font-size="11" fill="#333">先解压 c_t → K, V</text>
+      <text x="160" y="168" text-anchor="middle" font-size="11" fill="#333">用 FlashAttention 做标准 MHA</text>
+      <text x="160" y="190" text-anchor="middle" font-size="10" fill="#1565c0">大 batch GEMM 效率高</text>
+      <text x="160" y="210" text-anchor="middle" font-size="10" fill="#1565c0">Tensor Core 利用率高</text>
+      <text x="160" y="230" text-anchor="middle" font-size="10" fill="#888">适合 Prefill / Chunked Prefill</text>
+
+      <!-- Right: small x -->
+      <line x1="460" y1="60" x2="640" y2="100" stroke="var(--green)" stroke-width="2" marker-end="url(#ar)"/>
+      <text x="580" y="78" font-size="11" fill="var(--green)" font-weight="600">x &lt; 阈值 (如 = 1)</text>
+
+      <rect x="510" y="100" width="260" height="140" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="640" y="125" text-anchor="middle" font-size="13" font-weight="700" fill="var(--green)">Absorbed (MQA)</text>
+      <text x="640" y="148" text-anchor="middle" font-size="11" fill="#333">Q' = Q × W_UK<tspan font-size="8" baseline-shift="super">T</tspan> (吸收)</text>
+      <text x="640" y="168" text-anchor="middle" font-size="11" fill="#333">直接 Q' × c_t<tspan font-size="8" baseline-shift="super">T</tspan></text>
+      <text x="640" y="190" text-anchor="middle" font-size="10" fill="var(--green)">KV cache 读取量降 57x</text>
+      <text x="640" y="210" text-anchor="middle" font-size="10" fill="var(--green)">带宽压力极小</text>
+      <text x="640" y="230" text-anchor="middle" font-size="10" fill="#888">适合 Decode / 投机采样</text>
+    </svg>
+  </div>
+
+  <div class="callout callout-blue">
+    <div class="callout-icon">&#128204;</div>
+    <div><strong>切换阈值：</strong>当新 token 数 x 较大时（Prefill），解压 KV 的开销可被大 GEMM 的高效率摊薄，Non-Absorbed 更快。当 x=1（Decode 逐 token 生成），解压 KV 变成纯粹的带宽浪费，Absorbed 路径完胜。SGLang/vLLM 中典型阈值为 x=64 左右，chunked prefill 配合 FlashMLA 的 page_size=64 对齐。</div>
+  </div>
+</div>
+
+<!-- Footer -->
+<div style="text-align:center; padding: 16px; color: #999; font-size: 0.85em;">
+  MLA 矩阵吸收原理详解 · DeepSeek-V2/V3 技术
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLA 矩阵吸收 — GEMM 矩阵图解</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Noto Sans SC", sans-serif;
+    background: #f0f2f5; color: #333; line-height: 1.7;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px 24px; }
+  .header {
+    background: linear-gradient(135deg, #1a237e, #283593);
+    color: white; padding: 36px; border-radius: 12px; margin-bottom: 28px;
+    text-align: center;
+  }
+  .header h1 { font-size: 1.7em; }
+  .header p { opacity: 0.85; margin-top: 6px; font-size: 1.05em; }
+
+  .card {
+    background: white; border-radius: 12px; padding: 30px 34px;
+    margin-bottom: 26px; box-shadow: 0 1px 5px rgba(0,0,0,0.07);
+  }
+  .card h2 {
+    font-size: 1.3em; color: #1565c0; margin-bottom: 16px;
+    border-left: 4px solid #1565c0; padding-left: 12px;
+  }
+  .card h3 { font-size: 1.1em; margin: 18px 0 10px; color: #333; }
+  .card p { margin-bottom: 12px; font-size: 1em; }
+
+  .svg-wrap { text-align: center; margin: 16px 0; overflow-x: auto; }
+  .svg-wrap svg { max-width: 100%; height: auto; }
+
+  .callout {
+    border-radius: 8px; padding: 16px 18px; margin: 14px 0;
+    font-size: 0.95em;
+  }
+  .callout-green { background: #e8f5e9; border-left: 4px solid #2e7d32; }
+  .callout-red { background: #fce4ec; border-left: 4px solid #c62828; }
+  .callout-blue { background: #e3f2fd; border-left: 4px solid #1565c0; }
+  .callout-orange { background: #fff3e0; border-left: 4px solid #e65100; }
+  .callout-purple { background: #f3e5f5; border-left: 4px solid #6a1b9a; }
+
+  .step-tag {
+    display: inline-block; background: #1565c0; color: white;
+    padding: 2px 12px; border-radius: 10px; font-size: 0.88em;
+    font-weight: 700; margin-right: 6px;
+  }
+  .step-tag.red { background: #c62828; }
+  .step-tag.green { background: #2e7d32; }
+  .step-tag.purple { background: #6a1b9a; }
+  code {
+    background: #f1f3f4; padding: 1px 6px; border-radius: 3px;
+    font-family: "Fira Code", monospace; font-size: 0.92em;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="header">
+  <h1>MLA 矩阵吸收 — GEMM 矩阵形状图解</h1>
+  <p>用矩阵乘法的「色块拼图」直观理解吸收与分离原理</p>
+</div>
+
+<!-- ==================== Step 0: 图例 ==================== -->
+<div class="card">
+  <h2>图例说明</h2>
+  <div class="svg-wrap">
+    <svg viewBox="0 0 900 90" xmlns="http://www.w3.org/2000/svg" style="max-width:880px;">
+      <rect x="0" y="0" width="900" height="90" fill="#fafbfc" rx="8"/>
+      <!-- Q -->
+      <rect x="25" y="15" width="50" height="55" rx="5" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="95" y="50" font-size="15" fill="#333" font-weight="500">= Query 矩阵 (蓝)</text>
+      <!-- W -->
+      <rect x="240" y="15" width="55" height="55" rx="5" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="310" y="50" font-size="15" fill="#333" font-weight="500">= 权重矩阵 W (绿)</text>
+      <!-- c_t (KV Cache) -->
+      <rect x="480" y="15" width="80" height="35" rx="5" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="575" y="40" font-size="15" fill="#333" font-weight="500">= KV Cache c_t (红)</text>
+      <!-- Result -->
+      <rect x="735" y="15" width="55" height="55" rx="5" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="805" y="50" font-size="15" fill="#333" font-weight="500">= 结果 (紫)</text>
+    </svg>
+  </div>
+  <p>矩阵图中，<strong>宽度代表列数（dim）</strong>，<strong>高度代表行数</strong>。两个矩阵相乘时，左矩阵的列数必须等于右矩阵的行数（即相邻边匹配）。</p>
+</div>
+
+<!-- ==================== Step 1: 标准 MHA ==================== -->
+<div class="card">
+  <h2>第一步：回顾标准 Attention 的 GEMM</h2>
+  <p><span class="step-tag">标准MHA</span> <code>score = Q * K^T</code>，其中 Q 和 K 的 head_dim 都是 192（128 nope + 64 rope）：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 880 260" xmlns="http://www.w3.org/2000/svg" style="max-width:860px;">
+      <rect x="0" y="0" width="880" height="260" fill="#fafbfc" rx="8"/>
+      <text x="340" y="30" text-anchor="middle" font-size="17" font-weight="700" fill="#555">标准 MHA: score = Q * K^T</text>
+
+      <!-- Q: [1, 192] -->
+      <rect x="50" y="70" width="192" height="18" rx="4" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="146" y="60" text-anchor="middle" font-size="15" font-weight="700" fill="#1565c0">Q</text>
+      <text x="146" y="108" text-anchor="middle" font-size="13" fill="#1565c0">← 192 列 →</text>
+      <text x="50" y="108" font-size="12" fill="#888">1 行</text>
+
+      <!-- x -->
+      <text x="265" y="84" font-size="24" font-weight="700" fill="#333">x</text>
+
+      <!-- K^T: [192, L] -->
+      <rect x="300" y="48" width="130" height="192" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="365" y="36" text-anchor="middle" font-size="15" font-weight="700" fill="#c62828">K^T</text>
+      <text x="365" y="150" text-anchor="middle" font-size="13" font-weight="600" fill="white">192 行</text>
+      <text x="365" y="255" text-anchor="middle" font-size="13" fill="#c62828">← L 列 →</text>
+
+      <!-- = -->
+      <text x="450" y="84" font-size="24" font-weight="700" fill="#333">=</text>
+
+      <!-- score: [1, L] -->
+      <rect x="480" y="70" width="130" height="18" rx="4" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="545" y="60" text-anchor="middle" font-size="15" font-weight="700" fill="#7b1fa2">score</text>
+      <text x="545" y="108" text-anchor="middle" font-size="13" fill="#7b1fa2">[1, L]</text>
+
+      <!-- 问题标注 -->
+      <rect x="645" y="45" width="220" height="165" rx="10" fill="#fce4ec" stroke="#e91e63" stroke-width="2"/>
+      <text x="755" y="75" text-anchor="middle" font-size="16" font-weight="700" fill="#c62828">问题在 K !</text>
+      <text x="665" y="105" font-size="14" fill="#333">K 需要从 c_t 解压得到:</text>
+      <text x="665" y="132" font-size="15" fill="#c62828" font-weight="700">K = c_t * W_UK</text>
+      <text x="665" y="158" font-size="13" fill="#333">[L, 512] x [512, 192]</text>
+      <text x="665" y="180" font-size="13" fill="#333">= [L, 192]</text>
+      <text x="665" y="202" font-size="13" fill="#c62828" font-weight="600">每步 decode 都要做!</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ==================== Step 2: Non-Absorbed 展开 ==================== -->
+<div class="card">
+  <h2>第二步：Non-Absorbed 完整 GEMM 链</h2>
+  <p><span class="step-tag red">Non-Absorbed</span> 先解压 <code>K = c_t * W_UK</code>，再 <code>score = Q * K^T</code>。两步 GEMM：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 400" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="400" fill="#fafbfc" rx="8"/>
+
+      <!-- Title -->
+      <text x="500" y="30" text-anchor="middle" font-size="17" font-weight="700" fill="#c62828">Non-Absorbed: 两步 GEMM（每次 decode 都要做!）</text>
+
+      <!-- ===== GEMM 1: K = c_t * W_UK ===== -->
+      <text x="210" y="62" text-anchor="middle" font-size="15" font-weight="700" fill="#555">GEMM-1: K = c_t * W_UK</text>
+
+      <!-- c_t: [L, 512] -->
+      <rect x="30" y="85" width="140" height="160" rx="5" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="100" y="172" text-anchor="middle" font-size="16" font-weight="700" fill="white">c_t</text>
+      <text x="100" y="78" text-anchor="middle" font-size="13" fill="#c62828">512 列</text>
+      <text x="16" y="170" font-size="12" fill="#888" transform="rotate(-90,16,170)">L 行</text>
+
+      <!-- x -->
+      <text x="188" y="172" font-size="22" font-weight="700" fill="#333">x</text>
+
+      <!-- W_UK: [512, 192] -->
+      <rect x="210" y="85" width="68" height="140" rx="4" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="244" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="white">W_UK</text>
+      <text x="244" y="175" text-anchor="middle" font-size="11" fill="#e8f5e9">[512, 192]</text>
+      <text x="244" y="78" text-anchor="middle" font-size="13" fill="#2e7d32">192 列</text>
+      <text x="288" y="155" font-size="12" fill="#888">512行</text>
+
+      <!-- = K: [L, 192] -->
+      <text x="300" y="172" font-size="22" font-weight="700" fill="#333">=</text>
+
+      <rect x="325" y="85" width="68" height="160" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2" stroke-dasharray="8,4"/>
+      <text x="359" y="165" text-anchor="middle" font-size="16" font-weight="700" fill="white">K</text>
+      <text x="359" y="185" text-anchor="middle" font-size="12" fill="#ffcdd2">[L, 192]</text>
+      <text x="359" y="78" text-anchor="middle" font-size="13" fill="#c62828">192 列</text>
+
+      <!-- 大!标签 -->
+      <rect x="330" y="255" width="60" height="28" rx="6" fill="#c62828"/>
+      <text x="360" y="274" text-anchor="middle" font-size="14" font-weight="700" fill="white">巨大!</text>
+
+      <!-- 箭头连接 -->
+      <path d="M405,165 Q440,165 460,165" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#arrowGray)"/>
+
+      <!-- ===== GEMM 2: score = Q * K^T ===== -->
+      <text x="660" y="62" text-anchor="middle" font-size="15" font-weight="700" fill="#555">GEMM-2: score = Q * K^T</text>
+
+      <!-- Q: [1, 192] -->
+      <rect x="480" y="158" width="68" height="18" rx="3" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="514" y="150" text-anchor="middle" font-size="14" font-weight="700" fill="#1565c0">Q</text>
+      <text x="514" y="194" text-anchor="middle" font-size="12" fill="#888">[1, 192]</text>
+
+      <!-- x -->
+      <text x="565" y="172" font-size="22" font-weight="700" fill="#333">x</text>
+
+      <!-- K^T: [192, L] -->
+      <rect x="590" y="85" width="160" height="68" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2" stroke-dasharray="8,4"/>
+      <text x="670" y="126" text-anchor="middle" font-size="14" font-weight="700" fill="white">K^T</text>
+      <text x="670" y="78" text-anchor="middle" font-size="13" fill="#c62828">L 列</text>
+      <text x="762" y="126" font-size="12" fill="#888">192行</text>
+
+      <!-- = score: [1, L] -->
+      <text x="770" y="172" font-size="22" font-weight="700" fill="#333">=</text>
+      <rect x="800" y="158" width="160" height="18" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="880" y="150" text-anchor="middle" font-size="14" font-weight="700" fill="#7b1fa2">score</text>
+      <text x="880" y="194" text-anchor="middle" font-size="12" fill="#7b1fa2">[1, L]</text>
+
+      <!-- 总结框 -->
+      <rect x="460" y="290" width="520" height="100" rx="10" fill="#fce4ec" stroke="#e91e63" stroke-width="2"/>
+      <text x="720" y="318" text-anchor="middle" font-size="15" font-weight="700" fill="#c62828">Non-Absorbed 的开销</text>
+      <text x="480" y="345" font-size="14" fill="#333">GEMM-1: c_t[L,512] x W_UK[512,192] -> K[L,192] — <tspan fill="#c62828" font-weight="700">每步都做! 读 Lx512 写 Lx192</tspan></text>
+      <text x="480" y="370" font-size="14" fill="#333">GEMM-2: Q[1,192] x K^T[192,L] -> score[1,L] — <tspan fill="#c62828" font-weight="700">需要完整 K</tspan></text>
+      <text x="480" y="390" font-size="13" fill="#c62828" font-weight="700">总访存: L x 512 (读c_t) + L x 192 (写K) + L x 192 (读K) = L x 896</text>
+
+      <defs>
+        <marker id="arrowGray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#888"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+</div>
+
+<!-- ==================== Step 3: 矩阵吸收的关键洞察 ==================== -->
+<div class="card">
+  <h2>第三步：矩阵吸收的关键洞察 — 结合律换括号</h2>
+  <p><span class="step-tag green">核心</span> 把上面两步 GEMM 写成一个表达式，然后利用<strong>矩阵乘法结合律</strong>重新分组：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="300" fill="#fafbfc" rx="8"/>
+
+      <text x="500" y="30" text-anchor="middle" font-size="17" font-weight="700" fill="#555">原始计算顺序 vs 吸收后计算顺序</text>
+
+      <!-- ===== 原始（左） ===== -->
+      <rect x="20" y="48" width="440" height="230" rx="10" fill="#fff8e1" stroke="#ffc107" stroke-width="2"/>
+      <text x="240" y="76" text-anchor="middle" font-size="16" font-weight="700" fill="#e65100">原始: score = Q x (c_t x W_UK)^T</text>
+      <text x="240" y="100" text-anchor="middle" font-size="14" fill="#333">= Q x W_UK^T x c_t^T</text>
+
+      <text x="240" y="128" text-anchor="middle" font-size="13" fill="#c62828" font-weight="700">先算右边两个 (解压 KV Cache)</text>
+
+      <!-- Q -->
+      <rect x="50" y="155" width="70" height="16" rx="3" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="85" y="147" text-anchor="middle" font-size="13" font-weight="600" fill="#1565c0">Q [1, 192]</text>
+
+      <!-- x -->
+      <text x="135" y="167" font-size="18" fill="#333" font-weight="700">x</text>
+
+      <!-- 大括号框 -->
+      <rect x="152" y="138" width="290" height="120" rx="8" fill="#fce4ec" stroke="#e91e63" stroke-width="2" stroke-dasharray="8,4"/>
+      <text x="297" y="160" text-anchor="middle" font-size="13" font-weight="700" fill="#c62828">先算这一块 (每步 decode 都做!)</text>
+
+      <!-- W_UK^T -->
+      <rect x="175" y="178" width="70" height="70" rx="4" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="210" y="217" text-anchor="middle" font-size="12" font-weight="700" fill="white">W_UK^T</text>
+      <text x="210" y="175" text-anchor="middle" font-size="11" fill="#2e7d32">[192, 512]</text>
+      <!-- x -->
+      <text x="257" y="217" font-size="16" fill="#333">x</text>
+      <!-- c_t^T -->
+      <rect x="275" y="178" width="120" height="70" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="335" y="217" text-anchor="middle" font-size="12" font-weight="700" fill="white">c_t^T</text>
+      <text x="335" y="175" text-anchor="middle" font-size="11" fill="#c62828">[512, L]</text>
+
+      <!-- ===== 大箭头 ===== -->
+      <text x="490" y="190" text-anchor="middle" font-size="36" font-weight="700" fill="#2e7d32">-></text>
+      <text x="490" y="218" text-anchor="middle" font-size="14" font-weight="700" fill="#2e7d32">结合律!</text>
+      <text x="490" y="236" text-anchor="middle" font-size="12" fill="#2e7d32">换个括号位置</text>
+
+      <!-- ===== 吸收后（右） ===== -->
+      <rect x="540" y="48" width="440" height="230" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="760" y="76" text-anchor="middle" font-size="16" font-weight="700" fill="#2e7d32">吸收: score = (Q x W_UK^T) x c_t^T</text>
+      <text x="760" y="100" text-anchor="middle" font-size="14" fill="#333">= Q' x c_t^T</text>
+
+      <text x="760" y="128" text-anchor="middle" font-size="13" fill="#2e7d32" font-weight="700">先算左边两个 (吸收权重到 Q)</text>
+
+      <!-- 大括号框: Q x W_UK^T -->
+      <rect x="560" y="138" width="220" height="120" rx="8" fill="#c8e6c9" stroke="#2e7d32" stroke-width="2" stroke-dasharray="8,4"/>
+      <text x="670" y="160" text-anchor="middle" font-size="13" font-weight="700" fill="#1b5e20">先算这一块 (仅 1 token!)</text>
+
+      <!-- Q -->
+      <rect x="585" y="193" width="70" height="16" rx="3" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="620" y="188" text-anchor="middle" font-size="12" fill="#1565c0">Q [1, 192]</text>
+      <!-- x -->
+      <text x="668" y="205" font-size="16" fill="#333">x</text>
+      <!-- W_UK^T -->
+      <rect x="685" y="178" width="70" height="70" rx="4" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="720" y="217" text-anchor="middle" font-size="12" font-weight="700" fill="white">W_UK^T</text>
+      <text x="720" y="175" text-anchor="middle" font-size="11" fill="#2e7d32">[192, 512]</text>
+
+      <!-- = Q' -->
+      <text x="792" y="205" font-size="16" fill="#333">=</text>
+      <rect x="810" y="193" width="120" height="16" rx="3" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="870" y="188" text-anchor="middle" font-size="13" fill="#2e7d32" font-weight="700">Q' [1, 512]</text>
+
+      <!-- 然后 x c_t^T -->
+      <text x="830" y="240" text-anchor="middle" font-size="13" fill="#555">然后: Q'[1,512] x c_t^T[512,L] = score[1,L]</text>
+    </svg>
+  </div>
+
+  <div class="callout callout-green">
+    <strong>关键区别一目了然：</strong>左图需要先做一个大 GEMM (c_t x W_UK = [L,512] x [512,192]) 生成完整 K，右图把 W_UK 挪到 Q 侧 (Q x W_UK^T = [1,192] x [192,512])，只是 1 行的小 GEMM，然后直接用压缩后的 c_t 做 attention。核心差异在于<strong>与历史长度 L 相关的那步 GEMM 被消除了</strong>。
+  </div>
+</div>
+
+<!-- ==================== Step 3b: 对比图 ==================== -->
+<div class="card">
+  <h2>对比：Non-Absorbed vs Absorbed 实际 GEMM 形状</h2>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 340" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="340" fill="#fafbfc" rx="8"/>
+
+      <!-- ===== Non-Absorbed (左) ===== -->
+      <text x="240" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#c62828">Non-Absorbed GEMM (每步 decode)</text>
+      <rect x="15" y="40" width="465" height="240" rx="10" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+
+      <!-- GEMM1: c_t x W_UK = K -->
+      <text x="140" y="68" text-anchor="middle" font-size="14" font-weight="700" fill="#e65100">GEMM-1: 解压 K</text>
+      <!-- c_t -->
+      <rect x="35" y="82" width="80" height="150" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="75" y="162" text-anchor="middle" font-size="14" font-weight="700" fill="white">c_t</text>
+      <text x="75" y="78" text-anchor="middle" font-size="12" fill="#c62828">512</text>
+      <text x="24" y="160" font-size="11" fill="#888" transform="rotate(-90,24,160)">L</text>
+
+      <text x="128" y="162" font-size="18" font-weight="700" fill="#333">x</text>
+
+      <!-- W_UK -->
+      <rect x="145" y="82" width="36" height="80" rx="3" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="163" y="125" text-anchor="middle" font-size="11" font-weight="700" fill="white">W_UK</text>
+      <text x="163" y="78" text-anchor="middle" font-size="12" fill="#2e7d32">192</text>
+      <text x="190" y="122" font-size="11" fill="#888">512</text>
+
+      <text x="198" y="162" font-size="18" font-weight="700" fill="#333">=</text>
+
+      <!-- K -->
+      <rect x="215" y="82" width="36" height="150" rx="3" fill="#ef5350" stroke="#c62828" stroke-width="2" stroke-dasharray="6,3"/>
+      <text x="233" y="162" text-anchor="middle" font-size="14" font-weight="700" fill="white">K</text>
+      <text x="233" y="78" text-anchor="middle" font-size="12" fill="#c62828">192</text>
+
+      <!-- GEMM2: Q x K^T -->
+      <text x="370" y="68" text-anchor="middle" font-size="14" font-weight="700" fill="#e65100">GEMM-2: Q x K^T</text>
+      <rect x="290" y="145" width="36" height="16" rx="2" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="308" y="140" text-anchor="middle" font-size="11" fill="#1565c0">Q [1,192]</text>
+
+      <text x="338" y="158" font-size="16" font-weight="700" fill="#333">x</text>
+
+      <rect x="355" y="90" width="120" height="36" rx="3" fill="#ef5350" stroke="#c62828" stroke-width="2" stroke-dasharray="6,3"/>
+      <text x="415" y="113" text-anchor="middle" font-size="12" font-weight="700" fill="white">K^T [192, L]</text>
+
+      <!-- spacer -->
+
+      <!-- 访存量 -->
+      <rect x="35" y="248" width="430" height="26" rx="6" fill="#fce4ec" stroke="#e91e63"/>
+      <text x="250" y="266" text-anchor="middle" font-size="13" font-weight="700" fill="#c62828">访存: 读 Lx512 + 写读 Lx192 = L x 896 (巨大!)</text>
+
+      <!-- ===== Absorbed (右) ===== -->
+      <text x="740" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#2e7d32">Absorbed GEMM (每步 decode)</text>
+      <rect x="520" y="40" width="465" height="240" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+
+      <!-- GEMM-a: Q x W_UK^T = Q' -->
+      <text x="640" y="68" text-anchor="middle" font-size="14" font-weight="700" fill="#2e7d32">GEMM-a: Q x W_UK^T (仅1行!)</text>
+
+      <rect x="540" y="145" width="36" height="16" rx="2" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="558" y="140" text-anchor="middle" font-size="11" fill="#1565c0">Q [1,192]</text>
+
+      <text x="590" y="158" font-size="16" font-weight="700" fill="#333">x</text>
+
+      <rect x="608" y="90" width="68" height="36" rx="3" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="642" y="113" text-anchor="middle" font-size="11" font-weight="700" fill="white">W_UK^T</text>
+      <text x="642" y="85" text-anchor="middle" font-size="11" fill="#2e7d32">[192, 512]</text>
+
+      <text x="690" y="158" font-size="16" font-weight="700" fill="#333">=</text>
+
+      <rect x="710" y="145" width="68" height="16" rx="2" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="744" y="140" text-anchor="middle" font-size="12" fill="#2e7d32" font-weight="700">Q' [1, 512]</text>
+
+      <!-- GEMM-b: Q' x c_t^T -->
+      <text x="870" y="68" text-anchor="middle" font-size="14" font-weight="700" fill="#2e7d32">GEMM-b: Q' x c_t^T</text>
+
+      <rect x="810" y="145" width="68" height="16" rx="2" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="844" y="140" text-anchor="middle" font-size="11" fill="#2e7d32">Q' [1,512]</text>
+
+      <text x="892" y="158" font-size="16" font-weight="700" fill="#333">x</text>
+
+      <rect x="910" y="82" width="60" height="80" rx="3" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="940" y="126" text-anchor="middle" font-size="12" font-weight="700" fill="white">c_t^T</text>
+      <text x="940" y="78" text-anchor="middle" font-size="11" fill="#c62828">[512, L]</text>
+
+      <!-- 访存量 -->
+      <rect x="540" y="248" width="430" height="26" rx="6" fill="#c8e6c9" stroke="#2e7d32"/>
+      <text x="755" y="266" text-anchor="middle" font-size="13" font-weight="700" fill="#1b5e20">访存: 读 Lx512 (仅c_t!) 无需物化 K! 省 ~43%</text>
+
+      <!-- 底部总结 -->
+      <rect x="200" y="300" width="600" height="32" rx="8" fill="#1565c0"/>
+      <text x="500" y="322" text-anchor="middle" font-size="14" font-weight="700" fill="white">核心差异: 与历史长度 L 相关的大 GEMM 被消除了!</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ==================== Step 4: V 侧吸收 ==================== -->
+<div class="card">
+  <h2>第四步：V 侧的矩阵吸收（同理）</h2>
+  <p><span class="step-tag green">V侧</span> 原始 <code>O = Attn x V = Attn x (c_t x W_UV)</code>，吸收后 <code>O = (Attn x c_t) x W_UV</code>：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 310" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="310" fill="#fafbfc" rx="8"/>
+
+      <!-- ===== Non-Absorbed V (左) ===== -->
+      <text x="240" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#c62828">Non-Absorbed V 侧</text>
+      <rect x="15" y="42" width="465" height="250" rx="10" fill="#fff8e1" stroke="#ffc107" stroke-width="2"/>
+
+      <text x="240" y="70" text-anchor="middle" font-size="14" fill="#333">O = attn_weights x <tspan fill="#c62828" font-weight="700">(c_t x W_UV)</tspan></text>
+
+      <!-- attn: [1, L] -->
+      <rect x="35" y="115" width="120" height="16" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="95" y="108" text-anchor="middle" font-size="13" font-weight="600" fill="#7b1fa2">attn [1, L]</text>
+
+      <text x="170" y="128" font-size="18" font-weight="700" fill="#333">x</text>
+
+      <!-- 先算: c_t x W_UV = V -->
+      <rect x="190" y="88" width="68" height="130" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="224" y="158" text-anchor="middle" font-size="13" font-weight="700" fill="white">c_t</text>
+      <text x="224" y="84" text-anchor="middle" font-size="11" fill="#c62828">[L, 512]</text>
+
+      <text x="270" y="158" font-size="16" fill="#333">x</text>
+
+      <rect x="285" y="88" width="28" height="68" rx="3" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="299" y="128" text-anchor="middle" font-size="11" font-weight="700" fill="white">W_UV</text>
+      <text x="299" y="84" text-anchor="middle" font-size="10" fill="#2e7d32">[512,128]</text>
+
+      <text x="325" y="158" font-size="16" fill="#333">=</text>
+
+      <rect x="340" y="88" width="28" height="130" rx="3" fill="#ef5350" stroke="#c62828" stroke-width="2" stroke-dasharray="6,3"/>
+      <text x="354" y="158" text-anchor="middle" font-size="13" font-weight="700" fill="white">V</text>
+      <text x="354" y="84" text-anchor="middle" font-size="10" fill="#c62828">[L, 128]</text>
+
+      <text x="382" y="128" font-size="14" fill="#333">-> [1, 128]</text>
+
+      <rect x="45" y="235" width="420" height="28" rx="6" fill="#fce4ec" stroke="#e91e63"/>
+      <text x="255" y="254" text-anchor="middle" font-size="13" font-weight="700" fill="#c62828">先做 [L,512]x[512,128] 大GEMM，再 attn x V</text>
+
+      <!-- ===== Absorbed V (右) ===== -->
+      <text x="760" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#2e7d32">Absorbed V 侧</text>
+      <rect x="520" y="42" width="465" height="250" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+
+      <text x="752" y="70" text-anchor="middle" font-size="14" fill="#333">O = <tspan fill="#2e7d32" font-weight="700">(attn_weights x c_t)</tspan> x W_UV</text>
+
+      <!-- attn: [1, L] -->
+      <rect x="545" y="122" width="120" height="16" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="605" y="115" text-anchor="middle" font-size="13" font-weight="600" fill="#7b1fa2">attn [1, L]</text>
+
+      <text x="678" y="135" font-size="18" font-weight="700" fill="#333">x</text>
+
+      <!-- c_t: [L, 512] -->
+      <rect x="698" y="95" width="68" height="130" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="732" y="165" text-anchor="middle" font-size="13" font-weight="700" fill="white">c_t</text>
+      <text x="732" y="90" text-anchor="middle" font-size="11" fill="#c62828">[L, 512]</text>
+
+      <text x="780" y="135" font-size="16" fill="#333">=</text>
+
+      <!-- O': [1, 512] -->
+      <rect x="795" y="122" width="68" height="16" rx="3" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="829" y="115" text-anchor="middle" font-size="13" fill="#2e7d32" font-weight="700">O' [1, 512]</text>
+
+      <text x="878" y="135" font-size="16" fill="#333">x</text>
+
+      <!-- W_UV: [512, 128] -->
+      <rect x="895" y="102" width="25" height="68" rx="3" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="907" y="140" text-anchor="middle" font-size="10" font-weight="700" fill="white">W</text>
+      <text x="907" y="98" text-anchor="middle" font-size="10" fill="#2e7d32">[512,128]</text>
+
+      <text x="930" y="135" font-size="16" fill="#333">=</text>
+
+      <!-- O: [1, 128] -->
+      <rect x="945" y="122" width="25" height="16" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="957" y="115" text-anchor="middle" font-size="13" fill="#7b1fa2">O</text>
+      <text x="957" y="155" text-anchor="middle" font-size="11" fill="#7b1fa2">[1, 128]</text>
+
+      <rect x="540" y="235" width="430" height="28" rx="6" fill="#c8e6c9" stroke="#2e7d32"/>
+      <text x="755" y="254" text-anchor="middle" font-size="12" font-weight="600" fill="#1b5e20">attn x c_t 在 512 维潜空间完成，W_UV 只做一次 [1,512]x[512,128]</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ==================== Step 5: 矩阵吸收分离 详解 ==================== -->
+<div class="card">
+  <h2>第五步：矩阵吸收分离 — 为什么 Key 要「拆」成两部分</h2>
+  <p><span class="step-tag purple">核心问题</span> 上面我们假设整个 K 都可以吸收，但实际上 <strong>K 由两部分组成</strong>，其中一部分<strong>不可吸收</strong>！</p>
+
+  <h3>5.1 Key 的组成结构</h3>
+  <p>在 DeepSeek-V2/V3 的 MLA 中，每个 head 的 Key 向量 [192维] = K_nope [128维] + K_rope [64维]，它们的来源完全不同：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 220" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="220" fill="#fafbfc" rx="8"/>
+      <text x="500" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#6a1b9a">Key [192维] = K_nope [128维] + K_rope [64维]</text>
+
+      <!-- K_nope 部分 -->
+      <rect x="30" y="50" width="450" height="150" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="255" y="78" text-anchor="middle" font-size="15" font-weight="700" fill="#2e7d32">K_nope [128 维] — 来自线性投影</text>
+
+      <text x="55" y="105" font-size="14" fill="#333">公式: K_nope = c_t x W_UK</text>
+      <text x="55" y="130" font-size="14" fill="#333">其中: c_t 是 KV Cache [L, 512]</text>
+      <text x="55" y="155" font-size="14" fill="#333">W_UK 是固定权重矩阵 [512, 128]</text>
+      <text x="55" y="185" font-size="14" fill="#2e7d32" font-weight="700">纯线性投影，与 token 位置无关 -> 可吸收!</text>
+
+      <!-- K_rope 部分 -->
+      <rect x="520" y="50" width="460" height="150" rx="10" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+      <text x="750" y="78" text-anchor="middle" font-size="15" font-weight="700" fill="#c62828">K_rope [64 维] — 经过 RoPE 旋转</text>
+
+      <text x="545" y="105" font-size="14" fill="#333">公式: K_rope = RoPE(k_pe, pos)</text>
+      <text x="545" y="130" font-size="14" fill="#333">其中: k_pe 是位置编码投影 [L, 64]</text>
+      <text x="545" y="155" font-size="14" fill="#333">RoPE(pos) = 与每个 token 位置相关的旋转</text>
+      <text x="545" y="185" font-size="14" fill="#c62828" font-weight="700">位置相关变换，不是固定权重 -> 不可吸收!</text>
+    </svg>
+  </div>
+
+  <h3>5.2 为什么 RoPE 部分不能吸收？— GEMM 图解</h3>
+  <p>吸收的本质是利用结合律把 W 挪到 Q 侧。但 RoPE 不是固定矩阵，每个位置都不同：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 330" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="330" fill="#fafbfc" rx="8"/>
+
+      <!-- 可吸收 K_nope -->
+      <text x="250" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#2e7d32">K_nope: 可吸收 (W_UK 是固定权重)</text>
+      <rect x="20" y="42" width="460" height="270" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+
+      <text x="250" y="70" text-anchor="middle" font-size="14" fill="#333">score_nope = Q_nope x (c_t x W_UK)^T</text>
+      <text x="250" y="92" text-anchor="middle" font-size="14" fill="#333">= Q_nope x W_UK^T x c_t^T</text>
+      <text x="250" y="114" text-anchor="middle" font-size="14" fill="#2e7d32" font-weight="700">= (Q_nope x W_UK^T) x c_t^T = Q'_nope x c_t^T</text>
+
+      <!-- GEMM 图: Q'_nope x c_t^T -->
+      <text x="250" y="145" text-anchor="middle" font-size="13" font-weight="600" fill="#2e7d32">吸收后的 GEMM:</text>
+
+      <rect x="60" y="165" width="100" height="18" rx="3" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="110" y="157" text-anchor="middle" font-size="13" font-weight="700" fill="#2e7d32">Q'_nope [1, 512]</text>
+
+      <text x="175" y="178" font-size="20" font-weight="700" fill="#333">x</text>
+
+      <rect x="200" y="155" width="130" height="100" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="265" y="210" text-anchor="middle" font-size="14" font-weight="700" fill="white">c_t^T</text>
+      <text x="265" y="150" text-anchor="middle" font-size="12" fill="#c62828">[512, L]</text>
+
+      <text x="345" y="178" font-size="20" font-weight="700" fill="#333">=</text>
+
+      <rect x="370" y="165" width="90" height="18" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="415" y="157" text-anchor="middle" font-size="13" font-weight="700" fill="#7b1fa2">score_nope [1, L]</text>
+
+      <rect x="50" y="280" width="400" height="26" rx="6" fill="#c8e6c9" stroke="#2e7d32"/>
+      <text x="250" y="298" text-anchor="middle" font-size="13" font-weight="700" fill="#1b5e20">W_UK 已吸收进 Q -> 只读 c_t [L, 512]</text>
+
+      <!-- 不可吸收 K_rope -->
+      <text x="750" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#c62828">K_rope: 不可吸收 (RoPE 随位置变化)</text>
+      <rect x="520" y="42" width="460" height="270" rx="10" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+
+      <text x="750" y="70" text-anchor="middle" font-size="14" fill="#333">score_rope = Q_rope x K_rope^T</text>
+      <text x="750" y="92" text-anchor="middle" font-size="14" fill="#333">= RoPE(q_pe) x RoPE(k_pe)^T</text>
+      <text x="750" y="114" text-anchor="middle" font-size="14" fill="#c62828" font-weight="700">RoPE(pos) 每个位置不同，不是固定矩阵!</text>
+
+      <!-- GEMM 图: Q_rope x k_rope^T -->
+      <text x="750" y="145" text-anchor="middle" font-size="13" font-weight="600" fill="#c62828">必须标准计算:</text>
+
+      <rect x="570" y="165" width="45" height="18" rx="3" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="592" y="157" text-anchor="middle" font-size="13" font-weight="700" fill="#1565c0">Q_rope [1, 64]</text>
+
+      <text x="630" y="178" font-size="20" font-weight="700" fill="#333">x</text>
+
+      <rect x="655" y="158" width="130" height="45" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="720" y="185" text-anchor="middle" font-size="14" font-weight="700" fill="white">k_rope^T</text>
+      <text x="720" y="153" text-anchor="middle" font-size="12" fill="#c62828">[64, L]</text>
+
+      <text x="800" y="178" font-size="20" font-weight="700" fill="#333">=</text>
+
+      <rect x="825" y="165" width="90" height="18" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="870" y="157" text-anchor="middle" font-size="13" font-weight="700" fill="#7b1fa2">score_rope [1, L]</text>
+
+      <rect x="550" y="280" width="400" height="26" rx="6" fill="#fce4ec" stroke="#c62828"/>
+      <text x="750" y="298" text-anchor="middle" font-size="13" font-weight="700" fill="#c62828">必须单独缓存 k_rope [L, 64]，直接标准计算</text>
+    </svg>
+  </div>
+
+  <div class="callout callout-orange">
+    <strong>直觉理解：</strong>W_UK 就像一个固定的「翻译模板」，所有 token 用同一个模板，所以可以提前合并到 Q 侧。但 RoPE 是「随位置旋转的角度」，每个 token 位置角度不同，无法合并成一个固定模板——就像翻译每个人的话都要用不同的翻译标准，无法统一处理。
+  </div>
+
+  <h3>5.3 分离后的完整计算流程 — 两路合并</h3>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 380" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="380" fill="#fafbfc" rx="8"/>
+      <text x="500" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#6a1b9a">矩阵吸收分离: 两路 Score 计算后合并</text>
+
+      <!-- 路径1: nope (吸收) -->
+      <rect x="30" y="50" width="440" height="180" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="250" y="78" text-anchor="middle" font-size="15" font-weight="700" fill="#2e7d32">路径-1 (吸收路径): score_nope</text>
+
+      <!-- GEMM-a: Q_nope x W_UK^T = Q'_nope -->
+      <text x="250" y="102" text-anchor="middle" font-size="13" fill="#333">Step-a: Q_nope x W_UK^T = Q'_nope</text>
+
+      <rect x="50" y="118" width="40" height="16" rx="3" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="70" y="112" text-anchor="middle" font-size="11" fill="#1565c0">[1,128]</text>
+
+      <text x="102" y="130" font-size="14" font-weight="700" fill="#333">x</text>
+
+      <rect x="115" y="110" width="50" height="36" rx="3" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="140" y="132" text-anchor="middle" font-size="10" font-weight="700" fill="white">W_UK^T</text>
+      <text x="140" y="108" text-anchor="middle" font-size="10" fill="#2e7d32">[128,512]</text>
+
+      <text x="178" y="130" font-size="14" font-weight="700" fill="#333">=</text>
+
+      <rect x="195" y="118" width="80" height="16" rx="3" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="235" y="112" text-anchor="middle" font-size="11" fill="#2e7d32" font-weight="700">Q'_nope [1,512]</text>
+
+      <!-- GEMM-b: Q'_nope x c_t^T = score_nope -->
+      <text x="250" y="162" text-anchor="middle" font-size="13" fill="#333">Step-b: Q'_nope x c_t^T = score_nope</text>
+
+      <rect x="50" y="176" width="80" height="16" rx="3" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="90" y="172" text-anchor="middle" font-size="11" fill="#2e7d32">[1, 512]</text>
+
+      <text x="142" y="188" font-size="14" font-weight="700" fill="#333">x</text>
+
+      <rect x="158" y="170" width="80" height="42" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="198" y="195" text-anchor="middle" font-size="12" font-weight="700" fill="white">c_t^T</text>
+      <text x="198" y="167" text-anchor="middle" font-size="11" fill="#c62828">[512, L]</text>
+
+      <text x="252" y="188" font-size="14" font-weight="700" fill="#333">=</text>
+
+      <rect x="270" y="176" width="100" height="16" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="320" y="172" text-anchor="middle" font-size="12" font-weight="700" fill="#7b1fa2">score_nope [1, L]</text>
+
+      <!-- 路径2: rope (不吸收) -->
+      <rect x="530" y="50" width="440" height="180" rx="10" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+      <text x="750" y="78" text-anchor="middle" font-size="15" font-weight="700" fill="#c62828">路径-2 (标准路径): score_rope</text>
+
+      <text x="750" y="102" text-anchor="middle" font-size="13" fill="#333">直接标准 attention 计算</text>
+
+      <rect x="580" y="130" width="45" height="18" rx="3" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="602" y="123" text-anchor="middle" font-size="12" font-weight="700" fill="#1565c0">Q_rope</text>
+      <text x="602" y="166" text-anchor="middle" font-size="11" fill="#1565c0">[1, 64]</text>
+
+      <text x="638" y="143" font-size="16" font-weight="700" fill="#333">x</text>
+
+      <rect x="660" y="122" width="130" height="45" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="725" y="150" text-anchor="middle" font-size="14" font-weight="700" fill="white">k_rope^T</text>
+      <text x="725" y="118" text-anchor="middle" font-size="12" fill="#c62828">[64, L]</text>
+
+      <text x="805" y="143" font-size="16" font-weight="700" fill="#333">=</text>
+
+      <rect x="830" y="130" width="100" height="18" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="880" y="123" text-anchor="middle" font-size="12" font-weight="700" fill="#7b1fa2">score_rope</text>
+      <text x="880" y="166" text-anchor="middle" font-size="11" fill="#7b1fa2">[1, L]</text>
+
+      <rect x="560" y="195" width="380" height="26" rx="6" fill="white" stroke="#c62828"/>
+      <text x="750" y="213" text-anchor="middle" font-size="12" fill="#c62828" font-weight="600">必须缓存 k_rope [L, 64]，无法避免</text>
+
+      <!-- 合并 -->
+      <line x1="280" y1="238" x2="420" y2="290" stroke="#2e7d32" stroke-width="3" marker-end="url(#arPurple)"/>
+      <line x1="720" y1="238" x2="580" y2="290" stroke="#c62828" stroke-width="3" marker-end="url(#arPurple)"/>
+
+      <rect x="350" y="290" width="300" height="56" rx="12" fill="#6a1b9a" stroke="#4a148c" stroke-width="2"/>
+      <text x="500" y="316" text-anchor="middle" font-size="16" font-weight="700" fill="white">score = score_nope + score_rope</text>
+      <text x="500" y="338" text-anchor="middle" font-size="13" fill="#e1bee7">[1, L] + [1, L] = [1, L]</text>
+
+      <!-- KV Cache 说明 -->
+      <rect x="700" y="300" width="280" height="56" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+      <text x="840" y="320" text-anchor="middle" font-size="13" font-weight="700" fill="#e65100">KV Cache per token:</text>
+      <text x="840" y="342" text-anchor="middle" font-size="13" fill="#e65100">c_t (512) + k_rope (64) = 576 维</text>
+
+      <defs>
+        <marker id="arPurple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#6a1b9a"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <div class="callout callout-purple">
+    <strong>「矩阵吸收分离」总结：</strong>把 Key 的 192 维拆成 nope [128维] + rope [64维]。nope 部分是纯线性投影 (K_nope = c_t x W_UK)，可以通过结合律将 W_UK 吸收到 Q 侧；rope 部分经过 RoPE 位置旋转 (K_rope = RoPE(k_pe, pos))，每个位置不同无法吸收，必须单独缓存 k_rope 做标准 attention。最后两路 score 相加。这就是「分离」的含义——<strong>把能吸收的分离出来吸收，不能吸收的单独保留计算</strong>。
+  </div>
+</div>
+
+<!-- ==================== Step 6: 一图总结 ==================== -->
+<div class="card">
+  <h2>第六步：一图总结 — Absorbed Decode 完整 GEMM 路径</h2>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 380" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="380" fill="#fafbfc" rx="8"/>
+      <text x="500" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#333">Absorbed Decode 完整 GEMM 路径（3 个核心矩阵乘）</text>
+
+      <!-- GEMM-a -->
+      <rect x="15" y="50" width="290" height="160" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="160" y="76" text-anchor="middle" font-size="15" font-weight="700" fill="#2e7d32">GEMM-a: 吸收 W_UK</text>
+
+      <rect x="40" y="105" width="36" height="16" rx="3" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="58" y="100" text-anchor="middle" font-size="12" font-weight="600" fill="#1565c0">Q_nope</text>
+      <text x="58" y="135" text-anchor="middle" font-size="11" fill="#888">[1, 128]</text>
+
+      <text x="90" y="118" font-size="16" font-weight="700" fill="#333">x</text>
+
+      <rect x="105" y="95" width="68" height="36" rx="3" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="139" y="117" text-anchor="middle" font-size="11" font-weight="700" fill="white">W_UK^T</text>
+      <text x="139" y="90" text-anchor="middle" font-size="11" fill="#2e7d32">[128, 512]</text>
+
+      <text x="186" y="118" font-size="16" font-weight="700" fill="#333">=</text>
+
+      <rect x="200" y="105" width="80" height="16" rx="3" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="240" y="100" text-anchor="middle" font-size="12" font-weight="700" fill="#2e7d32">Q'_nope</text>
+      <text x="240" y="135" text-anchor="middle" font-size="11" fill="#2e7d32">[1, 512]</text>
+
+      <text x="160" y="195" text-anchor="middle" font-size="12" fill="#2e7d32" font-weight="600">仅 1 token, 瞬间完成</text>
+
+      <!-- GEMM-b -->
+      <rect x="330" y="50" width="320" height="160" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="490" y="76" text-anchor="middle" font-size="15" font-weight="700" fill="#1565c0">GEMM-b: Score 计算 (两路)</text>
+
+      <!-- nope 分支 -->
+      <rect x="350" y="100" width="70" height="16" rx="3" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="385" y="96" text-anchor="middle" font-size="11" fill="#2e7d32" font-weight="600">Q'_nope</text>
+      <text x="428" y="112" font-size="14" font-weight="700" fill="#333">x</text>
+      <rect x="445" y="92" width="68" height="42" rx="3" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="479" y="117" text-anchor="middle" font-size="11" font-weight="700" fill="white">c_t^T</text>
+      <text x="479" y="88" text-anchor="middle" font-size="10" fill="#c62828">[512, L]</text>
+
+      <!-- rope 分支 -->
+      <rect x="350" y="150" width="35" height="16" rx="3" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="367" y="146" text-anchor="middle" font-size="10" fill="#1565c0">Q_rope</text>
+      <text x="394" y="162" font-size="14" font-weight="700" fill="#333">x</text>
+      <rect x="410" y="146" width="68" height="22" rx="3" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="444" y="161" text-anchor="middle" font-size="10" font-weight="700" fill="white">k_rope^T</text>
+      <text x="444" y="142" text-anchor="middle" font-size="10" fill="#c62828">[64, L]</text>
+
+      <!-- + = score -->
+      <text x="530" y="130" font-size="24" font-weight="700" fill="#333">}</text>
+      <text x="555" y="125" font-size="14" font-weight="700" fill="#333">+</text>
+      <text x="575" y="125" font-size="14" font-weight="700" fill="#333">=</text>
+      <rect x="592" y="118" width="45" height="16" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="614" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#7b1fa2">score</text>
+      <text x="614" y="150" text-anchor="middle" font-size="11" fill="#7b1fa2">[1, L]</text>
+
+      <text x="490" y="200" text-anchor="middle" font-size="12" fill="#1565c0" font-weight="600">读 c_t[L,512] + k_rope[L,64]</text>
+
+      <!-- GEMM-c -->
+      <rect x="675" y="50" width="310" height="160" rx="10" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="830" y="76" text-anchor="middle" font-size="15" font-weight="700" fill="#6a1b9a">GEMM-c: 输出 (V 侧吸收)</text>
+
+      <rect x="695" y="105" width="55" height="16" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="722" y="100" text-anchor="middle" font-size="11" font-weight="600" fill="#7b1fa2">attn [1,L]</text>
+
+      <text x="762" y="118" font-size="14" font-weight="700" fill="#333">x</text>
+
+      <rect x="778" y="95" width="55" height="42" rx="3" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="805" y="120" text-anchor="middle" font-size="11" font-weight="700" fill="white">c_t</text>
+      <text x="805" y="90" text-anchor="middle" font-size="10" fill="#c62828">[L, 512]</text>
+
+      <text x="846" y="118" font-size="14" font-weight="700" fill="#333">=</text>
+
+      <rect x="860" y="105" width="48" height="16" rx="3" fill="#2e7d32"/>
+      <text x="884" y="100" text-anchor="middle" font-size="11" fill="#2e7d32" font-weight="700">O'[1,512]</text>
+
+      <text x="920" y="118" font-size="14" font-weight="700" fill="#333">x</text>
+
+      <rect x="935" y="95" width="22" height="42" rx="2" fill="#66bb6a" stroke="#2e7d32" stroke-width="2"/>
+      <text x="946" y="120" text-anchor="middle" font-size="10" font-weight="700" fill="white">W_UV</text>
+
+      <text x="830" y="155" text-anchor="middle" font-size="12" fill="#333">= O [1, 128]</text>
+      <text x="830" y="200" text-anchor="middle" font-size="12" fill="#6a1b9a" font-weight="600">W_UV 吸收到输出侧</text>
+
+      <!-- 总访存对比 -->
+      <rect x="80" y="230" width="840" height="135" rx="12" fill="white" stroke="#1565c0" stroke-width="2"/>
+      <text x="500" y="258" text-anchor="middle" font-size="16" font-weight="700" fill="#1565c0">Decode 一步的总访存对比</text>
+
+      <rect x="100" y="270" width="380" height="42" rx="8" fill="#fce4ec" stroke="#c62828"/>
+      <text x="290" y="288" text-anchor="middle" font-size="13" font-weight="700" fill="#c62828">Non-Absorbed</text>
+      <text x="290" y="305" text-anchor="middle" font-size="12" fill="#c62828">读c_t + 写读K + 写读V = L x 1152</text>
+
+      <rect x="520" y="270" width="380" height="42" rx="8" fill="#c8e6c9" stroke="#2e7d32"/>
+      <text x="710" y="288" text-anchor="middle" font-size="13" font-weight="700" fill="#1b5e20">Absorbed</text>
+      <text x="710" y="305" text-anchor="middle" font-size="12" fill="#1b5e20">读c_t + k_rope (可复用) ~ L x 576</text>
+
+      <text x="500" y="348" text-anchor="middle" font-size="14" fill="#333">* Absorbed 可复用 c_t 读取，实际约 <tspan font-weight="700" fill="#2e7d32">L x 576</tspan>；Non-Absorbed 必须物化 K/V 中间张量，访存 <tspan font-weight="700" fill="#c62828">L x 1152</tspan>。<tspan font-weight="700" fill="#1565c0">节省约 50%!</tspan></text>
+    </svg>
+  </div>
+
+  <div class="callout callout-blue">
+    <strong>总结 Absorbed Decode 的三步 GEMM：</strong><br>
+    <strong>GEMM-a</strong> [1,128] x [128,512] -> Q'_nope [1,512]（吸收 W_UK，极小计算）<br>
+    <strong>GEMM-b</strong> [1,512] x [512,L] + [1,64] x [64,L] -> score [1,L]（在潜空间计算，读 c_t 和 k_rope）<br>
+    <strong>GEMM-c</strong> [1,L] x [L,512] -> O'[1,512]，再 [1,512] x [512,128] -> O[1,128]（V 侧吸收，W_UV 最后做）<br><br>
+    <strong>核心收益：</strong>所有与历史长度 L 相关的 GEMM 都在 512 维潜空间完成（而非展开的 192 维），KV Cache 只需存 576 维/token（vs 传统 MHA 的 32768 维）。
+  </div>
+</div>
+
+</div>
+</body>
+</html>

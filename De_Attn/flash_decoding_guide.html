@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flash Decoding 深度学习手册</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap');
+:root{
+  --ink:#1a1814;--ink2:#3d3930;--ink3:#6b6458;
+  --paper:#faf8f4;--paper2:#f2ede6;--paper3:#e8e0d4;
+  --acc:#8b3a20;--acc2:#b04d2a;--acc-dim:rgba(139,58,32,.08);
+  --grn:#2d6a4f;--grn-dim:rgba(45,106,79,.08);
+  --blu:#1a4a7a;--blu-dim:rgba(26,74,122,.08);
+  --brd:rgba(0,0,0,.1);--brd2:rgba(0,0,0,.18);
+  --r:6px;--font:'Noto Serif SC',serif;--mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{font-family:var(--font);background:var(--paper);color:var(--ink);line-height:1.85;font-size:15px;}
+
+/* ── LAYOUT ── */
+.page{max-width:820px;margin:0 auto;padding:48px 32px 100px;}
+
+/* ── HEADER ── */
+.hero{text-align:center;margin-bottom:56px;padding:40px 0 32px;border-bottom:2px solid var(--acc);}
+.hero-label{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--acc);font-family:var(--mono);margin-bottom:12px;}
+.hero h1{font-size:36px;font-weight:600;letter-spacing:-.02em;color:var(--ink);line-height:1.25;margin-bottom:14px;}
+.hero-meta{font-size:13px;color:var(--ink3);font-family:var(--mono);}
+.hero-tags{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px;}
+.tag{display:inline-block;padding:3px 10px;border:1px solid var(--brd2);border-radius:20px;font-size:11px;font-family:var(--mono);color:var(--ink3);}
+
+/* ── TOC ── */
+.toc{background:var(--paper2);border:1px solid var(--brd);border-radius:var(--r);padding:20px 24px;margin-bottom:40px;}
+.toc-title{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);font-family:var(--mono);margin-bottom:12px;}
+.toc-list{list-style:none;}
+.toc-list li{padding:3px 0;}
+.toc-list a{color:var(--ink2);text-decoration:none;font-size:14px;}
+.toc-list a:hover{color:var(--acc);}
+.toc-list .toc-num{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-right:8px;}
+
+/* ── SECTIONS ── */
+.section{margin-bottom:56px;}
+.section-label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);font-family:var(--mono);margin-bottom:6px;}
+h2{font-size:22px;font-weight:600;color:var(--ink);margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--brd);}
+h3{font-size:17px;font-weight:500;color:var(--ink);margin:24px 0 10px;}
+h4{font-size:14px;font-weight:500;color:var(--ink2);margin:18px 0 8px;font-family:var(--mono);}
+p{color:var(--ink2);margin-bottom:14px;line-height:1.9;}
+
+/* ── PULL QUOTE ── */
+.pullquote{border-left:3px solid var(--acc);padding:10px 18px;margin:20px 0;background:var(--acc-dim);border-radius:0 var(--r) var(--r) 0;}
+.pullquote p{color:var(--ink);margin:0;font-style:italic;}
+
+/* ── CALLOUTS ── */
+.callout{padding:14px 18px;border-radius:var(--r);margin:16px 0;font-size:14px;}
+.callout-grn{background:var(--grn-dim);border-left:3px solid var(--grn);}
+.callout-acc{background:var(--acc-dim);border-left:3px solid var(--acc);}
+.callout-blu{background:var(--blu-dim);border-left:3px solid var(--blu);}
+.callout p{color:var(--ink2);margin:0;}
+.callout strong{color:var(--ink);}
+
+/* ── CARDS ── */
+.card-row{display:flex;gap:14px;flex-wrap:wrap;margin:16px 0;}
+.card{background:var(--paper2);border:1px solid var(--brd);border-radius:var(--r);padding:16px 18px;flex:1;min-width:180px;}
+.card-title{font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);margin-bottom:8px;}
+.card-num{font-size:28px;font-weight:600;color:var(--acc);font-family:var(--mono);line-height:1;}
+.card-sub{font-size:12px;color:var(--ink3);margin-top:4px;}
+
+/* ── CODE ── */
+.code-block{position:relative;margin:16px 0;}
+.code-lang{position:absolute;top:0;right:0;font-size:10px;font-family:var(--mono);color:var(--ink3);background:var(--paper3);padding:3px 10px;border-radius:0 var(--r) 0 var(--r);}
+pre{font-family:var(--mono);font-size:12px;background:var(--ink);color:#d4c9b8;padding:18px 20px;border-radius:var(--r);line-height:1.95;overflow-x:auto;white-space:pre;}
+code{font-family:var(--mono);font-size:12px;background:var(--paper3);padding:1px 5px;border-radius:3px;color:var(--acc);}
+
+/* Syntax */
+.kw{color:#d4a0c0;}.ty{color:#7ec8e3;}.fn{color:#a8d8b0;}.cm{color:#7a7060;font-style:italic;}.st{color:#c8b87a;}.nm{color:#f4c87a;}.pp{color:#d4a0c0;}
+
+/* ── TABLE ── */
+table{width:100%;border-collapse:collapse;font-size:13px;margin:14px 0;}
+th{text-align:left;padding:9px 14px;background:var(--paper3);color:var(--ink2);font-weight:500;border:1px solid var(--brd2);font-family:var(--mono);font-size:12px;}
+td{padding:9px 14px;border:1px solid var(--brd);color:var(--ink2);}
+tr:nth-child(even) td{background:var(--paper2);}
+
+/* ── MATH DISPLAY ── */
+.math-block{background:var(--paper2);border:1px solid var(--brd);border-radius:var(--r);padding:16px 20px;margin:14px 0;font-family:var(--mono);font-size:13px;color:var(--ink);line-height:2;overflow-x:auto;}
+.math-comment{font-size:11px;color:var(--ink3);margin-left:12px;}
+
+/* ── DIAGRAMS ── */
+.diagram{margin:20px 0;background:var(--paper2);border:1px solid var(--brd);border-radius:var(--r);padding:16px;overflow:hidden;}
+.diagram-title{font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);margin-bottom:12px;text-align:center;}
+
+/* ── INTERACTIVE ── */
+.interactive{margin:20px 0;}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.btn{padding:6px 16px;border:1px solid var(--brd2);background:var(--paper2);color:var(--ink2);border-radius:var(--r);cursor:pointer;font-size:12px;font-family:var(--mono);transition:all .12s;}
+.btn:hover{background:var(--paper3);}
+.btn.on{background:var(--acc-dim);color:var(--acc);border-color:rgba(139,58,32,.3);}
+
+/* ── COMPARISON ── */
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0;}
+.compare-panel{background:var(--paper2);border:1px solid var(--brd);border-radius:var(--r);padding:16px;}
+.compare-title{font-size:12px;font-family:var(--mono);font-weight:500;margin-bottom:10px;}
+.compare-bad .compare-title{color:#8b3a20;}
+.compare-good .compare-title{color:#2d6a4f;}
+
+/* ── ALGO STEP ── */
+.algo{background:var(--paper2);border:1px solid var(--brd2);border-radius:var(--r);padding:18px 20px;margin:16px 0;}
+.algo-title{font-size:12px;font-family:var(--mono);text-transform:uppercase;color:var(--ink3);margin-bottom:12px;letter-spacing:.06em;}
+.algo-step{display:flex;gap:14px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--brd);}
+.algo-step:last-child{border-bottom:none;}
+.algo-num{font-family:var(--mono);font-size:11px;color:var(--paper);background:var(--ink3);width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px;}
+.algo-text{font-size:13px;color:var(--ink2);line-height:1.75;}
+
+/* ── BADGE ── */
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-family:var(--mono);}
+.badge-grn{background:var(--grn-dim);color:var(--grn);border:1px solid rgba(45,106,79,.2);}
+.badge-acc{background:var(--acc-dim);color:var(--acc);border:1px solid rgba(139,58,32,.2);}
+.badge-blu{background:var(--blu-dim);color:var(--blu);border:1px solid rgba(26,74,122,.2);}
+
+/* ── DIVIDER ── */
+.divider{height:1px;background:var(--brd);margin:36px 0;}
+
+/* ── FOOTNOTE ── */
+.ref{font-size:12px;color:var(--ink3);font-family:var(--mono);}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ── HERO ── -->
+<div class="hero">
+  <div class="hero-label">深度学习手册 / 2023–2024</div>
+  <h1>Flash Decoding<br>长上下文推理加速</h1>
+  <div class="hero-meta">Tri Dao · Daniel Haziza · Francisco Massa · Grigory Sizov &nbsp;|&nbsp; Together.ai / Meta / Princeton · Oct 2023</div>
+  <div class="hero-tags">
+    <span class="tag">LLM Inference</span>
+    <span class="tag">Attention</span>
+    <span class="tag">KV Cache</span>
+    <span class="tag">GPU Kernel</span>
+    <span class="tag">IO-Awareness</span>
+    <span class="tag">Online Softmax</span>
+  </div>
+</div>
+
+<!-- ── TOC ── -->
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ul class="toc-list">
+    <li><a href="#s1"><span class="toc-num">01</span>问题背景：为什么 Decoding 慢？</a></li>
+    <li><a href="#s2"><span class="toc-num">02</span>FlashAttention 回顾：训练阶段的优化</a></li>
+    <li><a href="#s3"><span class="toc-num">03</span>Online Softmax：可分解的核心数学</a></li>
+    <li><a href="#s4"><span class="toc-num">04</span>Flash Decoding 算法：三步设计</a></li>
+    <li><a href="#s5"><span class="toc-num">05</span>GPU 并行性：从 SM 利用率理解加速原理</a></li>
+    <li><a href="#s6"><span class="toc-num">06</span>实测性能：8× 加速的来源</a></li>
+    <li><a href="#s7"><span class="toc-num">07</span>代码实现：Triton Kernel 详解</a></li>
+    <li><a href="#s8"><span class="toc-num">08</span>扩展变体：Flash Decoding++</a></li>
+    <li><a href="#s9"><span class="toc-num">09</span>工程集成：在 LLaMA 推理中使用</a></li>
+    <li><a href="#s10"><span class="toc-num">10</span>与其他方法的关系</a></li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 1: PROBLEM BACKGROUND -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section" id="s1">
+<div class="section-label">Section 01</div>
+<h2>问题背景：为什么 Decoding 慢？</h2>
+
+<p>大型语言模型的推理分为两个阶段：<strong>Prefill（预填充）</strong>和 <strong>Decoding（解码）</strong>。FlashAttention 解决了 Prefill 阶段的效率问题，但 Decoding 阶段有着完全不同的性能瓶颈。</p>
+
+<div class="compare">
+  <div class="compare-panel compare-bad">
+    <div class="compare-title">❶ Prefill 阶段</div>
+    <p style="font-size:13px;color:var(--ink2);margin:0">处理整个输入 prompt，Query 长度 = N（可能数千个 token）。Batch × Head 数量多，GPU SM 利用率高。<strong>计算密集型。</strong></p>
+  </div>
+  <div class="compare-panel compare-good">
+    <div class="compare-title">❷ Decoding 阶段</div>
+    <p style="font-size:13px;color:var(--ink2);margin:0">逐 token 生成，每次 Query 长度 = 1。Batch × Head 数量往往远小于 SM 数量。<strong>内存带宽受限型。</strong></p>
+  </div>
+</div>
+
+<h3>KV Cache：省计算，但带来新瓶颈</h3>
+<p>Decoding 中通过 KV Cache 缓存历史 token 的 K/V，避免重复计算。但这也意味着：每生成一个 token，都需要从 HBM（高带宽内存）加载整个 KV Cache。</p>
+
+<div id="kvcache-diagram"></div>
+
+<div class="callout callout-acc">
+  <p><strong>核心瓶颈：</strong>以 CodeLlama-34B 为例，在 4 个 A100 GPU 上运行，使用 GQA（Grouped Query Attention，16个 Query head，2个 KV head）。当 batch size = 1、序列长度 = 64k 时，KV Cache 占用约 2GB，<strong>每生成一个 token 就需要从 HBM 读取一次</strong>，而 HBM 带宽是有限的（A100 约 2TB/s）。</p>
+</div>
+
+<h3>SM 利用率：FlashAttention 的盲区</h3>
+
+<div id="sm-util-diagram"></div>
+
+<p>FlashAttention 在 Prefill 时沿 Batch 和 Query 长度方向并行，充分利用了所有 SM。但在 Decoding 时：</p>
+
+<div class="math-block">
+可用并行度 = Batch_size × Head_num
+<br>
+A100 有 108 个 SM
+<br>
+若 Batch=1，Head=32：并行度=32，仅占用 32/108 ≈ <strong>30% 的 SM</strong>
+<br>
+若使用 GQA（2个KV head）：并行度更低，接近 <strong>1% 利用率</strong>
+</div>
+
+<div class="callout callout-blu">
+  <p><strong>论文原话：</strong>"During inference, the query length is typically 1: this means that if the batch size is smaller than the number of streaming multiprocessors (SMs) on the GPU (108 for an A100), the operation will only use a small part of the GPU. With a batch size of 1, FlashAttention will use less than 1% of the GPU!"</p>
+</div>
+
+<div class="card-row">
+  <div class="card">
+    <div class="card-title">A100 SM 总数</div>
+    <div class="card-num">108</div>
+    <div class="card-sub">每个 SM 独立执行 Thread Block</div>
+  </div>
+  <div class="card">
+    <div class="card-title">FA2 Decoding 利用率</div>
+    <div class="card-num">&lt;1%</div>
+    <div class="card-sub">Batch=1, GQA-2 时的极端情况</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Flash Decoding 加速</div>
+    <div class="card-num">8×</div>
+    <div class="card-sub">在 64k 序列长度下 vs FlashAttention</div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 2: FLASHATTENTION REVIEW -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section" id="s2">
+<div class="section-label">Section 02</div>
+<h2>FlashAttention 回顾：训练阶段的优化</h2>
+
+<p>理解 Flash Decoding 必须先理解 FlashAttention 的核心思想，因为 Flash Decoding 直接在其基础上扩展。</p>
+
+<h3>标准 Attention 的内存问题</h3>
+
+<div class="code-block">
+<span class="code-lang">PYTHON (Standard Attention)</span>
+<pre><span class="cm"># 标准实现：需要物化 N×N 的中间矩阵</span>
+S = Q @ K.T / sqrt(d)          <span class="cm"># HBM写入: N×N 的 float16 = 2N² 字节</span>
+P = softmax(S)                  <span class="cm"># HBM读取 S，写入 P：再 2N² 字节</span>
+O = P @ V                       <span class="cm"># HBM读取 P：再 2N² 字节</span>
+<span class="cm"># 总 HBM 访问量：O(N²d) → 对长序列极其昂贵</span></pre>
+</div>
+
+<div id="fa-hbm-diagram"></div>
+
+<h3>FlashAttention 的解法：Tiling + Online Softmax</h3>
+
+<p>FlashAttention 的关键洞察是：将 Q/K/V 分块（tile），在 SRAM 中计算完一块后立刻累加结果，<strong>永远不将 N×N 的中间矩阵写到 HBM</strong>。</p>
+
+<div class="algo">
+<div class="algo-title">FlashAttention 前向传播</div>
+<div class="algo-step"><span class="algo-num">1</span><span class="algo-text">将 K, V 分成 T_c 个块，每块大小 B_c × d</span></div>
+<div class="algo-step"><span class="algo-num">2</span><span class="algo-text">将 Q, O 分成 T_r 个块，每块大小 B_r × d</span></div>
+<div class="algo-step"><span class="algo-num">3</span><span class="algo-text">外层循环 Q-blocks，内层循环 K-blocks：每次加载到 SRAM，计算局部 softmax，用 online softmax 公式更新 O</span></div>
+<div class="algo-step"><span class="algo-num">4</span><span class="algo-step"><span class="algo-num" style="display:none"></span></span><span class="algo-text">只写回 O（N×d）和 logsumexp L（N×1），<strong>不写中间矩阵</strong></span></div>
+</div>
+
+<div class="callout callout-grn">
+  <p><strong>HBM 访问量对比：</strong>标准 Attention O(N²d) → FlashAttention O(N²d²/M)，其中 M 是 SRAM 大小。典型情况下减少 5-20× 的 HBM 访问。</p>
+</div>
+
+<h3>FlashAttention 并行化策略（训练/Prefill）</h3>
+
+<div id="fa-parallel-diagram"></div>
+
+<p>训练时，FlashAttention 在 <strong>Batch × Head</strong> 和 <strong>Query 序列</strong> 方向并行，每个 Thread Block 负责一个 Q-block 与所有 K-block 的交互。这在序列长度大时非常高效，因为并行度充足。</p>
+
+<div class="pullquote"><p>但 Decoding 时 Query 长度 = 1，沿 Query 方向完全没有并行空间。Flash Decoding 的核心创新就是找到了一个新的并行维度。</p></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 3: ONLINE SOFTMAX MATH -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section" id="s3">
+<div class="section-label">Section 03</div>
+<h2>Online Softmax：可分解的核心数学</h2>
+
+<p>Flash Decoding 能够将 KV 序列分块并行计算的数学基础，是 <strong>Online Softmax</strong>（在线 Softmax）的可合并性。</p>
+
+<h3>标准 Softmax 的问题</h3>
+
+<div class="math-block">
+softmax(x)_i = exp(x_i) / Σ exp(x_j)
+<br><br>
+<span class="cm"># 数值不稳定版：x 很大时 exp(x) 溢出</span>
+<br>
+<span class="cm"># 安全版：减去 max 再算</span>
+<br>
+softmax(x)_i = exp(x_i - m) / Σ exp(x_j - m)，m = max(x)
+<br><br>
+<span class="cm">→ 问题：需要知道全局 max，无法流式计算</span>
+</div>
+
+<h3>Online Softmax：逐块更新公式</h3>
+
+<p>设已处理了前 t-1 个元素，状态为 (m, l, O)，现在来了第 t 个块：</p>
+
+<div class="math-block">
+<strong>状态定义：</strong>
+<br>
+m_t = max(x_1, ..., x_t)         <span class="math-comment">→ 当前见到的最大值</span>
+<br>
+l_t = Σ_{i=1}^{t} exp(x_i - m_t) <span class="math-comment">→ 归一化因子（分母）</span>
+<br>
+O_t = Σ_{i=1}^{t} exp(x_i - m_t) · v_i / l_t <span class="math-comment">→ 当前输出累计</span>
+<br><br>
+<strong>当新的块 (x_{t+1}, v_{t+1}) 到来时：</strong>
+<br>
+m_new = max(m_t, x_{t+1})
+<br>
+l_new = l_t · exp(m_t - m_new) + exp(x_{t+1} - m_new)
+<br>
+O_new = [ O_t · l_t · exp(m_t - m_new) + exp(x_{t+1} - m_new) · v_{t+1} ] / l_new
+</div>
+
+<div id="online-softmax-demo"></div>
+
+<h3>跨分块的合并公式（Flash Decoding 的关键）</h3>
+
+<p>Flash Decoding 在不同 SM 上并行计算多个 KV 分块，每个分块输出 (O_split, m_split, l_split)。最终需要将这些局部结果合并成全局正确的输出：</p>
+
+<div class="math-block">
+<strong>设有两个分块 A 和 B 的局部结果：</strong>
+<br>
+分块 A：(O_A, m_A, l_A)
+<br>
+分块 B：(O_B, m_B, l_B)
+<br><br>
+<strong>全局合并：</strong>
+<br>
+m_global = max(m_A, m_B)
+<br>
+l_global = l_A · exp(m_A - m_global) + l_B · exp(m_B - m_global)
+<br>
+O_global = [ O_A · l_A · exp(m_A - m_global) + O_B · l_B · exp(m_B - m_global) ] / l_global
+<br><br>
+<span class="cm"># 这等价于计算完整序列 [A, B] 的正确 softmax attention 输出</span>
+</div>
+
+<div class="callout callout-grn">
+  <p><strong>可证明的正确性：</strong>由于 softmax 的 log-sum-exp 技巧，上述合并公式数学上等价于在完整序列上计算 softmax。这意味着<strong>任意分块顺序、任意并行</strong>得到的结果都完全正确，没有近似误差。</p>
+</div>
+
+<h3>存储的辅助量：log-sum-exp L</h3>
+
+<div class="math-block">
+L_split = log(l_split) + m_split  <span class="math-comment">→ log-sum-exp，数值更稳定</span>
+<br><br>
+使用 L 进行合并：
+<br>
+L_global = log(exp(L_A) + exp(L_B))  <span class="math-comment">→ logsumexp(L_A, L_B)</span>
+<br>
+O_global = O_A · exp(L_A - L_global) + O_B · exp(L_B - L_global)
+</div>
+
+<p>每个 KV 分块只需额外存储 1 个标量 L（每个 query head 1个），开销极小。</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 4: FLASH DECODING ALGORITHM -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section" id="s4">
+<div class="section-label">Section 04</div>
+<h2>Flash Decoding 算法：三步设计</h2>
+
+<p>Flash Decoding 在 FlashAttention 基础上增加了一个新的并行维度——<strong>沿 KV 序列方向分块并行</strong>，通过三个步骤实现完全正确的结果合并。</p>
+
+<div id="fd-three-steps"></div>
+
+<h3>Step 1：分割 KV（零开销）</h3>
+
+<div class="math-block">
+将 K ∈ ℝ^{N×d} 分为 S 个块：K = [K_0 | K_1 | ... | K_{S-1}]
+<br>
+将 V ∈ ℝ^{N×d} 分为 S 个块：V = [V_0 | V_1 | ... | V_{S-1}]
+<br><br>
+每块大小：chunk_size = N / S
+<br><br>
+<span class="cm">注意：不涉及任何 GPU 操作！分块只是原始 KV tensor 的不同视图（view），零内存开销。</span>
+</div>
+
+<div class="callout callout-grn">
+  <p><strong>分块数 S 的选择：</strong>S 的选择目标是让总并行度（Batch × Heads × S）充分填满所有 SM。对 A100（108个SM）来说，若 Batch=1, Heads=16，则 S=8 可使并行度达到 128，充分占用所有 SM。</p>
+</div>
+
+<h3>Step 2：并行计算各分块的局部 Attention（Kernel 1）</h3>
+
+<div class="algo">
+<div class="algo-title">Kernel 1：局部 Attention 计算（每个 split 独立运行在不同 SM 上）</div>
+<div class="algo-step"><span class="algo-num">1</span><span class="algo-text">加载 Q ∈ ℝ^{1×d}（或 B_r×d）到 SRAM</span></div>
+<div class="algo-step"><span class="algo-num">2</span><span class="algo-text">加载当前分块 K_s ∈ ℝ^{chunk×d}，V_s ∈ ℝ^{chunk×d} 到 SRAM</span></div>
+<div class="algo-step"><span class="algo-num">3</span><span class="algo-text">使用 <strong>FlashAttention 算法</strong>（带 online softmax 的 tiling）计算局部输出：<br>
+O_s, m_s, l_s = flash_attn(Q, K_s, V_s)</span></div>
+<div class="algo-step"><span class="algo-num">4</span><span class="algo-text">将 O_s（head_dim 维向量）和 L_s = log(l_s) + m_s（1个标量）写回 HBM<br>
+<em>额外存储：每个 query × 每个分块只需 1 个标量！</em></span></div>
+</div>
+
+<div class="code-block">
+<span class="code-lang">TRITON (Kernel 1 简化版)</span>
+<pre><span class="pp">@triton.jit</span>
+<span class="kw">def</span> <span class="fn">flash_decode_kernel1</span>(
+    Q_ptr, K_ptr, V_ptr,
+    Out_ptr, LSE_ptr,    <span class="cm"># LSE = log-sum-exp</span>
+    seq_len, chunk_size,
+    stride_qh, stride_kh, stride_vh,
+    BLOCK_D: tl.constexpr,
+):
+    <span class="cm"># 当前 thread block 负责的 split 索引</span>
+    split_id = tl.program_id(<span class="nm">0</span>)
+    head_id  = tl.program_id(<span class="nm">1</span>)
+    
+    <span class="cm"># 加载 Q (1 × d)</span>
+    q = tl.load(Q_ptr + head_id * stride_qh + tl.arange(<span class="nm">0</span>, BLOCK_D))
+    
+    <span class="cm"># 初始化局部状态</span>
+    m_i = tl.full((<span class="nm">1</span>,), <span class="nm">-1e9</span>, dtype=tl.float32)  <span class="cm"># running max</span>
+    l_i = tl.zeros((<span class="nm">1</span>,), dtype=tl.float32)        <span class="cm"># running sum</span>
+    acc = tl.zeros((BLOCK_D,), dtype=tl.float32)    <span class="cm"># running output</span>
+    
+    <span class="cm"># 在当前 split 内部做 tiling（FlashAttention 风格）</span>
+    start = split_id * chunk_size
+    <span class="kw">for</span> i <span class="kw">in</span> range(<span class="nm">0</span>, chunk_size, BLOCK_C):
+        <span class="cm"># 加载 K block, V block</span>
+        k = tl.load(K_ptr + (start + i) * stride_kh + tl.arange(<span class="nm">0</span>, BLOCK_D))
+        v = tl.load(V_ptr + (start + i) * stride_vh + tl.arange(<span class="nm">0</span>, BLOCK_D))
+        
+        <span class="cm"># 计算 QK score</span>
+        s = tl.dot(q[None,:], k[:,None]) * scale  <span class="cm"># (1,)</span>
+        
+        <span class="cm"># Online softmax 更新</span>
+        m_new = tl.maximum(m_i, s)
+        l_i = l_i * tl.exp(m_i - m_new) + tl.exp(s - m_new)
+        acc  = acc * tl.exp(m_i - m_new) + tl.exp(s - m_new) * v
+        m_i  = m_new
+    
+    <span class="cm"># 归一化并写回</span>
+    acc = acc / l_i
+    lse = tl.log(l_i) + m_i   <span class="cm"># log-sum-exp</span>
+    tl.store(Out_ptr + ..., acc)
+    tl.store(LSE_ptr + ..., lse)</pre>
+</div>
+
+<h3>Step 3：归约合并（Kernel 2）</h3>
+
+<div class="algo">
+<div class="algo-title">Kernel 2：全局归约（合并所有 split 的结果）</div>
+<div class="algo-step"><span class="algo-num">1</span><span class="algo-text">读取所有 S 个分块的 O_s（d 维）和 L_s（1 维标量）</span></div>
+<div class="algo-step"><span class="algo-num">2</span><span class="algo-text">计算全局 L_global = logsumexp(L_0, L_1, ..., L_{S-1})</span></div>
+<div class="algo-step"><span class="algo-num">3</span><span class="algo-text">加权合并：O_global = Σ_s O_s · exp(L_s - L_global)</span></div>
+<div class="algo-step"><span class="algo-num">4</span><span class="algo-text">写回最终输出 O_global（形状 1×d，与标准 attention 完全相同）</span></div>
+</div>
+
+<div class="code-block">
+<span class="code-lang">TRITON (Kernel 2 简化版)</span>
+<pre><span class="pp">@triton.jit</span>
+<span class="kw">def</span> <span class="fn">flash_decode_kernel2</span>(
+    Out_splits_ptr, LSE_splits_ptr,   <span class="cm"># Kernel 1 的输出</span>
+    Final_out_ptr,
+    num_splits,
+    BLOCK_D: tl.constexpr,
+):
+    head_id = tl.program_id(<span class="nm">0</span>)
+    d_ids   = tl.arange(<span class="nm">0</span>, BLOCK_D)
+    
+    <span class="cm"># Step 1: 读取所有 split 的 LSE 和 out</span>
+    lse_all = tl.load(LSE_splits_ptr + head_id * num_splits 
+                      + tl.arange(<span class="nm">0</span>, num_splits))  <span class="cm"># (S,)</span>
+    
+    <span class="cm"># Step 2: 计算全局 log-sum-exp</span>
+    lse_global = tl.reduce(lse_all, <span class="nm">0</span>, tl.math.logsumexp)
+    
+    <span class="cm"># Step 3: 加权合并</span>
+    acc = tl.zeros((BLOCK_D,), dtype=tl.float32)
+    <span class="kw">for</span> s <span class="kw">in</span> range(num_splits):
+        lse_s = tl.load(LSE_splits_ptr + head_id * num_splits + s)
+        out_s = tl.load(Out_splits_ptr + (head_id * num_splits + s) * BLOCK_D + d_ids)
+        scale = tl.exp(lse_s - lse_global)
+        acc  += scale * out_s
+    
+    <span class="cm"># Step 4: 写回</span>
+    tl.store(Final_out_ptr + head_id * BLOCK_D + d_ids, acc)</pre>
+</div>
+
+<div class="callout callout-acc">
+  <p><strong>关键数字：</strong>Kernel 2 的额外 HBM 访问量仅为 S × d × sizeof(float)。以 S=8, d=128, float16 为例，额外读写只有 8×128×2 = 2KB——相比 KV Cache 的 GB 级读写，几乎可以忽略不计。</p>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 5: GPU PARALLELISM -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section" id="s5">
+<div class="section-label">Section 05</div>
+<h2>GPU 并行性：从 SM 利用率理解加速原理</h2>
+
+<p>Flash Decoding 的加速本质上是通过增加一个新的并行维度，让 GPU 的所有 SM 都"有活干"。</p>
+
+<h3>并行度对比</h3>
+
+<div id="parallelism-diagram"></div>
+
+<table>
+  <tr><th>方法</th><th>并行维度</th><th>并行度（B=1, H=16, N=64k）</th><th>SM 利用率</th></tr>
+  <tr><td>标准 Attention</td><td>Batch × Head</td><td>16</td><td>~15%</td></tr>
+  <tr><td>FlashAttention v2</td><td>Batch × Head × Q-seq</td><td>16（Q长度=1时无效）</td><td>~15%</td></tr>
+  <tr><td><strong>Flash Decoding</strong></td><td>Batch × Head × KV-split</td><td>16 × S（S可调）</td><td><strong>~100%</strong></td></tr>
+</table>
+
+<h3>为什么沿 Q 方向并行不行？</h3>
+<p>在 Decoding 阶段，Query 序列长度 = 1（每次只生成一个 token），因此 FlashAttention 沿 Query 方向的并行完全失效。Flash Decoding 转而沿 <strong>KV 序列方向</strong>分块，这个维度随着上下文变长而增大，正好弥补了 Query 方向并行度的缺失。</p>
+
+<h3>内存带宽利用率</h3>
+
+<div class="math-block">
+KV Cache 读取量（以 CodeLlama-34B, 4 GPU, seq=64k 为例）：
+<br>
+= 2 × seq_len × d × num_kv_heads × sizeof(bf16) / num_gpu
+<br>
+= 2 × 64000 × 128 × 2 × 2 / 4
+<br>
+≈ <strong>82 MB 每个 token</strong>
+<br><br>
+A100 HBM 带宽 = 2 TB/s
+<br>
+→ 理论最短时间 = 82MB / 2TB/s ≈ <strong>41 μs</strong>
+<br>
+Flash Decoding 实测：~60 μs（接近硬件极限）
+</div>
+
+<div class="callout callout-grn">
+  <p><strong>性能上界：</strong>论文中将"读取整个模型权重 + KV Cache 的时间"作为 Attention 计算的理论上界。Flash Decoding 在长序列时接近这个上界，说明计算本身已经几乎被完全隐藏在内存读取中。</p>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 6: BENCHMARKS -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section" id="s6">
+<div class="section-label">Section 06</div>
+<h2>实测性能：8× 加速的来源</h2>
+
+<h3>CodeLlama-34B Decoding 吞吐量</h3>
+<p>在 4×A100 上测试 CodeLlama-34B（batch=1，测量每秒生成的 token 数）：</p>
+
+<div id="benchmark-chart"></div>
+
+<h3>Micro-benchmark：Attention 单算子延迟</h3>
+<p>A100，f16，16个 Query head（dim=128），2个 KV head（GQA）：</p>
+
+<table>
+  <tr><th>配置</th><th>PyTorch Eager (μs)</th><th>FlashAttention v2 (μs)</th><th>Flash Decoding (μs)</th><th>加速比</th></tr>
+  <tr><td>B=256, seq=256</td><td>3058</td><td>391</td><td><strong>63</strong></td><td>6.2× vs FA2</td></tr>
+  <tr><td>B=128, seq=512</td><td>3151</td><td>366</td><td><strong>68</strong></td><td>5.4×</td></tr>
+  <tr><td>B=16, seq=4096</td><td>3157</td><td>402</td><td><strong>57</strong></td><td>7.1×</td></tr>
+  <tr><td>B=8, seq=8192</td><td>3173</td><td>529</td><td><strong>56</strong></td><td>9.4×</td></tr>
+  <tr><td>B=2, seq=32768</td><td>3224</td><td>1156</td><td><strong>60</strong></td><td>19.3×</td></tr>
+  <tr><td>B=1, seq=65536</td><td>1336</td><td>2301</td><td><strong>64</strong></td><td>35.9×</td></tr>
+  <tr><td>B=1, seq=131072</td><td>2664</td><td>4592</td><td><strong>107</strong></td><td>43.0×</td></tr>
+</table>
+
+<div class="callout callout-acc">
+  <p><strong>规律：</strong>Flash Decoding 的延迟对序列长度几乎不敏感（56–107 μs），因为它将 KV 读取分散到多个 SM 并行执行，且 Kernel 2 的归约开销极小。而 FlashAttention 的延迟随序列长度线性增长，因为所有 KV 加载串行在少数几个 SM 上。</p>
+</div>
+
+<h3>性能不变性分析</h3>
+
+<div class="math-block">
+Flash Decoding 延迟 ≈ (KV 总量 / 并行 SM 数) / HBM带宽 + 归约开销
+<br><br>
+当 split 数 S ∝ seq_len 时（保持每个 split 大小固定）：
+<br>
+并行 SM 数 ∝ seq_len
+<br>
+KV 总量 ∝ seq_len
+<br>
+→ 延迟 ≈ 常数！<span class="math-comment">这就是为什么长序列时延迟几乎不变</span>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 7: CODE IMPLEMENTATION -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section" id="s7">
+<div class="section-label">Section 07</div>
+<h2>代码实现：完整 Triton Kernel</h2>
+
+<h3>xFormers / FlashAttention repo 中的实现结构</h3>
+
+<div class="code-block">
+<span class="code-lang">PYTHON (接口层)</span>
+<pre><span class="cm"># flash_attn/flash_attn_interface.py</span>
+<span class="kw">def</span> <span class="fn">flash_attn_with_kvcache</span>(
+    q,          <span class="cm"># (batch, seqlen_q, nheads, headdim)</span>
+    k_cache,    <span class="cm"># (batch, seqlen_k, nheads_k, headdim)</span>
+    v_cache,    <span class="cm"># (batch, seqlen_k, nheads_k, headdim)</span>
+    cache_seqlens=<span class="kw">None</span>,   <span class="cm"># 每个 batch 的实际 KV 长度</span>
+    softmax_scale=<span class="kw">None</span>,
+    causal=<span class="kw">False</span>,
+    num_splits=<span class="nm">0</span>,        <span class="cm"># 0 = 自动选择；>0 = 手动指定 split 数</span>
+):
+    <span class="cm">"""
+    Flash Decoding 接口。
+    当 seqlen_q == 1 时（典型 decoding 场景）自动启用 Flash Decoding。
+    支持 MQA/GQA（nheads_k < nheads）。
+    """</span>
+    <span class="kw">if</span> num_splits == <span class="nm">0</span>:
+        <span class="cm"># 启发式：根据 seq_len 和 SM 数量自动选择 split 数</span>
+        num_splits = _get_num_splits(seqlen_k, nheads, batch)
+    
+    <span class="cm"># Kernel 1：并行计算各 split 的局部 attention</span>
+    out_splits, lse_splits = _flash_decode_split(
+        q, k_cache, v_cache, num_splits, softmax_scale)
+    
+    <span class="cm"># Kernel 2：归约合并</span>
+    out = _flash_decode_reduce(out_splits, lse_splits)
+    
+    <span class="kw">return</span> out</pre>
+</div>
+
+<h3>完整 Triton 实现（简化教学版）</h3>
+
+<div class="code-block">
+<span class="code-lang">TRITON (完整可运行版本)</span>
+<pre><span class="pp">import triton
+import triton.language as tl
+import torch</span>
+
+<span class="pp">@triton.jit</span>
+<span class="kw">def</span> <span class="fn">_flash_decode_fwd_kernel</span>(
+    Q, K, V,           <span class="cm"># [B, H, 1, D], [B, H_k, N, D], [B, H_k, N, D]</span>
+    Out, LSE,          <span class="cm"># [B, H, S, D], [B, H, S]  (S = num_splits)</span>
+    stride_qb, stride_qh, stride_qd,
+    stride_kb, stride_kh, stride_kn, stride_kd,
+    stride_ob, stride_oh, stride_os, stride_od,
+    stride_lb, stride_lh, stride_ls,
+    N,                 <span class="cm"># 总序列长度</span>
+    num_splits,
+    scale,
+    BLOCK_D: tl.constexpr,   <span class="cm"># head dim，必须是 power of 2</span>
+    BLOCK_N: tl.constexpr,   <span class="cm"># 每次处理的 K 行数（tile size）</span>
+    GROUP_H: tl.constexpr,   <span class="cm"># GQA: Q heads per KV head</span>
+):
+    <span class="cm"># ── 索引计算 ─────────────────────────────────────────</span>
+    batch_id = tl.program_id(<span class="nm">0</span>)
+    head_id  = tl.program_id(<span class="nm">1</span>)
+    split_id = tl.program_id(<span class="nm">2</span>)
+    
+    kv_head_id = head_id // GROUP_H   <span class="cm"># GQA: 映射到 KV head</span>
+    
+    chunk_size = tl.cdiv(N, num_splits)
+    start = split_id * chunk_size
+    end   = tl.minimum(start + chunk_size, N)
+    
+    <span class="cm"># ── 加载 Q ──────────────────────────────────────────</span>
+    q = tl.load(
+        Q + batch_id * stride_qb + head_id * stride_qh 
+          + tl.arange(<span class="nm">0</span>, BLOCK_D),
+        mask=tl.arange(<span class="nm">0</span>, BLOCK_D) < BLOCK_D, other=<span class="nm">0.0</span>
+    ).to(tl.float32)
+    
+    <span class="cm"># ── 初始化 Online Softmax 状态 ──────────────────────</span>
+    m_i = tl.full((<span class="nm">1</span>,), float(<span class="st">"-inf"</span>), dtype=tl.float32)
+    l_i = tl.zeros((<span class="nm">1</span>,), dtype=tl.float32)
+    acc = tl.zeros((BLOCK_D,), dtype=tl.float32)
+    
+    <span class="cm"># ── 在当前 split 内部 tile 循环 ──────────────────────</span>
+    kv_base_k = (batch_id * stride_kb + kv_head_id * stride_kh 
+                 + start * stride_kn)
+    kv_base_v = (batch_id * stride_kb + kv_head_id * stride_kh 
+                 + start * stride_kn)
+    
+    <span class="kw">for</span> block_start <span class="kw">in</span> range(start, end, BLOCK_N):
+        block_end = tl.minimum(block_start + BLOCK_N, end)
+        valid = block_end - block_start
+        
+        n_ids = tl.arange(<span class="nm">0</span>, BLOCK_N)
+        mask_n = n_ids < valid
+        
+        <span class="cm"># 加载 K block: [BLOCK_N, BLOCK_D]</span>
+        k = tl.load(
+            K + kv_base_k + n_ids[:, <span class="kw">None</span>] * stride_kn 
+              + tl.arange(<span class="nm">0</span>, BLOCK_D)[<span class="kw">None</span>, :],
+            mask=mask_n[:, <span class="kw">None</span>], other=<span class="nm">0.0</span>
+        ).to(tl.float32)
+        
+        <span class="cm"># 加载 V block: [BLOCK_N, BLOCK_D]</span>
+        v = tl.load(
+            V + kv_base_v + n_ids[:, <span class="kw">None</span>] * stride_kn 
+              + tl.arange(<span class="nm">0</span>, BLOCK_D)[<span class="kw">None</span>, :],
+            mask=mask_n[:, <span class="kw">None</span>], other=<span class="nm">0.0</span>
+        ).to(tl.float32)
+        
+        <span class="cm"># QK^T：scores [BLOCK_N]</span>
+        scores = tl.sum(q[<span class="kw">None</span>, :] * k, axis=<span class="nm">1</span>) * scale
+        scores = tl.where(mask_n, scores, float(<span class="st">"-inf"</span>))
+        
+        <span class="cm"># Online Softmax 更新</span>
+        m_new = tl.maximum(m_i, tl.max(scores, axis=<span class="nm">0</span>))
+        p = tl.exp(scores - m_new)           <span class="cm"># [BLOCK_N]</span>
+        l_new = l_i * tl.exp(m_i - m_new) + tl.sum(p, axis=<span class="nm">0</span>)
+        acc = acc * tl.exp(m_i - m_new) + tl.sum(p[:, <span class="kw">None</span>] * v, axis=<span class="nm">0</span>)
+        m_i, l_i = m_new, l_new
+        
+        kv_base_k += BLOCK_N * stride_kn
+        kv_base_v += BLOCK_N * stride_kn
+    
+    <span class="cm"># ── 写回局部结果 ─────────────────────────────────────</span>
+    acc = acc / l_i   <span class="cm"># 归一化</span>
+    lse = tl.log(l_i) + m_i   <span class="cm"># log-sum-exp</span>
+    
+    out_off = (batch_id * stride_ob + head_id * stride_oh 
+               + split_id * stride_os + tl.arange(<span class="nm">0</span>, BLOCK_D))
+    tl.store(Out + out_off, acc.to(tl.float16))
+    
+    lse_off = batch_id * stride_lb + head_id * stride_lh + split_id * stride_ls
+    tl.store(LSE + lse_off, lse)
+
+
+<span class="pp">@triton.jit</span>
+<span class="kw">def</span> <span class="fn">_flash_decode_reduce_kernel</span>(
+    Out_splits, LSE_splits,   <span class="cm"># [B, H, S, D], [B, H, S]</span>
+    Final_out,                <span class="cm"># [B, H, D]</span>
+    num_splits,
+    BLOCK_D: tl.constexpr,
+):
+    batch_id = tl.program_id(<span class="nm">0</span>)
+    head_id  = tl.program_id(<span class="nm">1</span>)
+    
+    <span class="cm"># 读取所有 split 的 LSE</span>
+    lse_off = batch_id * (num_splits * ...) + head_id * num_splits
+    lse_vals = tl.load(LSE_splits + lse_off + tl.arange(<span class="nm">0</span>, num_splits))
+    
+    <span class="cm"># 全局 log-sum-exp：数值稳定实现</span>
+    lse_max = tl.max(lse_vals, axis=<span class="nm">0</span>)
+    lse_global = lse_max + tl.log(tl.sum(tl.exp(lse_vals - lse_max), axis=<span class="nm">0</span>))
+    
+    <span class="cm"># 加权合并所有 split 的 output</span>
+    acc = tl.zeros((BLOCK_D,), dtype=tl.float32)
+    <span class="kw">for</span> s <span class="kw">in</span> range(num_splits):
+        w = tl.exp(tl.load(LSE_splits + lse_off + s) - lse_global)
+        out_s = tl.load(Out_splits + ... + s * BLOCK_D + tl.arange(<span class="nm">0</span>, BLOCK_D))
+        acc += w * out_s.to(tl.float32)
+    
+    tl.store(Final_out + batch_id * ... + head_id * BLOCK_D 
+             + tl.arange(<span class="nm">0</span>, BLOCK_D), acc.to(tl.float16))</pre>
+</div>
+
+<h3>Python 调用入口</h3>
+
+<div class="code-block">
+<span class="code-lang">PYTHON</span>
+<pre><span class="kw">def</span> <span class="fn">flash_decode</span>(q, k_cache, v_cache, num_splits=<span class="kw">None</span>):
+    <span class="st">"""
+    q:       [batch, 1, nheads, headdim]       ← seqlen=1 for decoding
+    k_cache: [batch, seqlen, nheads_k, headdim] ← KV Cache
+    v_cache: [batch, seqlen, nheads_k, headdim]
+    """</span>
+    B, _, H, D = q.shape
+    _, N, H_k, _ = k_cache.shape
+    GROUP_H = H // H_k   <span class="cm"># GQA group size</span>
+    
+    <span class="kw">if</span> num_splits <span class="kw">is</span> <span class="kw">None</span>:
+        <span class="cm"># 启发式：让总 Thread Block 数 ≈ SM 数的 4 倍（充分利用）</span>
+        num_sm = torch.cuda.get_device_properties(<span class="nm">0</span>).multi_processor_count
+        num_splits = max(<span class="nm">1</span>, num_sm * <span class="nm">4</span> // (B * H))
+        num_splits = min(num_splits, N // <span class="nm">64</span>)   <span class="cm"># 每个 split 至少 64 个 token</span>
+    
+    scale = D ** -<span class="nm">0.5</span>
+    
+    <span class="cm"># 临时缓冲区</span>
+    out_splits = torch.empty(B, H, num_splits, D, dtype=torch.float16, 
+                             device=q.device)
+    lse_splits  = torch.empty(B, H, num_splits, dtype=torch.float32, 
+                              device=q.device)
+    
+    <span class="cm"># Kernel 1 启动</span>
+    grid1 = (B, H, num_splits)
+    _flash_decode_fwd_kernel[grid1](
+        q, k_cache, v_cache, out_splits, lse_splits,
+        *q.stride(), *k_cache.stride(),
+        *out_splits.stride(), *lse_splits.stride(),
+        N, num_splits, scale,
+        BLOCK_D=D, BLOCK_N=<span class="nm">64</span>, GROUP_H=GROUP_H,
+    )
+    
+    <span class="cm"># Kernel 2 启动（归约）</span>
+    final_out = torch.empty(B, H, D, dtype=torch.float16, device=q.device)
+    grid2 = (B, H)
+    _flash_decode_reduce_kernel[grid2](
+        out_splits, lse_splits, final_out, num_splits, BLOCK_D=D)
+    
+    <span class="kw">return</span> final_out.unsqueeze(<span class="nm">1</span>)  <span class="cm"># [B, 1, H, D]</span></pre>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 8: FLASH DECODING++ -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section" id="s8">
+<div class="section-label">Section 08</div>
+<h2>扩展变体：Flash Decoding++</h2>
+
+<p>Flash Decoding++ (MLSys 2024) 进一步优化了原版 Flash Decoding，提出了三个新技术，在 NVIDIA 和 AMD GPU 上实现额外 4× 以上加速。</p>
+
+<h3>问题 1：Softmax 归约的同步开销</h3>
+
+<p>原版 Flash Decoding 中，合并各 split 时需要知道全局最大值 m_global，这需要两轮扫描（先找最大，再归约），引入跨 SM 同步等待。</p>
+
+<div class="compare">
+  <div class="compare-panel compare-bad">
+    <div class="compare-title">原版：同步 Softmax</div>
+    <p style="font-size:13px;color:var(--ink2)">
+    1. 各 split 计算局部 (O_s, m_s, l_s)<br>
+    2. <strong>同步等待</strong> → 找全局 m_global<br>
+    3. 用 m_global 更新每个 split 的结果<br>
+    → 需要两轮 global reduction
+    </p>
+  </div>
+  <div class="compare-panel compare-good">
+    <div class="compare-title">++：统一最大值（Unified Max）</div>
+    <p style="font-size:13px;color:var(--ink2)">
+    用统计分析确定 QK score 的<strong>安全上界</strong>（例如基于 Q/K 的 L2 范数）<br>
+    每个 split 直接使用这个统一的全局 max，无需同步<br>
+    → 异步执行，消除跨-split barrier
+    </p>
+  </div>
+</div>
+
+<h3>问题 2：Flat GEMM 效率</h3>
+
+<p>Decoding 阶段的矩阵乘法是 GEMV（矩阵×向量）形式（batch 小，Q 长度=1），而 GPU 的 Tensor Core 为 GEMM 优化，对小矩阵效率低。Flash Decoding++ 用 <strong>double buffering</strong> 隐藏 GEMM 延迟。</p>
+
+<h3>问题 3：数据流启发式优化</h3>
+
+<p>根据不同硬件（A100/H100/MI200）的内存层次特性，动态选择最优的数据复用策略（L1/L2/HBM 的不同层次）。</p>
+
+<table>
+  <tr><th>方法</th><th>与 HuggingFace 对比</th><th>与 Flash Decoding 对比</th></tr>
+  <tr><td>Flash Decoding++（NVIDIA）</td><td>最高 4.86×</td><td>最高 1.37×</td></tr>
+  <tr><td>Flash Decoding++（AMD）</td><td>最高 4.35×</td><td>类似提升</td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 9: ENGINEERING INTEGRATION -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section" id="s9">
+<div class="section-label">Section 09</div>
+<h2>工程集成：在 LLaMA 推理中使用</h2>
+
+<h3>通过 FlashAttention 库使用</h3>
+
+<div class="code-block">
+<span class="code-lang">PYTHON</span>
+<pre><span class="pp">from flash_attn import flash_attn_with_kvcache</span>
+
+<span class="kw">class</span> <span class="ty">LlamaAttention</span>:
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x, kv_cache, position_ids):
+        B, seq_q, _ = x.shape
+        
+        q = self.q_proj(x).view(B, seq_q, self.n_heads, self.head_dim)
+        k = self.k_proj(x).view(B, seq_q, self.n_kv_heads, self.head_dim)
+        v = self.v_proj(x).view(B, seq_q, self.n_kv_heads, self.head_dim)
+        
+        <span class="cm"># 更新 KV Cache</span>
+        kv_cache.k[..., :seq_q, :] = k
+        kv_cache.v[..., :seq_q, :] = v
+        
+        <span class="cm"># Flash Decoding (当 seq_q == 1 时自动启用)</span>
+        out = flash_attn_with_kvcache(
+            q,              <span class="cm"># [B, 1, H, D]</span>
+            kv_cache.k,     <span class="cm"># [B, N, H_k, D]</span>
+            kv_cache.v,     <span class="cm"># [B, N, H_k, D]</span>
+            cache_seqlens=kv_cache.seq_lens,  <span class="cm"># 每条序列的实际长度</span>
+            softmax_scale=self.head_dim**-<span class="nm">0.5</span>,
+            causal=<span class="kw">True</span>,
+        )
+        <span class="cm"># out: [B, 1, H, D]</span>
+        
+        out = out.view(B, seq_q, self.n_heads * self.head_dim)
+        <span class="kw">return</span> self.o_proj(out)</pre>
+</div>
+
+<h3>通过 xFormers 使用</h3>
+
+<div class="code-block">
+<span class="code-lang">PYTHON</span>
+<pre><span class="pp">import xformers.ops as xops</span>
+
+<span class="cm"># xFormers 会自动 dispatch：
+# - seqlen_q > 1 → FlashAttention（训练/prefill）
+# - seqlen_q == 1 → Flash Decoding（decoding）</span>
+out = xops.memory_efficient_attention(
+    q, k, v,
+    attn_bias=<span class="kw">None</span>,
+    scale=head_dim**-<span class="nm">0.5</span>,
+)</pre>
+</div>
+
+<h3>何时不适用 Flash Decoding？</h3>
+
+<table>
+  <tr><th>场景</th><th>建议</th><th>原因</th></tr>
+  <tr><td>短序列（&lt;512）+ 大 Batch</td><td>FlashAttention v2</td><td>并行度已充足，split 开销反而增加</td></tr>
+  <tr><td>Prefill 阶段（seqlen_q &gt; 1）</td><td>FlashAttention v2</td><td>已沿 Q 维度并行，不需要 split KV</td></tr>
+  <tr><td>长序列 + 小 Batch</td><td>✓ Flash Decoding</td><td>KV split 是唯一可用并行维度</td></tr>
+  <tr><td>极长序列（>32k）</td><td>✓ Flash Decoding</td><td>加速比最显著（可达 35×+）</td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- SECTION 10: RELATION TO OTHER METHODS -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="section" id="s10">
+<div class="section-label">Section 10</div>
+<h2>与其他方法的关系</h2>
+
+<div id="methods-map"></div>
+
+<table>
+  <tr><th>方法</th><th>主要优化</th><th>与 Flash Decoding 的关系</th></tr>
+  <tr><td>FlashAttention v1/v2</td><td>IO-aware tiling，减少 HBM 访问</td><td>Flash Decoding 的基础；FA2 加入了 Q-parallel</td></tr>
+  <tr><td>FlashAttention v3</td><td>Hopper WGMMA + TMA，ping-pong 流水</td><td>包含 Flash Decoding (Split-KV) 作为推理优化</td></tr>
+  <tr><td>Flash Decoding++</td><td>异步 Softmax + Flat GEMM + 启发式数据流</td><td>Flash Decoding 的改进版，多后端支持</td></tr>
+  <tr><td>vLLM (PagedAttention)</td><td>KV Cache 分页管理，支持动态 batch</td><td>正交技术，可组合使用</td></tr>
+  <tr><td>GQA (Grouped Query Attention)</td><td>减少 KV head 数量，降低 KV Cache 大小</td><td>Flash Decoding 原生支持 GQA；两者结合效果更好</td></tr>
+  <tr><td>Speculative Decoding</td><td>Draft model 预测多个 token，验证后批量接受</td><td>DEFT 等工作将 Flash Decoding 扩展到树状 attention</td></tr>
+  <tr><td>DEFT (Tree Attention)</td><td>树形解码结构的 Flash Decoding</td><td>直接扩展，处理分支 KV Cache 的负载均衡</td></tr>
+</table>
+
+<h3>技术演进图谱</h3>
+
+<div class="algo">
+<div class="algo-title">Attention 优化技术演进</div>
+<div class="algo-step"><span class="algo-num" style="background:#6b6458">I</span><span class="algo-text"><strong>Online Softmax（2018）</strong>：Milakov & Gimelshein 提出流式 softmax，奠定可分解 softmax 的数学基础</span></div>
+<div class="algo-step"><span class="algo-num" style="background:#6b6458">II</span><span class="algo-text"><strong>FlashAttention v1（2022）</strong>：IO-aware tiling，消除 N² 中间矩阵，2-4× 加速训练</span></div>
+<div class="algo-step"><span class="algo-num" style="background:#6b6458">III</span><span class="algo-text"><strong>FlashAttention v2（2023）</strong>：改进并行策略（Q-parallel），减少非 matmul FLOP，2-3× vs v1</span></div>
+<div class="algo-step"><span class="algo-num" style="background:var(--acc)">IV</span><span class="algo-text"><strong>Flash Decoding（2023.10）</strong>：新增 KV-split 并行维度，专门解决 Decoding 的 SM 利用率问题，长序列 8× 加速</span></div>
+<div class="algo-step"><span class="algo-num" style="background:#6b6458">V</span><span class="algo-text"><strong>Flash Decoding++（2024）</strong>：异步 Softmax 消除跨 split 同步，Flat GEMM 优化，支持 AMD GPU</span></div>
+<div class="algo-step"><span class="algo-num" style="background:#6b6458">VI</span><span class="algo-text"><strong>FlashAttention v3（2024）</strong>：Hopper 专属，WGMMA + TMA + 流水线，集成 Flash Decoding 支持</span></div>
+</div>
+
+<div class="divider"></div>
+
+<div class="callout callout-grn">
+  <p><strong>核心总结：</strong>Flash Decoding 的本质是发现了 LLM Decoding 中被忽视的并行维度——KV 序列方向。通过将 Online Softmax 的可分解性从"块内"扩展到"块间"，实现了跨 SM 的并行 KV 加载，以接近硬件带宽极限的速度读取 KV Cache，从而将长序列 Attention 的延迟从 O(N) 降低到接近 O(1)（相对于序列长度）。</p>
+</div>
+
+<p class="ref">参考文献：Tri Dao, Daniel Haziza, Francisco Massa, Grigory Sizov. "Flash-Decoding for long-context inference." Together.ai / Meta, October 2023. 原始博客：<code>crfm.stanford.edu/2023/10/12/flashdecoding.html</code> / <code>pytorch.org/blog/flash-decoding/</code></p>
+</div>
+
+</div><!-- /page -->
+
+<!-- ═══════════════ DIAGRAMS JS ═══════════════ -->
+<script>
+const C = {
+  ink:'#1a1814', ink2:'#3d3930', ink3:'#6b6458',
+  paper:'#faf8f4', paper2:'#f2ede6', paper3:'#e8e0d4',
+  acc:'#8b3a20', acc2:'#b04d2a',
+  grn:'#2d6a4f', blu:'#1a4a7a',
+  brd:'rgba(0,0,0,.1)', brd2:'rgba(0,0,0,.18)',
+};
+
+function mkSvg(id, W, H, content) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = `<svg width="100%" viewBox="0 0 ${W} ${H}"
+    style="font-family:'Noto Serif SC',serif">${content}</svg>`;
+}
+
+function txt(x,y,s,opts={}) {
+  const {size=12,color=C.ink2,anchor='middle',weight=400,mono=false}=opts;
+  return `<text x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="central"
+    font-size="${size}" fill="${color}" font-weight="${weight}"
+    font-family="${mono?'JetBrains Mono,monospace':'Noto Serif SC,serif'}">${s}</text>`;
+}
+function rect(x,y,w,h,opts={}) {
+  const {rx=4,fill=C.paper2,stroke=C.brd2,sw=1}=opts;
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
+}
+function line(x1,y1,x2,y2,opts={}) {
+  const {color=C.brd2,sw=1,dash=''}=opts;
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${sw}" stroke-dasharray="${dash}"/>`;
+}
+function arrow(x1,y1,x2,y2,color=C.ink3) {
+  const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy);
+  const ux=dx/len,uy=dy/len;
+  const ax=x2-ux*8-uy*4, ay=y2-uy*8+ux*4;
+  const bx=x2-ux*8+uy*4, by=y2-uy*8-ux*4;
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="1.5"/>
+    <polygon points="${x2},${y2} ${ax},${ay} ${bx},${by}" fill="${color}"/>`;
+}
+
+// ── KV Cache diagram ───────────────────────────────────────
+function drawKVCache() {
+  const W=680, H=200;
+  let s = '';
+  // Tokens in context
+  for(let i=0;i<12;i++) {
+    const x = 20 + i*52;
+    const alpha = i<11 ? 1 : 0.4;
+    s += rect(x,20,46,30,{fill:`rgba(26,74,122,${0.08+i*0.01})`,stroke:C.blu,sw:0.8});
+    s += txt(x+23,35,`t${i}`,{size:10,color:C.blu,mono:true});
+  }
+  s += txt(20+12*52-20,35,'...',{size:14,color:C.ink3});
+
+  // KV Cache blocks
+  s += txt(340,20,'KV Cache（历史所有 token）',{size:11,color:C.grn,anchor:'start'});
+  for(let i=0;i<11;i++) {
+    const x = 20 + i*52;
+    s += rect(x,65,46,24,{fill:'rgba(45,106,79,.12)',stroke:C.grn,sw:0.8});
+    s += txt(x+23,77,`K${i}`,{size:9,color:C.grn,mono:true});
+    s += rect(x,92,46,22,{fill:'rgba(45,106,79,.08)',stroke:C.grn,sw:0.8});
+    s += txt(x+23,103,`V${i}`,{size:9,color:C.grn,mono:true});
+  }
+
+  // New query token
+  s += rect(590,65,80,50,{fill:'rgba(139,58,32,.12)',stroke:C.acc,sw:1.5});
+  s += txt(630,82,'Q_new',{size:11,color:C.acc,weight:500,mono:true});
+  s += txt(630,98,'(token N)',{size:9,color:C.acc});
+
+  // Arrow: Q attends to all KV
+  s += arrow(587,88,580,88,C.acc);
+  s += `<path d="M575,88 Q340,140 300,115" fill="none" stroke="${C.acc}" stroke-width="1.2" stroke-dasharray="4 2"/>`;
+
+  s += txt(340,145,'⚠ 每生成一个 token，需从 HBM 读取全部 N 个 K/V',{size:12,color:C.acc,weight:500});
+  s += txt(340,165,'对长序列（N=64k）：读取量 ≈ 数百 MB',{size:11,color:C.ink3});
+
+  mkSvg('kvcache-diagram', W, H, s);
+}
+
+// ── SM Utilization ─────────────────────────────────────────
+function drawSMUtil() {
+  const W=680, H=140;
+  let s = '';
+
+  // A100 SM grid (108 SMs)
+  s += txt(20,15,'A100：108 个 SM',{size:11,color:C.ink2,anchor:'start',weight:500});
+  const cols=27, rows=4, cw=22, ch=22, gx=2, gy=2;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) {
+    const i = r*cols+c;
+    const x = 20+c*(cw+gx), y = 28+r*(ch+gy);
+    const active_fa2 = i < 16; // FA2 uses 16 SMs (B=1, H=16)
+    const active_fd  = i < 108; // Flash Decoding uses all
+    const fill = active_fa2 ? 'rgba(139,58,32,.8)' : 'rgba(0,0,0,.06)';
+    s += rect(x,y,cw,ch,{rx:3,fill,stroke:'rgba(0,0,0,.08)',sw:0.5});
+  }
+
+  // Legend
+  s += rect(20,118,12,12,{rx:2,fill:'rgba(139,58,32,.8)',stroke:C.acc,sw:0.5});
+  s += txt(36,124,'FlashAttention v2：仅使用 16/108 SM（14.8%）',{size:10,color:C.ink2,anchor:'start'});
+
+  // Second panel: Flash Decoding
+  const off=335;
+  s += txt(off,15,'Flash Decoding：并行 KV-split，全部 SM 利用',{size:11,color:C.ink2,anchor:'start',weight:500});
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) {
+    const i = r*cols+c;
+    const x = off+c*(cw+gx), y = 28+r*(ch+gy);
+    const fill = 'rgba(45,106,79,.8)';
+    s += rect(x,y,cw,ch,{rx:3,fill,stroke:'rgba(0,0,0,.08)',sw:0.5});
+  }
+  s += rect(off,118,12,12,{rx:2,fill:'rgba(45,106,79,.8)',stroke:C.grn,sw:0.5});
+  s += txt(off+16,124,'Flash Decoding：使用全部 108 SM（100%）',{size:10,color:C.ink2,anchor:'start'});
+
+  mkSvg('sm-util-diagram', W, H, s);
+}
+
+// ── FA HBM diagram ─────────────────────────────────────────
+function drawFAHBM() {
+  const W=680, H=120;
+  let s = '';
+
+  // Standard attention pipeline
+  const steps = [
+    {label:'Q,K→HBM', sub:'写 N×N S矩阵', color:'rgba(139,58,32,.7)'},
+    {label:'S→HBM', sub:'读 N×N，写 N×N P', color:'rgba(139,58,32,.7)'},
+    {label:'P→HBM', sub:'读 N×N P，写 O', color:'rgba(139,58,32,.7)'},
+  ];
+  s += txt(16,20,'标准 Attention（3次 HBM 读写 N×N 矩阵）',{size:11,color:C.acc,anchor:'start',weight:500});
+  steps.forEach((st,i) => {
+    const x = 16 + i*215;
+    s += rect(x,32,200,40,{rx:5,fill:st.color,stroke:'none'});
+    s += txt(x+100,45,st.label,{size:11,color:'#fff',weight:500});
+    s += txt(x+100,60,st.sub,{size:10,color:'rgba(255,255,255,.8)'});
+    if(i<2) s += arrow(x+200,52,x+216,52,'rgba(139,58,32,.5)');
+  });
+  s += txt(650,50,'O(N²d)',{size:11,color:C.acc,mono:true});
+
+  // FlashAttention
+  s += txt(16,90,'FlashAttention（仅写 O 和 L）',{size:11,color:C.grn,anchor:'start',weight:500});
+  s += rect(16,100,400,14,{rx:3,fill:'rgba(45,106,79,.6)',stroke:'none'});
+  s += txt(216,107,'在 SRAM 内完成所有中间计算，不写 N×N 矩阵',{size:10,color:'#fff'});
+  s += txt(440,107,'O(N²d²/M)',{size:11,color:C.grn,mono:true,anchor:'start'});
+
+  mkSvg('fa-hbm-diagram', W, H, s);
+}
+
+// ── FA Parallel Diagram ────────────────────────────────────
+function drawFAParallel() {
+  const W=680, H=160;
+  let s = '';
+
+  const ROWS=4, COLS=8;
+  const CW=36, CH=28, GAP=3;
+  const ox=20, oy=40;
+
+  s += txt(ox,20,'FlashAttention 并行策略示意（Q 长度=8 时）',{size:11,color:C.ink2,anchor:'start',weight:500});
+
+  // Draw Q blocks
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) {
+    const x=ox+c*(CW+GAP), y=oy+r*(CH+GAP);
+    const assigned = r*COLS+c;
+    const colors=['rgba(26,74,122,.6)','rgba(45,106,79,.6)','rgba(139,58,32,.6)','rgba(80,60,100,.6)'];
+    const fill = assigned < 4 ? colors[assigned%4] : 'rgba(0,0,0,.05)';
+    s += rect(x,y,CW,CH,{rx:3,fill,stroke:'none'});
+    if(assigned<4) s += txt(x+CW/2,y+CH/2,`SM${assigned}`,{size:9,color:'#fff'});
+  }
+  s += txt(ox,oy+ROWS*(CH+GAP)+12,'Q (每行=1个Query, 每列=K-block)',{size:10,color:C.ink3,anchor:'start'});
+
+  // Annotation
+  const ax=ox+COLS*(CW+GAP)+16;
+  s += txt(ax,50,'Decoding 时 Query 长度=1',{size:11,color:C.acc,anchor:'start',weight:500});
+  s += txt(ax,68,'→ 只有第1行有效',{size:11,color:C.acc,anchor:'start'});
+  s += txt(ax,86,'→ 只有 Head 数个 SM 工作',{size:11,color:C.ink3,anchor:'start'});
+  s += txt(ax,104,'→ 95%+ 的 SM 闲置！',{size:11,color:C.acc,anchor:'start',weight:500});
+
+  // Highlight 1st row
+  s += `<rect x="${ox-2}" y="${oy-2}" width="${COLS*(CW+GAP)+1}" height="${CH+2}" rx="3" fill="none" stroke="${C.acc}" stroke-width="2" stroke-dasharray="4 2"/>`;
+
+  mkSvg('fa-parallel-diagram', W, H, s);
+}
+
+// ── Online Softmax Demo ────────────────────────────────────
+function drawOnlineSoftmax() {
+  const el = document.getElementById('online-softmax-demo');
+  if(!el) return;
+
+  // Interactive demo: show merging two splits
+  const vals_A = [2.1, 1.5, 0.8, 2.8];
+  const vals_B = [1.2, 3.1, 0.5, 1.9];
+
+  function computeSplit(vals) {
+    const m = Math.max(...vals);
+    const exp_vals = vals.map(x => Math.exp(x - m));
+    const l = exp_vals.reduce((a,b)=>a+b, 0);
+    // For simplicity, use vals as "v" too (scalar case)
+    const O = exp_vals.reduce((a,x,i)=>a+x*vals[i], 0) / l;
+    return {m, l, O: O.toFixed(4), lse: (Math.log(l)+m).toFixed(4)};
+  }
+
+  function merge(a, b) {
+    const m_g = Math.max(a.m, b.m);
+    const l_g = a.l * Math.exp(a.m - m_g) + b.l * Math.exp(b.m - m_g);
+    const O_g = (parseFloat(a.O) * a.l * Math.exp(a.m - m_g) 
+               + parseFloat(b.O) * b.l * Math.exp(b.m - m_g)) / l_g;
+    return {m_g: m_g.toFixed(4), l_g: l_g.toFixed(4), O_g: O_g.toFixed(4)};
+  }
+
+  const rA = computeSplit(vals_A);
+  const rB = computeSplit(vals_B);
+  const merged = merge({m:rA.m, l:rA.l, O:rA.O}, {m:rB.m, l:rB.l, O:rB.O});
+
+  el.innerHTML = `
+  <div style="background:var(--paper2);border:1px solid var(--brd);border-radius:6px;padding:16px;margin:14px 0">
+    <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--ink3);text-transform:uppercase;margin-bottom:12px">在线 Softmax 合并演示（数值示例）</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+      <div style="flex:1;min-width:180px;background:var(--paper3);padding:12px;border-radius:4px;border-left:3px solid var(--blu)">
+        <div style="font-size:11px;color:var(--blu);font-family:'JetBrains Mono',monospace;margin-bottom:6px">分块 A（KV 前半段）</div>
+        <div style="font-size:12px;color:var(--ink2);font-family:'JetBrains Mono',monospace;line-height:2">
+          scores: [${vals_A.join(', ')}]<br>
+          m_A = <strong>${rA.m.toFixed(4)}</strong><br>
+          l_A = <strong>${rA.l.toFixed(4)}</strong><br>
+          O_A = <strong>${rA.O}</strong><br>
+          LSE_A = <strong>${rA.lse}</strong>
+        </div>
+      </div>
+      <div style="flex:1;min-width:180px;background:var(--paper3);padding:12px;border-radius:4px;border-left:3px solid var(--grn)">
+        <div style="font-size:11px;color:var(--grn);font-family:'JetBrains Mono',monospace;margin-bottom:6px">分块 B（KV 后半段）</div>
+        <div style="font-size:12px;color:var(--ink2);font-family:'JetBrains Mono',monospace;line-height:2">
+          scores: [${vals_B.join(', ')}]<br>
+          m_B = <strong>${rB.m.toFixed(4)}</strong><br>
+          l_B = <strong>${rB.l.toFixed(4)}</strong><br>
+          O_B = <strong>${rB.O}</strong><br>
+          LSE_B = <strong>${rB.lse}</strong>
+        </div>
+      </div>
+      <div style="flex:1;min-width:180px;background:rgba(139,58,32,.05);padding:12px;border-radius:4px;border-left:3px solid var(--acc)">
+        <div style="font-size:11px;color:var(--acc);font-family:'JetBrains Mono',monospace;margin-bottom:6px">合并结果（Kernel 2）</div>
+        <div style="font-size:12px;color:var(--ink2);font-family:'JetBrains Mono',monospace;line-height:2">
+          m_global = max(${rA.m.toFixed(2)}, ${rB.m.toFixed(2)}) = <strong>${merged.m_g}</strong><br>
+          l_global = <strong>${merged.l_g}</strong><br>
+          O_global = <strong>${merged.O_g}</strong><br>
+          <span style="font-size:10px;color:var(--ink3)">（等价于在完整 8 个 score 上计算 softmax attention）</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── FD Three Steps ─────────────────────────────────────────
+function drawFDThreeSteps() {
+  const W=680, H=200;
+  let s = '';
+  const arr = `<defs><marker id="arh" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="${C.ink3}" stroke-width="1.5"/></marker></defs>`;
+  s += arr;
+
+  // Step boxes
+  const steps = [
+    {x:20,w:140,label:'Step 1',sub:'Split KV',detail:'将 K,V 分为 S 块\n（零 GPU 开销）',color:C.grn},
+    {x:200,w:260,label:'Step 2',sub:'Parallel Local Attn',detail:'S 个 SM 并行计算\n各自的 (O_s, LSE_s)',color:C.blu},
+    {x:500,w:160,label:'Step 3',sub:'Global Reduce',detail:'合并 S 个局部结果\n到最终 O',color:C.acc},
+  ];
+
+  steps.forEach(st => {
+    s += rect(st.x,30,st.w,140,{rx:8,fill:`${st.color}11`,stroke:st.color,sw:1.5});
+    s += txt(st.x+st.w/2,55,st.label,{size:10,color:st.color,weight:500,mono:true});
+    s += txt(st.x+st.w/2,75,st.sub,{size:12,color:C.ink,weight:500});
+    const lines = st.detail.split('\n');
+    lines.forEach((l,i) => s += txt(st.x+st.w/2,100+i*18,l,{size:11,color:C.ink2}));
+  });
+
+  // KV arrows in step 2
+  for(let i=0;i<4;i++) {
+    const y = 55 + i*26;
+    const color = ['rgba(26,74,122,.6)','rgba(45,106,79,.6)','rgba(139,58,32,.6)','rgba(80,60,100,.6)'][i];
+    s += `<rect x="210" y="${y}" width="230" height="20" rx="3" fill="${color}"/>`;
+    s += txt(325,y+10,`SM ${i}: K[${i*25}..${(i+1)*25-1}], V[...]`,{size:9,color:'#fff'});
+  }
+
+  // Arrows between steps
+  s += `<line x1="162" y1="100" x2="198" y2="100" stroke="${C.ink3}" stroke-width="1.5" marker-end="url(#arh)"/>`;
+  s += `<line x1="462" y1="100" x2="498" y2="100" stroke="${C.ink3}" stroke-width="1.5" marker-end="url(#arh)"/>`;
+
+  // Labels
+  s += txt(340,185,'Flash Decoding = FlashAttention tiling（块内）+ 跨 split 并行（块间）',{size:11,color:C.ink2});
+
+  mkSvg('fd-three-steps', W, H, s);
+}
+
+// ── Parallelism Diagram ─────────────────────────────────────
+function drawParallelism() {
+  const W=680, H=160;
+  let s = '';
+
+  const methods = [
+    {label:'标准 Attention', dims:['Batch','Head'], color:'rgba(139,58,32,.6)', pct:15},
+    {label:'FlashAttention v2', dims:['Batch','Head','Q-seq'], color:'rgba(26,74,122,.6)', pct:15},
+    {label:'Flash Decoding', dims:['Batch','Head','KV-split'], color:'rgba(45,106,79,.7)', pct:100},
+  ];
+
+  methods.forEach((m,i) => {
+    const y = 20 + i*44;
+    s += txt(4,y+12,m.label,{size:11,color:C.ink2,anchor:'start'});
+    m.dims.forEach((d,j) => {
+      const x=180+j*100;
+      s += rect(x,y,90,24,{rx:4,fill:m.color,stroke:'none'});
+      s += txt(x+45,y+12,d,{size:10,color:'#fff'});
+      if(j<m.dims.length-1) s += txt(x+92,y+12,'×',{size:11,color:C.ink3});
+    });
+    // utilization bar
+    s += rect(500,y,150,24,{rx:4,fill:'rgba(0,0,0,.06)',stroke:C.brd,sw:0.8});
+    s += rect(500,y,Math.round(150*m.pct/100),24,{rx:4,fill:m.color,stroke:'none'});
+    s += txt(658,y+12,`${m.pct}% SM`,{size:10,color:C.ink3,anchor:'start'});
+  });
+
+  s += txt(340,148,'↑ 新维度的加入使 SM 利用率从 15% 提升到 100%',{size:11,color:C.ink3});
+
+  mkSvg('parallelism-diagram', W, H, s);
+}
+
+// ── Benchmark Chart ─────────────────────────────────────────
+function drawBenchmark() {
+  const el = document.getElementById('benchmark-chart');
+  if(!el) return;
+
+  const seqlens = [512, 1024, 2048, 4096, 8192, 16384, 32768, 65536];
+  // Approximate tok/s from the paper (CodeLlama-34B, batch=1, 4xA100)
+  const data = {
+    'PyTorch':     [52,50,45,38,28,18,10,6],
+    'FlashAttn v2':[55,53,50,42,34,22,12,5],
+    'FasterTrans': [57,55,51,43,32,20,11,5],
+    'Flash Decod': [60,59,58,57,56,54,52,49],
+  };
+  const colors = {
+    'PyTorch':C.ink3,
+    'FlashAttn v2':C.blu,
+    'FasterTrans':'#6b4a8b',
+    'Flash Decod':C.grn,
+  };
+
+  const W=640, H=220, PL=60, PT=20, PB=50, PR=20;
+  const GW=W-PL-PR, GH=H-PT-PB;
+  const maxY=70, minX=0, maxX=seqlens.length-1;
+
+  let svg = `<svg width="100%" viewBox="0 0 ${W} ${H}" style="font-family:'JetBrains Mono',monospace">`;
+
+  // Grid
+  [0,20,40,60].forEach(v => {
+    const y = PT + GH*(1-v/maxY);
+    svg += `<line x1="${PL}" y1="${y}" x2="${PL+GW}" y2="${y}" stroke="rgba(0,0,0,.08)" stroke-width="0.8" stroke-dasharray="3 3"/>`;
+    svg += `<text x="${PL-6}" y="${y}" text-anchor="end" dominant-baseline="central" font-size="10" fill="${C.ink3}">${v}</text>`;
+  });
+  seqlens.forEach((sl,i) => {
+    const x = PL + i*GW/(seqlens.length-1);
+    const label = sl>=1024 ? `${sl/1024}k` : sl;
+    svg += `<text x="${x}" y="${PT+GH+16}" text-anchor="middle" font-size="10" fill="${C.ink3}">${label}</text>`;
+  });
+
+  // Lines
+  Object.entries(data).forEach(([name, vals]) => {
+    const color = colors[name];
+    const pts = vals.map((v,i)=>{
+      const x=PL+i*GW/(seqlens.length-1);
+      const y=PT+GH*(1-v/maxY);
+      return `${x},${y}`;
+    }).join(' ');
+    svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="${name==='Flash Decod'?2.5:1.5}" stroke-dasharray="${name==='Flash Decod'?'':''}"/>`;
+    // Label at end
+    const lastX=PL+GW, lastY=PT+GH*(1-vals[vals.length-1]/maxY);
+    svg += `<text x="${lastX+4}" y="${lastY}" font-size="9" fill="${color}" dominant-baseline="central">${name}</text>`;
+  });
+
+  // Axes
+  svg += `<line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+GH}" stroke="${C.ink2}" stroke-width="1"/>`;
+  svg += `<line x1="${PL}" y1="${PT+GH}" x2="${PL+GW}" y2="${PT+GH}" stroke="${C.ink2}" stroke-width="1"/>`;
+  svg += `<text x="${PL-30}" y="${PT+GH/2}" transform="rotate(-90,${PL-30},${PT+GH/2})" text-anchor="middle" font-size="11" fill="${C.ink3}">tok/s</text>`;
+  svg += `<text x="${PL+GW/2}" y="${H-6}" text-anchor="middle" font-size="11" fill="${C.ink3}">序列长度</text>`;
+
+  svg += `</svg>`;
+  el.innerHTML = `<div class="diagram"><div class="diagram-title">CodeLlama-34B Decoding 吞吐量（batch=1，4×A100）</div>${svg}</div>`;
+}
+
+// ── Methods Map ─────────────────────────────────────────────
+function drawMethodsMap() {
+  const W=680, H=120;
+  let s = '';
+
+  const items = [
+    {x:20,y:10,w:120,label:'Online Softmax\n(2018)',color:C.ink3},
+    {x:180,y:10,w:140,label:'FlashAttention v1\n(NeurIPS 2022)',color:C.blu},
+    {x:360,y:10,w:140,label:'FlashAttention v2\n(ICLR 2024)',color:C.blu},
+    {x:20,y:70,w:130,label:'GQA / MQA',color:C.ink3},
+    {x:180,y:70,w:140,label:'Flash Decoding\n(Oct 2023)',color:C.acc},
+    {x:360,y:70,w:140,label:'Flash Decoding++\n(MLSys 2024)',color:C.acc},
+    {x:540,y:40,w:130,label:'FlashAttention v3\n(NeurIPS 2024)',color:C.grn},
+  ];
+
+  items.forEach(it => {
+    s += rect(it.x,it.y,it.w,46,{rx:5,fill:`${it.color}15`,stroke:it.color,sw:1.2});
+    const lines = it.label.split('\n');
+    s += txt(it.x+it.w/2,it.y+16,lines[0],{size:11,color:it.color,weight:500});
+    if(lines[1]) s += txt(it.x+it.w/2,it.y+32,lines[1],{size:10,color:it.color});
+  });
+
+  // Arrows
+  const arrs = [
+    [140,33,178,33],[320,33,358,33],  // FA chain
+    [140,93,178,93],[320,93,358,93],  // FD chain
+    [230,56,230,70],                   // FA1→FD
+    [260,16,260,70],                   // FD uses FA
+    [500,33,538,53],[500,93,538,73],  // both→FA3
+  ];
+  arrs.forEach(([x1,y1,x2,y2]) => s += arrow(x1,y1,x2,y2,C.ink3));
+
+  mkSvg('methods-map', W, H, s);
+}
+
+// ── INIT ──────────────────────────────────────────────────
+drawKVCache();
+drawSMUtil();
+drawFAHBM();
+drawFAParallel();
+drawOnlineSoftmax();
+drawFDThreeSteps();
+drawParallelism();
+drawBenchmark();
+drawMethodsMap();
+</script>
+</body>
+</html>

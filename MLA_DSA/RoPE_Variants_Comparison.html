@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大模型 RoPE 变体全景对比 — DeepSeek / GLM / Qwen / LLaMA / Mistral</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Noto Sans SC", sans-serif;
+    background: #f0f2f5; color: #333; line-height: 1.75;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px 24px; }
+  .header {
+    background: linear-gradient(135deg, #0d47a1, #1565c0, #1976d2);
+    color: white; padding: 36px; border-radius: 14px; margin-bottom: 28px;
+    text-align: center;
+  }
+  .header h1 { font-size: 1.7em; margin-bottom: 6px; }
+  .header p { opacity: 0.85; font-size: 1.05em; }
+
+  .card {
+    background: white; border-radius: 12px; padding: 30px 34px;
+    margin-bottom: 26px; box-shadow: 0 1px 6px rgba(0,0,0,0.07);
+  }
+  .card h2 {
+    font-size: 1.3em; color: #1565c0; margin-bottom: 16px;
+    border-left: 4px solid #1565c0; padding-left: 12px;
+  }
+  .card h3 { font-size: 1.1em; margin: 20px 0 10px; color: #333; }
+  .card p, .card li { margin-bottom: 10px; font-size: 0.98em; }
+
+  .svg-wrap { text-align: center; margin: 18px 0; overflow-x: auto; }
+  .svg-wrap svg { max-width: 100%; height: auto; }
+
+  .callout {
+    border-radius: 8px; padding: 16px 18px; margin: 14px 0; font-size: 0.95em;
+  }
+  .callout-green { background: #e8f5e9; border-left: 4px solid #2e7d32; }
+  .callout-red { background: #fce4ec; border-left: 4px solid #c62828; }
+  .callout-blue { background: #e3f2fd; border-left: 4px solid #1565c0; }
+  .callout-orange { background: #fff3e0; border-left: 4px solid #e65100; }
+  .callout-purple { background: #f3e5f5; border-left: 4px solid #6a1b9a; }
+
+  .tag {
+    display: inline-block; padding: 2px 12px; border-radius: 10px;
+    font-size: 0.85em; font-weight: 700; margin-right: 6px;
+  }
+  .tag-blue { background: #e3f2fd; color: #1565c0; }
+  .tag-green { background: #e8f5e9; color: #2e7d32; }
+  .tag-red { background: #fce4ec; color: #c62828; }
+  .tag-purple { background: #f3e5f5; color: #6a1b9a; }
+  .tag-orange { background: #fff3e0; color: #e65100; }
+
+  code {
+    background: #f1f3f4; padding: 1px 6px; border-radius: 3px;
+    font-family: "Fira Code", monospace; font-size: 0.9em;
+  }
+
+  /* Tables */
+  .compare-table {
+    width: 100%; border-collapse: collapse; margin: 16px 0;
+    font-size: 0.92em;
+  }
+  .compare-table th, .compare-table td {
+    padding: 10px 14px; border: 1px solid #e0e4e8; text-align: left;
+  }
+  .compare-table th {
+    background: #e3f2fd; color: #1565c0; font-weight: 700;
+    white-space: nowrap;
+  }
+  .compare-table tr:nth-child(even) { background: #fafbfc; }
+  .compare-table td:first-child { font-weight: 600; white-space: nowrap; }
+
+  .toc { padding: 16px 20px; }
+  .toc a {
+    color: #1565c0; text-decoration: none; display: block;
+    padding: 4px 0; font-size: 0.95em;
+  }
+  .toc a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ==================== Header ==================== -->
+<div class="header">
+  <h1>大模型 RoPE 变体全景对比</h1>
+  <p>DeepSeek-V3/V3.2 | GLM-4/4.5 | Qwen2.5/3 | LLaMA-3 | Mistral — 从原理到 GEMM 矩阵形状的系统性差异分析</p>
+</div>
+
+<!-- ==================== TOC ==================== -->
+<div class="card">
+  <h2>目录</h2>
+  <div class="toc">
+    <a href="#sec1">一、RoPE 基础原理回顾 — 旋转位置编码如何工作</a>
+    <a href="#sec2">二、RoPE 的三大核心参数 — base / dim / 应用方式</a>
+    <a href="#sec3">三、六大模型 RoPE 配置一览表</a>
+    <a href="#sec4">四、差异点-1: RoPE 应用维度 — Full vs Partial vs Decoupled</a>
+    <a href="#sec5">五、差异点-2: GEMM 矩阵形状对比 — 各模型 Q*K^T 的实际计算</a>
+    <a href="#sec6">六、差异点-3: base 频率与长上下文扩展策略</a>
+    <a href="#sec7">七、差异点-4: 旋转方式 — Half-split vs Interleaved</a>
+    <a href="#sec8">八、差异点-5: 长上下文扩展方案 — NTK / YaRN / ABF / LongRoPE</a>
+    <a href="#sec9">九、一图总结: 各模型 RoPE 差异全景</a>
+    <a href="#sec10">十、推理工程视角: RoPE 差异对 KV Cache 和算子设计的影响</a>
+  </div>
+</div>
+
+<!-- ==================== Sec 1: RoPE 基础 ==================== -->
+<div class="card" id="sec1">
+  <h2>一、RoPE 基础原理回顾</h2>
+  <p><span class="tag tag-blue">核心思想</span> RoPE (Rotary Position Embedding) 通过对 Q 和 K 向量施加<strong>与位置相关的旋转变换</strong>，使得 Q*K^T 的内积自然编码了两个 token 之间的相对距离。</p>
+
+  <h3>1.1 旋转公式</h3>
+  <p>对于位置 m 的向量 x，RoPE 将每对相邻维度 (x_{2i}, x_{2i+1}) 视为一个 2D 复数平面上的点，施加角度为 m*theta_i 的旋转：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg" style="max-width:880px;">
+      <rect x="0" y="0" width="900" height="220" fill="#fafbfc" rx="8"/>
+      <text x="450" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#555">RoPE 旋转公式: 每 2 个维度为一组旋转</text>
+
+      <!-- 原始向量 -->
+      <rect x="30" y="55" width="180" height="50" rx="6" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="120" y="75" text-anchor="middle" font-size="14" font-weight="700" fill="white">x = [x₀, x₁, x₂, x₃, ...]</text>
+      <text x="120" y="95" text-anchor="middle" font-size="12" fill="#e3f2fd">原始 Q 或 K 向量</text>
+
+      <!-- 箭头 -->
+      <text x="230" y="82" font-size="24" font-weight="700" fill="#333">-></text>
+
+      <!-- 旋转矩阵 -->
+      <rect x="270" y="45" width="320" height="130" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+      <text x="430" y="68" text-anchor="middle" font-size="13" font-weight="700" fill="#e65100">对每一对 (x₂ᵢ, x₂ᵢ₊₁) 施加 2D 旋转</text>
+
+      <text x="310" y="100" font-size="14" fill="#333">[ cos(m*θᵢ)  -sin(m*θᵢ) ] [ x₂ᵢ   ]</text>
+      <text x="310" y="125" font-size="14" fill="#333">[ sin(m*θᵢ)   cos(m*θᵢ) ] [ x₂ᵢ₊₁ ]</text>
+
+      <text x="430" y="165" text-anchor="middle" font-size="13" fill="#e65100" font-weight="600">θᵢ = 1 / base^(2i/d)</text>
+
+      <!-- 箭头 -->
+      <text x="610" y="82" font-size="24" font-weight="700" fill="#333">=</text>
+
+      <!-- 结果 -->
+      <rect x="640" y="55" width="240" height="50" rx="6" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="760" y="75" text-anchor="middle" font-size="14" font-weight="700" fill="white">RoPE(x, m)</text>
+      <text x="760" y="95" text-anchor="middle" font-size="12" fill="#c8e6c9">位置编码后的向量</text>
+
+      <!-- 关键参数 -->
+      <text x="450" y="205" text-anchor="middle" font-size="14" fill="#333">m = token 位置,  d = head_dim,  base = 旋转基频 (默认 10000)</text>
+    </svg>
+  </div>
+
+  <h3>1.2 核心性质</h3>
+  <p>RoPE 的关键性质：<code>RoPE(q,m)^T * RoPE(k,n) = f(q,k, m-n)</code>，即 Q*K^T 的结果只依赖<strong>相对位置差 m-n</strong>。这为 attention 提供了天然的相对位置编码。</p>
+
+  <div class="callout callout-blue">
+    <strong>为什么不同模型的 RoPE 会有差异？</strong> 虽然 RoPE 公式固定，但各模型在以下维度做出了不同选择：① 旋转基频 base 的值；② 对哪些维度应用 RoPE（全部 / 部分 / 解耦）；③ 维度配对方式（half-split / interleaved）；④ 长上下文扩展策略（NTK / YaRN / ABF）。这些选择深刻影响了推理性能和 KV Cache 设计。
+  </div>
+</div>
+
+<!-- ==================== Sec 2: 三大参数 ==================== -->
+<div class="card" id="sec2">
+  <h2>二、RoPE 的三大核心变量维度</h2>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 200" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="200" fill="#fafbfc" rx="8"/>
+      <text x="500" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#555">RoPE 三大核心变量维度</text>
+
+      <!-- 维度1: base -->
+      <rect x="30" y="50" width="290" height="130" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="175" y="78" text-anchor="middle" font-size="15" font-weight="700" fill="#1565c0">维度-1: base (旋转基频)</text>
+      <text x="50" y="105" font-size="13" fill="#333">theta_i = 1 / base^(2i/d)</text>
+      <text x="50" y="128" font-size="13" fill="#333">base 越大 -> 旋转越慢</text>
+      <text x="50" y="148" font-size="13" fill="#333">-> 高频信息保留更多</text>
+      <text x="50" y="168" font-size="13" fill="#1565c0" font-weight="600">范围: 10K ~ 1M+</text>
+
+      <!-- 维度2: dim 应用方式 -->
+      <rect x="355" y="50" width="290" height="130" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="500" y="78" text-anchor="middle" font-size="15" font-weight="700" fill="#2e7d32">维度-2: 应用维度方式</text>
+      <text x="375" y="105" font-size="13" fill="#333">Full: 全部 head_dim 旋转</text>
+      <text x="375" y="128" font-size="13" fill="#333">Partial: 只旋转一半维度</text>
+      <text x="375" y="148" font-size="13" fill="#333">Decoupled: 解耦独立 RoPE 通道</text>
+      <text x="375" y="168" font-size="13" fill="#2e7d32" font-weight="600">直接影响 GEMM 形状!</text>
+
+      <!-- 维度3: 长上下文 -->
+      <rect x="680" y="50" width="290" height="130" rx="10" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="2"/>
+      <text x="825" y="78" text-anchor="middle" font-size="15" font-weight="700" fill="#6a1b9a">维度-3: 长上下文扩展</text>
+      <text x="700" y="105" font-size="13" fill="#333">直接外推: 不做任何处理</text>
+      <text x="700" y="128" font-size="13" fill="#333">ABF: 增大 base 频率</text>
+      <text x="700" y="148" font-size="13" fill="#333">NTK: 按维度差异化缩放</text>
+      <text x="700" y="168" font-size="13" fill="#6a1b9a" font-weight="600">YaRN: NTK + 温度因子</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ==================== Sec 3: 配置一览表 ==================== -->
+<div class="card" id="sec3">
+  <h2>三、六大模型 RoPE 配置一览表</h2>
+
+  <table class="compare-table">
+    <thead>
+      <tr>
+        <th>模型</th>
+        <th>注意力类型</th>
+        <th>head_dim</th>
+        <th>RoPE 维度</th>
+        <th>应用方式</th>
+        <th>base (theta)</th>
+        <th>旋转方式</th>
+        <th>长上下文扩展</th>
+        <th>预训练长度</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="tag tag-red">DeepSeek-V3/V3.2</span></td>
+        <td>MLA (128头)</td>
+        <td>128+64</td>
+        <td>64 (解耦)</td>
+        <td>Decoupled RoPE</td>
+        <td>10,000</td>
+        <td>Half-split</td>
+        <td>YaRN</td>
+        <td>128K</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-green">GLM-4 / 4.5</span></td>
+        <td>GQA</td>
+        <td>128</td>
+        <td>64 (partial=0.5)</td>
+        <td>Partial RoPE</td>
+        <td>10,000</td>
+        <td>Interleaved</td>
+        <td>YaRN</td>
+        <td>128K</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-purple">Qwen2.5 / Qwen3</span></td>
+        <td>GQA</td>
+        <td>128</td>
+        <td>128 (全部)</td>
+        <td>Full RoPE</td>
+        <td>1,000,000</td>
+        <td>Half-split</td>
+        <td>YaRN + DCA</td>
+        <td>32K (扩展128K)</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-blue">LLaMA-3 / 3.1</span></td>
+        <td>GQA</td>
+        <td>128</td>
+        <td>128 (全部)</td>
+        <td>Full RoPE</td>
+        <td>500,000</td>
+        <td>Half-split</td>
+        <td>ABF + NTK</td>
+        <td>128K</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-orange">Mistral / Mixtral</span></td>
+        <td>GQA + Sliding Window</td>
+        <td>128</td>
+        <td>128 (全部)</td>
+        <td>Full RoPE</td>
+        <td>1,000,000</td>
+        <td>Half-split</td>
+        <td>ABF</td>
+        <td>32K (扩展128K)</td>
+      </tr>
+      <tr style="background:#fff3e0;">
+        <td><strong>LLaMA-2 (参考)</strong></td>
+        <td>GQA</td>
+        <td>128</td>
+        <td>128 (全部)</td>
+        <td>Full RoPE</td>
+        <td>10,000</td>
+        <td>Half-split</td>
+        <td>无</td>
+        <td>4K</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-orange">
+    <strong>关键观察：</strong>① DeepSeek 是唯一使用 Decoupled RoPE 的（因为 MLA 架构需要）；② GLM 是唯一使用 Partial RoPE + Interleaved 旋转的；③ Qwen/LLaMA-3/Mistral 都用 Full RoPE，但 base 频率差异巨大（10K vs 500K vs 1M）。
+  </div>
+</div>
+
+<!-- ==================== Sec 4: Full vs Partial vs Decoupled ==================== -->
+<div class="card" id="sec4">
+  <h2>四、差异点-1: RoPE 应用维度 — Full vs Partial vs Decoupled</h2>
+  <p>这是各模型之间<strong>最根本的架构差异</strong>，直接决定了 Q*K^T 计算的 GEMM 形状和 KV Cache 结构。</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1050 420" xmlns="http://www.w3.org/2000/svg" style="max-width:1030px;">
+      <rect x="0" y="0" width="1050" height="420" fill="#fafbfc" rx="8"/>
+      <text x="525" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#555">三种 RoPE 应用方式对比: 以 head_dim=128 为例</text>
+
+      <!-- ===== Full RoPE ===== -->
+      <rect x="15" y="45" width="320" height="350" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="175" y="72" text-anchor="middle" font-size="15" font-weight="700" fill="#1565c0">Full RoPE</text>
+      <text x="175" y="92" text-anchor="middle" font-size="12" fill="#1565c0">Qwen / LLaMA-3 / Mistral</text>
+
+      <!-- Q 向量 -->
+      <rect x="35" y="115" width="280" height="30" rx="4" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="175" y="135" text-anchor="middle" font-size="13" font-weight="700" fill="white">Q [128 维] — 全部施加 RoPE</text>
+
+      <!-- K 向量 -->
+      <rect x="35" y="158" width="280" height="30" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="175" y="178" text-anchor="middle" font-size="13" font-weight="700" fill="white">K [128 维] — 全部施加 RoPE</text>
+
+      <!-- 计算 -->
+      <text x="175" y="215" text-anchor="middle" font-size="13" fill="#333">Q*K^T 计算:</text>
+      <rect x="55" y="228" width="240" height="30" rx="4" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="175" y="248" text-anchor="middle" font-size="12" font-weight="700" fill="white">RoPE(Q)[1,128] x RoPE(K)^T[128,L]</text>
+
+      <text x="175" y="290" text-anchor="middle" font-size="12" fill="#1565c0" font-weight="600">全部 128 维参与 RoPE 旋转</text>
+      <text x="175" y="310" text-anchor="middle" font-size="12" fill="#1565c0">KV Cache: K[128] + V[128]</text>
+
+      <rect x="45" y="330" width="260" height="50" rx="6" fill="white" stroke="#1565c0"/>
+      <text x="175" y="350" text-anchor="middle" font-size="12" fill="#333">优点: 实现最简单</text>
+      <text x="175" y="370" text-anchor="middle" font-size="12" fill="#333">缺点: 全部位置相关，无法压缩</text>
+
+      <!-- ===== Partial RoPE ===== -->
+      <rect x="365" y="45" width="320" height="350" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="525" y="72" text-anchor="middle" font-size="15" font-weight="700" fill="#2e7d32">Partial RoPE (factor=0.5)</text>
+      <text x="525" y="92" text-anchor="middle" font-size="12" fill="#2e7d32">GLM-4 / GLM-4.5</text>
+
+      <!-- Q 向量: 两段 -->
+      <rect x="385" y="115" width="140" height="30" rx="4" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="455" y="135" text-anchor="middle" font-size="11" font-weight="700" fill="white">Q_rope [64维]</text>
+      <rect x="525" y="115" width="140" height="30" rx="4" fill="#90caf9" stroke="#1565c0" stroke-width="1"/>
+      <text x="595" y="135" text-anchor="middle" font-size="11" font-weight="600" fill="#1565c0">Q_pass [64维]</text>
+
+      <!-- K 向量: 两段 -->
+      <rect x="385" y="158" width="140" height="30" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="455" y="178" text-anchor="middle" font-size="11" font-weight="700" fill="white">K_rope [64维]</text>
+      <rect x="525" y="158" width="140" height="30" rx="4" fill="#ef9a9a" stroke="#c62828" stroke-width="1"/>
+      <text x="595" y="178" text-anchor="middle" font-size="11" font-weight="600" fill="#c62828">K_pass [64维]</text>
+
+      <!-- 计算 -->
+      <text x="525" y="215" text-anchor="middle" font-size="13" fill="#333">Q*K^T 计算:</text>
+      <rect x="385" y="228" width="280" height="46" rx="4" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="525" y="246" text-anchor="middle" font-size="11" font-weight="700" fill="white">RoPE(Q_rope)||Q_pass [1,128]</text>
+      <text x="525" y="264" text-anchor="middle" font-size="11" font-weight="700" fill="white">x (RoPE(K_rope)||K_pass)^T [128,L]</text>
+
+      <text x="525" y="298" text-anchor="middle" font-size="12" fill="#2e7d32" font-weight="600">前 64 维旋转，后 64 维直通</text>
+      <text x="525" y="318" text-anchor="middle" font-size="12" fill="#2e7d32">KV Cache: K[128] + V[128]</text>
+
+      <rect x="395" y="330" width="260" height="50" rx="6" fill="white" stroke="#2e7d32"/>
+      <text x="525" y="350" text-anchor="middle" font-size="12" fill="#333">优点: 保留一半位置无关特征</text>
+      <text x="525" y="370" text-anchor="middle" font-size="12" fill="#333">缺点: KV Cache 大小不变</text>
+
+      <!-- ===== Decoupled RoPE ===== -->
+      <rect x="715" y="45" width="320" height="350" rx="10" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+      <text x="875" y="72" text-anchor="middle" font-size="15" font-weight="700" fill="#c62828">Decoupled RoPE</text>
+      <text x="875" y="92" text-anchor="middle" font-size="12" fill="#c62828">DeepSeek-V3 / V3.2 (MLA)</text>
+
+      <!-- Q 向量: 从压缩来 + 独立 rope -->
+      <rect x="735" y="110" width="130" height="30" rx="4" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="800" y="130" text-anchor="middle" font-size="11" font-weight="700" fill="white">Q_nope [128维]</text>
+      <rect x="870" y="110" width="100" height="30" rx="4" fill="#ff8a65" stroke="#e65100" stroke-width="2"/>
+      <text x="920" y="130" text-anchor="middle" font-size="11" font-weight="700" fill="white">Q_rope [64维]</text>
+
+      <!-- K: 来自 c_t + 独立 k_pe -->
+      <rect x="735" y="155" width="130" height="30" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="800" y="175" text-anchor="middle" font-size="11" font-weight="700" fill="white">c_t [512维压缩]</text>
+      <rect x="870" y="155" width="100" height="30" rx="4" fill="#ff8a65" stroke="#e65100" stroke-width="2"/>
+      <text x="920" y="175" text-anchor="middle" font-size="11" font-weight="700" fill="white">k_rope [64维]</text>
+
+      <!-- 计算 -->
+      <text x="875" y="215" text-anchor="middle" font-size="13" fill="#333">Score 分两路计算:</text>
+      <rect x="735" y="225" width="140" height="28" rx="4" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="805" y="244" text-anchor="middle" font-size="10" font-weight="700" fill="white">Q'_nope x c_t^T</text>
+      <rect x="880" y="225" width="140" height="28" rx="4" fill="#ff8a65" stroke="#e65100" stroke-width="2"/>
+      <text x="950" y="244" text-anchor="middle" font-size="10" font-weight="700" fill="white">Q_rope x k_rope^T</text>
+
+      <text x="875" y="272" text-anchor="middle" font-size="12" fill="#333">score = score_nope + score_rope</text>
+
+      <text x="875" y="298" text-anchor="middle" font-size="12" fill="#c62828" font-weight="600">nope 在 512 维潜空间 (吸收)</text>
+      <text x="875" y="318" text-anchor="middle" font-size="12" fill="#c62828">KV Cache: c_t[512] + k_rope[64] = 576</text>
+
+      <rect x="745" y="330" width="260" height="50" rx="6" fill="white" stroke="#c62828"/>
+      <text x="875" y="350" text-anchor="middle" font-size="12" fill="#333">优点: KV Cache 压缩 ~57x</text>
+      <text x="875" y="370" text-anchor="middle" font-size="12" fill="#333">缺点: 需要矩阵吸收，算子复杂</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ==================== Sec 5: GEMM 矩阵形状对比 ==================== -->
+<div class="card" id="sec5">
+  <h2>五、差异点-2: GEMM 矩阵形状对比 — 各模型 Q*K^T 实际计算</h2>
+  <p>这是最关键的工程差异。以单头 Decode（1 token query，L 个历史 token）为例，看看各模型做 attention score 时，实际的矩阵乘形状有什么不同：</p>
+
+  <h3>5.1 Full RoPE 模型 (Qwen / LLaMA / Mistral)</h3>
+  <div class="svg-wrap">
+    <svg viewBox="0 0 900 180" xmlns="http://www.w3.org/2000/svg" style="max-width:880px;">
+      <rect x="0" y="0" width="900" height="180" fill="#fafbfc" rx="8"/>
+      <text x="450" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#1565c0">Full RoPE: score = RoPE(Q) x RoPE(K)^T — 一步 GEMM</text>
+
+      <!-- RoPE(Q): [1, 128] -->
+      <rect x="40" y="60" width="180" height="22" rx="4" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="130" y="54" text-anchor="middle" font-size="14" font-weight="700" fill="#1565c0">RoPE(Q)</text>
+      <text x="130" y="100" text-anchor="middle" font-size="12" fill="#888">[1, 128] — 全部旋转后</text>
+
+      <text x="240" y="76" font-size="22" font-weight="700" fill="#333">x</text>
+
+      <!-- RoPE(K)^T: [128, L] -->
+      <rect x="270" y="50" width="140" height="100" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="340" y="105" text-anchor="middle" font-size="14" font-weight="700" fill="white">RoPE(K)^T</text>
+      <text x="340" y="165" text-anchor="middle" font-size="12" fill="#c62828">[128, L]</text>
+
+      <text x="430" y="76" font-size="22" font-weight="700" fill="#333">=</text>
+
+      <!-- score: [1, L] -->
+      <rect x="460" y="60" width="140" height="22" rx="4" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="530" y="54" text-anchor="middle" font-size="14" font-weight="700" fill="#7b1fa2">score</text>
+      <text x="530" y="100" text-anchor="middle" font-size="12" fill="#7b1fa2">[1, L]</text>
+
+      <!-- 读取量 -->
+      <rect x="640" y="55" width="240" height="65" rx="8" fill="#e3f2fd" stroke="#1565c0"/>
+      <text x="760" y="78" text-anchor="middle" font-size="13" font-weight="700" fill="#1565c0">KV Cache 读取:</text>
+      <text x="760" y="100" text-anchor="middle" font-size="13" fill="#333">K[L, 128] + V[L, 128]</text>
+      <text x="760" y="113" text-anchor="middle" font-size="12" fill="#1565c0">= L x 256 per head</text>
+    </svg>
+  </div>
+
+  <h3>5.2 Partial RoPE 模型 (GLM-4 / GLM-4.5)</h3>
+  <div class="svg-wrap">
+    <svg viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg" style="max-width:880px;">
+      <rect x="0" y="0" width="900" height="220" fill="#fafbfc" rx="8"/>
+      <text x="450" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#2e7d32">Partial RoPE (GLM): score = concat(RoPE部分, 直通部分) dot — 一步 GEMM</text>
+
+      <!-- Q: 拼接后 -->
+      <rect x="30" y="60" width="90" height="22" rx="4" fill="#42a5f5" stroke="#1565c0" stroke-width="2"/>
+      <text x="75" y="76" text-anchor="middle" font-size="11" font-weight="700" fill="white">RoPE(Q_r)</text>
+      <rect x="120" y="60" width="90" height="22" rx="4" fill="#90caf9" stroke="#1565c0" stroke-width="1"/>
+      <text x="165" y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#1565c0">Q_pass</text>
+
+      <text x="75" y="54" text-anchor="middle" font-size="11" fill="#1565c0">64维</text>
+      <text x="165" y="54" text-anchor="middle" font-size="11" fill="#1565c0">64维</text>
+      <text x="120" y="100" text-anchor="middle" font-size="12" fill="#888">[1, 128] = [64旋转 | 64直通]</text>
+
+      <text x="230" y="76" font-size="22" font-weight="700" fill="#333">x</text>
+
+      <!-- K^T -->
+      <rect x="260" y="50" width="70" height="100" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="295" y="95" text-anchor="middle" font-size="10" font-weight="700" fill="white">RoPE(K_r)^T</text>
+      <rect x="330" y="50" width="70" height="100" rx="4" fill="#ef9a9a" stroke="#c62828" stroke-width="1"/>
+      <text x="365" y="95" text-anchor="middle" font-size="10" font-weight="600" fill="#c62828">K_pass^T</text>
+      <text x="330" y="165" text-anchor="middle" font-size="12" fill="#c62828">[128, L] = [64旋转 | 64直通]^T</text>
+
+      <text x="420" y="76" font-size="22" font-weight="700" fill="#333">=</text>
+
+      <rect x="450" y="60" width="120" height="22" rx="4" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="510" y="54" text-anchor="middle" font-size="14" font-weight="700" fill="#7b1fa2">score</text>
+      <text x="510" y="100" text-anchor="middle" font-size="12" fill="#7b1fa2">[1, L]</text>
+
+      <!-- 说明 -->
+      <rect x="610" y="50" width="270" height="90" rx="8" fill="#e8f5e9" stroke="#2e7d32"/>
+      <text x="745" y="72" text-anchor="middle" font-size="13" font-weight="700" fill="#2e7d32">GLM 特殊点:</text>
+      <text x="630" y="92" font-size="12" fill="#333">1. partial_rotary_factor = 0.5</text>
+      <text x="630" y="110" font-size="12" fill="#333">2. Interleaved 旋转 (非 half-split)</text>
+      <text x="630" y="128" font-size="12" fill="#333">3. KV Cache 仍是 L x 128</text>
+
+      <text x="450" y="195" text-anchor="middle" font-size="13" fill="#2e7d32" font-weight="600">GEMM 形状与 Full RoPE 完全相同 [1,128]x[128,L]，差异在旋转的维度范围</text>
+    </svg>
+  </div>
+
+  <h3>5.3 Decoupled RoPE 模型 (DeepSeek-V3 MLA)</h3>
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 310" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="310" fill="#fafbfc" rx="8"/>
+      <text x="500" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#c62828">Decoupled RoPE (DeepSeek MLA): score = score_nope + score_rope — 两路 GEMM</text>
+
+      <!-- 路径1: nope -->
+      <rect x="20" y="48" width="470" height="120" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="255" y="72" text-anchor="middle" font-size="14" font-weight="700" fill="#2e7d32">路径-1 (吸收): Q'_nope x c_t^T</text>
+
+      <rect x="45" y="90" width="100" height="20" rx="3" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+      <text x="95" y="84" text-anchor="middle" font-size="12" font-weight="700" fill="#2e7d32">Q'_nope [1,512]</text>
+
+      <text x="160" y="104" font-size="18" font-weight="700" fill="#333">x</text>
+
+      <rect x="180" y="80" width="120" height="70" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="240" y="120" text-anchor="middle" font-size="13" font-weight="700" fill="white">c_t^T [512, L]</text>
+
+      <text x="315" y="104" font-size="18" font-weight="700" fill="#333">=</text>
+
+      <rect x="340" y="90" width="120" height="20" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="400" y="84" text-anchor="middle" font-size="12" font-weight="700" fill="#7b1fa2">score_nope [1,L]</text>
+
+      <!-- 路径2: rope -->
+      <rect x="510" y="48" width="470" height="120" rx="10" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+      <text x="745" y="72" text-anchor="middle" font-size="14" font-weight="700" fill="#e65100">路径-2 (标准): RoPE(Q_rope) x RoPE(k_pe)^T</text>
+
+      <rect x="540" y="92" width="60" height="20" rx="3" fill="#ff8a65" stroke="#e65100" stroke-width="2"/>
+      <text x="570" y="86" text-anchor="middle" font-size="11" font-weight="700" fill="#e65100">Q_rope [1,64]</text>
+
+      <text x="615" y="106" font-size="18" font-weight="700" fill="#333">x</text>
+
+      <rect x="635" y="84" width="120" height="45" rx="4" fill="#ff8a65" stroke="#e65100" stroke-width="2"/>
+      <text x="695" y="112" text-anchor="middle" font-size="12" font-weight="700" fill="white">k_rope^T [64, L]</text>
+
+      <text x="770" y="106" font-size="18" font-weight="700" fill="#333">=</text>
+
+      <rect x="798" y="92" width="120" height="20" rx="3" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="858" y="86" text-anchor="middle" font-size="12" font-weight="700" fill="#7b1fa2">score_rope [1,L]</text>
+
+      <!-- 合并 -->
+      <line x1="400" y1="170" x2="460" y2="220" stroke="#2e7d32" stroke-width="2" marker-end="url(#arG)"/>
+      <line x1="858" y1="170" x2="580" y2="220" stroke="#e65100" stroke-width="2" marker-end="url(#arG)"/>
+
+      <rect x="390" y="220" width="260" height="40" rx="8" fill="#6a1b9a" stroke="#4a148c" stroke-width="2"/>
+      <text x="520" y="245" text-anchor="middle" font-size="14" font-weight="700" fill="white">score = score_nope + score_rope</text>
+
+      <!-- KV Cache -->
+      <rect x="690" y="220" width="280" height="65" rx="8" fill="#fce4ec" stroke="#c62828"/>
+      <text x="830" y="242" text-anchor="middle" font-size="13" font-weight="700" fill="#c62828">KV Cache 读取:</text>
+      <text x="830" y="262" text-anchor="middle" font-size="13" fill="#333">c_t[L, 512] + k_rope[L, 64]</text>
+      <text x="830" y="278" text-anchor="middle" font-size="12" fill="#c62828">= L x 576 per head (共享)</text>
+
+      <defs>
+        <marker id="arG" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#6a1b9a"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <div class="callout callout-red">
+    <strong>GEMM 形状核心差异总结:</strong><br>
+    <strong>Qwen/LLaMA/Mistral (Full):</strong> 一个 [1,128] x [128,L] 的标准 GEMM<br>
+    <strong>GLM (Partial):</strong> 同样 [1,128] x [128,L]，但内部前64维旋转+后64维直通<br>
+    <strong>DeepSeek (Decoupled):</strong> 拆成两个 GEMM: [1,512] x [512,L] + [1,64] x [64,L]，计算量更大但 KV Cache 是共享压缩的
+  </div>
+</div>
+
+<!-- ==================== Sec 6: base 频率 ==================== -->
+<div class="card" id="sec6">
+  <h2>六、差异点-3: base 频率 — 决定旋转速度和长上下文能力</h2>
+  <p><code>theta_i = 1 / base^(2i/d)</code>，base 越大，旋转角度越小，能表示的位置范围越大：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 340" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="340" fill="#fafbfc" rx="8"/>
+      <text x="500" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#555">各模型 base 频率对比 (对数刻度)</text>
+
+      <!-- 对数刻度轴 -->
+      <line x1="100" y1="70" x2="100" y2="290" stroke="#ccc" stroke-width="2"/>
+      <line x1="100" y1="290" x2="950" y2="290" stroke="#ccc" stroke-width="2"/>
+
+      <!-- 刻度标签 -->
+      <text x="90" y="295" text-anchor="end" font-size="12" fill="#888">10K</text>
+      <text x="90" y="248" text-anchor="end" font-size="12" fill="#888">100K</text>
+      <text x="90" y="200" text-anchor="end" font-size="12" fill="#888">500K</text>
+      <text x="90" y="150" text-anchor="end" font-size="12" fill="#888">1M</text>
+      <text x="90" y="100" text-anchor="end" font-size="12" fill="#888">10M</text>
+
+      <!-- 水平网格 -->
+      <line x1="100" y1="245" x2="950" y2="245" stroke="#eee" stroke-width="1"/>
+      <line x1="100" y1="200" x2="950" y2="200" stroke="#eee" stroke-width="1"/>
+      <line x1="100" y1="150" x2="950" y2="150" stroke="#eee" stroke-width="1"/>
+      <line x1="100" y1="100" x2="950" y2="100" stroke="#eee" stroke-width="1"/>
+
+      <!-- LLaMA-2: 10K -->
+      <rect x="140" y="270" width="80" height="20" rx="4" fill="#bdbdbd"/>
+      <text x="180" y="285" text-anchor="middle" font-size="11" font-weight="700" fill="white">LLaMA-2</text>
+      <text x="180" y="265" text-anchor="middle" font-size="11" fill="#888">10,000</text>
+
+      <!-- DeepSeek: 10K -->
+      <rect x="260" y="270" width="80" height="20" rx="4" fill="#ef5350"/>
+      <text x="300" y="285" text-anchor="middle" font-size="11" font-weight="700" fill="white">DeepSeek</text>
+      <text x="300" y="265" text-anchor="middle" font-size="11" fill="#c62828">10,000</text>
+
+      <!-- GLM-4: 10K -->
+      <rect x="380" y="270" width="80" height="20" rx="4" fill="#66bb6a"/>
+      <text x="420" y="285" text-anchor="middle" font-size="11" font-weight="700" fill="white">GLM-4</text>
+      <text x="420" y="265" text-anchor="middle" font-size="11" fill="#2e7d32">10,000</text>
+
+      <!-- LLaMA-3: 500K -->
+      <rect x="540" y="180" width="80" height="20" rx="4" fill="#42a5f5"/>
+      <text x="580" y="195" text-anchor="middle" font-size="11" font-weight="700" fill="white">LLaMA-3</text>
+      <text x="580" y="175" text-anchor="middle" font-size="11" fill="#1565c0">500,000</text>
+
+      <!-- Qwen: 1M -->
+      <rect x="680" y="130" width="80" height="20" rx="4" fill="#ab47bc"/>
+      <text x="720" y="145" text-anchor="middle" font-size="11" font-weight="700" fill="white">Qwen2.5/3</text>
+      <text x="720" y="125" text-anchor="middle" font-size="11" fill="#6a1b9a">1,000,000</text>
+
+      <!-- Mistral: 1M -->
+      <rect x="800" y="130" width="80" height="20" rx="4" fill="#ff8a65"/>
+      <text x="840" y="145" text-anchor="middle" font-size="11" font-weight="700" fill="white">Mistral</text>
+      <text x="840" y="125" text-anchor="middle" font-size="11" fill="#e65100">1,000,000</text>
+
+      <!-- 连接线和注释 -->
+      <line x1="180" y1="270" x2="300" y2="270" stroke="#ddd" stroke-width="1" stroke-dasharray="4,3"/>
+      <line x1="300" y1="270" x2="420" y2="270" stroke="#ddd" stroke-width="1" stroke-dasharray="4,3"/>
+
+      <rect x="130" y="305" width="900" height="26" rx="6" fill="#fff3e0" stroke="#e65100"/>
+      <text x="500" y="323" text-anchor="middle" font-size="13" fill="#333">base 越大 -> 每步旋转角度越小 -> 位置区分在更远距离仍有效 -> 天然支持更长上下文</text>
+    </svg>
+  </div>
+
+  <div class="callout callout-blue">
+    <strong>为什么 DeepSeek base 只有 10K 但上下文也能到 128K？</strong>因为 DeepSeek 的 RoPE 只应用在独立的 64 维 k_pe 上（Decoupled），主体 512 维通过压缩潜空间传递位置信息，不依赖 RoPE 做长距离建模。而 Qwen/Mistral 全维度都靠 RoPE 编码位置，所以需要更大的 base 来保证远距离 token 可区分。
+  </div>
+</div>
+
+<!-- ==================== Sec 7: 旋转方式 ==================== -->
+<div class="card" id="sec7">
+  <h2>七、差异点-4: 旋转方式 — Half-split vs Interleaved</h2>
+  <p>RoPE 将 d 维向量配对成 d/2 组 2D 旋转，配对方式有两种：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 310" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="310" fill="#fafbfc" rx="8"/>
+
+      <!-- Half-split -->
+      <rect x="20" y="15" width="470" height="280" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="255" y="42" text-anchor="middle" font-size="15" font-weight="700" fill="#1565c0">Half-split (前后对半配对)</text>
+      <text x="255" y="62" text-anchor="middle" font-size="12" fill="#1565c0">DeepSeek / Qwen / LLaMA / Mistral</text>
+
+      <text x="50" y="90" font-size="13" fill="#333">向量 x = [x₀, x₁, x₂, x₃, x₄, x₅, x₆, x₇]</text>
+      <text x="50" y="115" font-size="13" fill="#333">拆成前半 + 后半:</text>
+
+      <!-- 前半 -->
+      <rect x="50" y="130" width="50" height="28" rx="4" fill="#42a5f5"/>
+      <text x="75" y="149" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₀</text>
+      <rect x="105" y="130" width="50" height="28" rx="4" fill="#42a5f5"/>
+      <text x="130" y="149" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₁</text>
+      <rect x="160" y="130" width="50" height="28" rx="4" fill="#42a5f5"/>
+      <text x="185" y="149" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₂</text>
+      <rect x="215" y="130" width="50" height="28" rx="4" fill="#42a5f5"/>
+      <text x="240" y="149" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₃</text>
+
+      <!-- 后半 -->
+      <rect x="50" y="165" width="50" height="28" rx="4" fill="#ef5350"/>
+      <text x="75" y="184" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₄</text>
+      <rect x="105" y="165" width="50" height="28" rx="4" fill="#ef5350"/>
+      <text x="130" y="184" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₅</text>
+      <rect x="160" y="165" width="50" height="28" rx="4" fill="#ef5350"/>
+      <text x="185" y="184" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₆</text>
+      <rect x="215" y="165" width="50" height="28" rx="4" fill="#ef5350"/>
+      <text x="240" y="184" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₇</text>
+
+      <!-- 配对箭头 -->
+      <text x="300" y="145" font-size="13" fill="#333">配对:</text>
+      <text x="300" y="168" font-size="13" fill="#1565c0" font-weight="600">(x₀,x₄) (x₁,x₅) (x₂,x₆) (x₃,x₇)</text>
+      <text x="300" y="195" font-size="12" fill="#888">前d/2和后d/2 一一对应</text>
+
+      <text x="50" y="230" font-size="13" fill="#333">代码: <tspan font-family="monospace" fill="#1565c0">cat([-x[d/2:], x[:d/2]]) * sin</tspan></text>
+      <text x="50" y="252" font-size="13" fill="#333">       <tspan font-family="monospace" fill="#1565c0">+ x * cos</tspan></text>
+      <text x="50" y="278" font-size="13" fill="#1565c0" font-weight="600">freqs = cat([freqs, freqs], dim=-1)</text>
+
+      <!-- Interleaved -->
+      <rect x="510" y="15" width="470" height="280" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="745" y="42" text-anchor="middle" font-size="15" font-weight="700" fill="#2e7d32">Interleaved (奇偶交错配对)</text>
+      <text x="745" y="62" text-anchor="middle" font-size="12" fill="#2e7d32">GLM-4 / GLM-4.5</text>
+
+      <text x="540" y="90" font-size="13" fill="#333">向量 x = [x₀, x₁, x₂, x₃, x₄, x₅, x₆, x₇]</text>
+      <text x="540" y="115" font-size="13" fill="#333">相邻两个为一组:</text>
+
+      <!-- 奇偶配对 -->
+      <rect x="540" y="130" width="50" height="28" rx="4" fill="#42a5f5"/>
+      <text x="565" y="149" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₀</text>
+      <rect x="590" y="130" width="50" height="28" rx="4" fill="#ef5350"/>
+      <text x="615" y="149" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₁</text>
+
+      <rect x="660" y="130" width="50" height="28" rx="4" fill="#42a5f5"/>
+      <text x="685" y="149" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₂</text>
+      <rect x="710" y="130" width="50" height="28" rx="4" fill="#ef5350"/>
+      <text x="735" y="149" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₃</text>
+
+      <rect x="780" y="130" width="50" height="28" rx="4" fill="#42a5f5"/>
+      <text x="805" y="149" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₄</text>
+      <rect x="830" y="130" width="50" height="28" rx="4" fill="#ef5350"/>
+      <text x="855" y="149" text-anchor="middle" font-size="12" font-weight="700" fill="white">x₅</text>
+
+      <text x="540" y="185" font-size="13" fill="#333">配对:</text>
+      <text x="540" y="208" font-size="13" fill="#2e7d32" font-weight="600">(x₀,x₁) (x₂,x₃) (x₄,x₅) (x₆,x₇)</text>
+      <text x="540" y="232" font-size="12" fill="#888">相邻两个维度直接配对</text>
+
+      <text x="540" y="258" font-size="13" fill="#333">代码: <tspan font-family="monospace" fill="#2e7d32">stack([-x[::2], x[1::2]]) * sin</tspan></text>
+      <text x="540" y="278" font-size="13" fill="#333">freqs = <tspan font-family="monospace" fill="#2e7d32">repeat_interleave(freqs, 2)</tspan></text>
+    </svg>
+  </div>
+
+  <div class="callout callout-green">
+    <strong>数学等价但工程不同：</strong>两种配对方式在数学上是等价的（可以通过维度重排互相转换），最终的 Q*K^T 值相同。但<strong>工程实现不同</strong>：① 权重转换时需要注意维度排列；② 不同 CUDA kernel 可能针对特定排列优化（如 FlashAttention 默认 half-split）；③ 模型权重不能直接在两种格式间混用。
+  </div>
+</div>
+
+<!-- ==================== Sec 8: 长上下文扩展 ==================== -->
+<div class="card" id="sec8">
+  <h2>八、差异点-5: 长上下文扩展方案 — NTK / YaRN / ABF</h2>
+
+  <h3>8.1 三大扩展方案原理对比</h3>
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1050 440" xmlns="http://www.w3.org/2000/svg" style="max-width:1030px;">
+      <rect x="0" y="0" width="1050" height="440" fill="#fafbfc" rx="8"/>
+      <text x="525" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#555">长上下文 RoPE 扩展方案对比</text>
+
+      <!-- ABF -->
+      <rect x="20" y="48" width="310" height="370" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="175" y="76" text-anchor="middle" font-size="15" font-weight="700" fill="#1565c0">ABF (Adjusted Base Frequency)</text>
+      <text x="175" y="96" text-anchor="middle" font-size="12" fill="#1565c0">LLaMA-3 / Mistral 主要方案</text>
+
+      <text x="40" y="125" font-size="13" fill="#333">核心思路: 直接增大 base</text>
+      <text x="40" y="148" font-size="13" fill="#333">原始: theta = 1/10000^(2i/d)</text>
+      <text x="40" y="171" font-size="14" fill="#1565c0" font-weight="700">新: theta = 1/500000^(2i/d)</text>
+      <text x="40" y="198" font-size="13" fill="#333">效果: 所有维度旋转角度</text>
+      <text x="40" y="218" font-size="13" fill="#333">等比例缩小</text>
+
+      <rect x="40" y="235" width="270" height="60" rx="6" fill="white" stroke="#1565c0"/>
+      <text x="175" y="255" text-anchor="middle" font-size="12" fill="#2e7d32">优点: 简单，无需修改算子</text>
+      <text x="175" y="275" text-anchor="middle" font-size="12" fill="#2e7d32">预训练时确定，无需微调</text>
+
+      <rect x="40" y="305" width="270" height="40" rx="6" fill="white" stroke="#c62828"/>
+      <text x="175" y="325" text-anchor="middle" font-size="12" fill="#c62828">缺点: 高频信息丢失</text>
+      <text x="175" y="340" text-anchor="middle" font-size="12" fill="#c62828">局部位置分辨率下降</text>
+
+      <text x="175" y="385" text-anchor="middle" font-size="13" font-weight="600" fill="#1565c0">扩展能力: 2-8x</text>
+      <text x="175" y="405" text-anchor="middle" font-size="12" fill="#888">LLaMA-3: 500K (50x base)</text>
+
+      <!-- NTK-aware -->
+      <rect x="360" y="48" width="310" height="370" rx="10" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+      <text x="515" y="76" text-anchor="middle" font-size="15" font-weight="700" fill="#e65100">NTK-aware Interpolation</text>
+      <text x="515" y="96" text-anchor="middle" font-size="12" fill="#e65100">中间方案，各模型可选</text>
+
+      <text x="380" y="125" font-size="13" fill="#333">核心思路: 按维度差异化缩放</text>
+      <text x="380" y="148" font-size="13" fill="#333">高频维度(小i): 少缩放</text>
+      <text x="380" y="171" font-size="13" fill="#333">低频维度(大i): 多缩放</text>
+      <text x="380" y="194" font-size="14" fill="#e65100" font-weight="700">base' = base * alpha^(d/(d-2))</text>
+      <text x="380" y="218" font-size="13" fill="#333">alpha = 目标长度/训练长度</text>
+
+      <rect x="380" y="235" width="270" height="60" rx="6" fill="white" stroke="#e65100"/>
+      <text x="515" y="255" text-anchor="middle" font-size="12" fill="#2e7d32">优点: 保留高频局部信息</text>
+      <text x="515" y="275" text-anchor="middle" font-size="12" fill="#2e7d32">低频维度获得更大位置范围</text>
+
+      <rect x="380" y="305" width="270" height="40" rx="6" fill="white" stroke="#c62828"/>
+      <text x="515" y="325" text-anchor="middle" font-size="12" fill="#c62828">缺点: 需要确定最优 alpha</text>
+      <text x="515" y="340" text-anchor="middle" font-size="12" fill="#c62828">推理时计算开销略大</text>
+
+      <text x="515" y="385" text-anchor="middle" font-size="13" font-weight="600" fill="#e65100">扩展能力: 4-16x</text>
+
+      <!-- YaRN -->
+      <rect x="700" y="48" width="330" height="370" rx="10" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="2"/>
+      <text x="865" y="76" text-anchor="middle" font-size="15" font-weight="700" fill="#6a1b9a">YaRN (Yet Another RoPE eXtensioN)</text>
+      <text x="865" y="96" text-anchor="middle" font-size="12" fill="#6a1b9a">DeepSeek / Qwen / GLM 主要方案</text>
+
+      <text x="720" y="125" font-size="13" fill="#333">核心思路: NTK + 温度因子</text>
+      <text x="720" y="148" font-size="13" fill="#333">= NTK-by-parts 差异化缩放</text>
+      <text x="720" y="171" font-size="14" fill="#6a1b9a" font-weight="700">+ sqrt(1/t) 注意力温度调节</text>
+      <text x="720" y="198" font-size="13" fill="#333">将维度分为三段:</text>
+      <text x="720" y="218" font-size="12" fill="#333">高频(不缩) | 中间(插值) | 低频(外推)</text>
+
+      <rect x="720" y="235" width="290" height="60" rx="6" fill="white" stroke="#6a1b9a"/>
+      <text x="865" y="255" text-anchor="middle" font-size="12" fill="#2e7d32">优点: 最优质量-效率平衡</text>
+      <text x="865" y="275" text-anchor="middle" font-size="12" fill="#2e7d32">少量微调即可大幅扩展</text>
+
+      <rect x="720" y="305" width="290" height="40" rx="6" fill="white" stroke="#c62828"/>
+      <text x="865" y="325" text-anchor="middle" font-size="12" fill="#c62828">缺点: 实现较复杂</text>
+      <text x="865" y="340" text-anchor="middle" font-size="12" fill="#c62828">需要微调训练</text>
+
+      <text x="865" y="385" text-anchor="middle" font-size="13" font-weight="600" fill="#6a1b9a">扩展能力: 16-64x</text>
+      <text x="865" y="405" text-anchor="middle" font-size="12" fill="#888">目前主流首选方案</text>
+    </svg>
+  </div>
+
+  <h3>8.2 各模型实际采用的扩展策略</h3>
+  <table class="compare-table">
+    <thead>
+      <tr>
+        <th>模型</th>
+        <th>预训练 base</th>
+        <th>扩展方案</th>
+        <th>训练长度</th>
+        <th>扩展后长度</th>
+        <th>核心配置</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>DeepSeek-V3</td>
+        <td>10,000</td>
+        <td>YaRN</td>
+        <td>4K -> 128K (多阶段)</td>
+        <td>128K+</td>
+        <td>仅对 64 维 RoPE 通道做 YaRN</td>
+      </tr>
+      <tr>
+        <td>GLM-4</td>
+        <td>10,000</td>
+        <td>YaRN</td>
+        <td>8K -> 128K</td>
+        <td>128K (推荐 >8K 时启用)</td>
+        <td>factor=4.0, 仅对 64 维 RoPE 部分</td>
+      </tr>
+      <tr>
+        <td>Qwen2.5 / Qwen3</td>
+        <td>1,000,000</td>
+        <td>YaRN + DCA</td>
+        <td>32K</td>
+        <td>128K+</td>
+        <td>ABF base=1M + YaRN 4x + Dual Chunk Attention</td>
+      </tr>
+      <tr>
+        <td>LLaMA-3.1</td>
+        <td>500,000</td>
+        <td>ABF + NTK</td>
+        <td>8K -> 128K</td>
+        <td>128K</td>
+        <td>ABF base=500K, 渐进式训练</td>
+      </tr>
+      <tr>
+        <td>Mistral</td>
+        <td>1,000,000</td>
+        <td>ABF</td>
+        <td>32K</td>
+        <td>128K</td>
+        <td>全局层 base=1M, 滑动窗口层 base=10K</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ==================== Sec 9: 一图总结 ==================== -->
+<div class="card" id="sec9">
+  <h2>九、一图总结: 各模型 RoPE 差异全景</h2>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1050 560" xmlns="http://www.w3.org/2000/svg" style="max-width:1030px;">
+      <rect x="0" y="0" width="1050" height="560" fill="#fafbfc" rx="8"/>
+      <text x="525" y="28" text-anchor="middle" font-size="17" font-weight="700" fill="#333">各模型 RoPE 差异全景对比</text>
+
+      <!-- 表头 -->
+      <rect x="20" y="45" width="140" height="35" rx="4" fill="#37474f"/>
+      <text x="90" y="68" text-anchor="middle" font-size="13" font-weight="700" fill="white">对比维度</text>
+
+      <rect x="168" y="45" width="150" height="35" rx="4" fill="#c62828"/>
+      <text x="243" y="68" text-anchor="middle" font-size="12" font-weight="700" fill="white">DeepSeek-V3</text>
+
+      <rect x="326" y="45" width="150" height="35" rx="4" fill="#2e7d32"/>
+      <text x="401" y="68" text-anchor="middle" font-size="12" font-weight="700" fill="white">GLM-4/4.5</text>
+
+      <rect x="484" y="45" width="150" height="35" rx="4" fill="#6a1b9a"/>
+      <text x="559" y="68" text-anchor="middle" font-size="12" font-weight="700" fill="white">Qwen2.5/3</text>
+
+      <rect x="642" y="45" width="150" height="35" rx="4" fill="#1565c0"/>
+      <text x="717" y="68" text-anchor="middle" font-size="12" font-weight="700" fill="white">LLaMA-3</text>
+
+      <rect x="800" y="45" width="150" height="35" rx="4" fill="#e65100"/>
+      <text x="875" y="68" text-anchor="middle" font-size="12" font-weight="700" fill="white">Mistral</text>
+
+      <!-- Row 1: 注意力 -->
+      <rect x="20" y="88" width="140" height="30" rx="2" fill="#eceff1"/>
+      <text x="90" y="108" text-anchor="middle" font-size="12" font-weight="600" fill="#333">注意力类型</text>
+      <text x="243" y="108" text-anchor="middle" font-size="12" fill="#c62828" font-weight="700">MLA (128头)</text>
+      <text x="401" y="108" text-anchor="middle" font-size="12" fill="#333">GQA</text>
+      <text x="559" y="108" text-anchor="middle" font-size="12" fill="#333">GQA</text>
+      <text x="717" y="108" text-anchor="middle" font-size="12" fill="#333">GQA</text>
+      <text x="875" y="108" text-anchor="middle" font-size="12" fill="#333">GQA + Sliding</text>
+
+      <!-- Row 2: RoPE维度 -->
+      <rect x="20" y="125" width="140" height="30" rx="2" fill="#fff"/>
+      <text x="90" y="145" text-anchor="middle" font-size="12" font-weight="600" fill="#333">RoPE 维度</text>
+      <text x="243" y="145" text-anchor="middle" font-size="12" fill="#c62828" font-weight="700">64 (解耦独立)</text>
+      <text x="401" y="145" text-anchor="middle" font-size="12" fill="#2e7d32" font-weight="700">64 (半维度)</text>
+      <text x="559" y="145" text-anchor="middle" font-size="12" fill="#333">128 (全部)</text>
+      <text x="717" y="145" text-anchor="middle" font-size="12" fill="#333">128 (全部)</text>
+      <text x="875" y="145" text-anchor="middle" font-size="12" fill="#333">128 (全部)</text>
+
+      <!-- Row 3: 应用方式 -->
+      <rect x="20" y="162" width="140" height="30" rx="2" fill="#eceff1"/>
+      <text x="90" y="182" text-anchor="middle" font-size="12" font-weight="600" fill="#333">应用方式</text>
+      <text x="243" y="182" text-anchor="middle" font-size="12" fill="#c62828" font-weight="700">Decoupled</text>
+      <text x="401" y="182" text-anchor="middle" font-size="12" fill="#2e7d32" font-weight="700">Partial (0.5)</text>
+      <text x="559" y="182" text-anchor="middle" font-size="12" fill="#6a1b9a" font-weight="700">Full</text>
+      <text x="717" y="182" text-anchor="middle" font-size="12" fill="#1565c0" font-weight="700">Full</text>
+      <text x="875" y="182" text-anchor="middle" font-size="12" fill="#e65100" font-weight="700">Full</text>
+
+      <!-- Row 4: base -->
+      <rect x="20" y="199" width="140" height="30" rx="2" fill="#fff"/>
+      <text x="90" y="219" text-anchor="middle" font-size="12" font-weight="600" fill="#333">base (theta)</text>
+      <text x="243" y="219" text-anchor="middle" font-size="12" fill="#333">10,000</text>
+      <text x="401" y="219" text-anchor="middle" font-size="12" fill="#333">10,000</text>
+      <text x="559" y="219" text-anchor="middle" font-size="12" fill="#6a1b9a" font-weight="700">1,000,000</text>
+      <text x="717" y="219" text-anchor="middle" font-size="12" fill="#1565c0" font-weight="700">500,000</text>
+      <text x="875" y="219" text-anchor="middle" font-size="12" fill="#e65100" font-weight="700">1,000,000</text>
+
+      <!-- Row 5: 旋转方式 -->
+      <rect x="20" y="236" width="140" height="30" rx="2" fill="#eceff1"/>
+      <text x="90" y="256" text-anchor="middle" font-size="12" font-weight="600" fill="#333">旋转配对</text>
+      <text x="243" y="256" text-anchor="middle" font-size="12" fill="#333">Half-split</text>
+      <text x="401" y="256" text-anchor="middle" font-size="12" fill="#2e7d32" font-weight="700">Interleaved</text>
+      <text x="559" y="256" text-anchor="middle" font-size="12" fill="#333">Half-split</text>
+      <text x="717" y="256" text-anchor="middle" font-size="12" fill="#333">Half-split</text>
+      <text x="875" y="256" text-anchor="middle" font-size="12" fill="#333">Half-split</text>
+
+      <!-- Row 6: 扩展策略 -->
+      <rect x="20" y="273" width="140" height="30" rx="2" fill="#fff"/>
+      <text x="90" y="293" text-anchor="middle" font-size="12" font-weight="600" fill="#333">扩展策略</text>
+      <text x="243" y="293" text-anchor="middle" font-size="12" fill="#333">YaRN</text>
+      <text x="401" y="293" text-anchor="middle" font-size="12" fill="#333">YaRN</text>
+      <text x="559" y="293" text-anchor="middle" font-size="12" fill="#333">YaRN + DCA</text>
+      <text x="717" y="293" text-anchor="middle" font-size="12" fill="#333">ABF + NTK</text>
+      <text x="875" y="293" text-anchor="middle" font-size="12" fill="#333">ABF</text>
+
+      <!-- Row 7: Score GEMM -->
+      <rect x="20" y="310" width="140" height="45" rx="2" fill="#eceff1"/>
+      <text x="90" y="332" text-anchor="middle" font-size="12" font-weight="600" fill="#333">Score GEMM</text>
+      <text x="90" y="348" text-anchor="middle" font-size="11" fill="#888">(decode 1 token)</text>
+      <text x="243" y="332" text-anchor="middle" font-size="10" fill="#c62828" font-weight="700">[1,512]x[512,L]</text>
+      <text x="243" y="348" text-anchor="middle" font-size="10" fill="#c62828">+[1,64]x[64,L]</text>
+      <text x="401" y="338" text-anchor="middle" font-size="11" fill="#333">[1,128]x[128,L]</text>
+      <text x="559" y="338" text-anchor="middle" font-size="11" fill="#333">[1,128]x[128,L]</text>
+      <text x="717" y="338" text-anchor="middle" font-size="11" fill="#333">[1,128]x[128,L]</text>
+      <text x="875" y="338" text-anchor="middle" font-size="11" fill="#333">[1,128]x[128,L]</text>
+
+      <!-- Row 8: KV Cache -->
+      <rect x="20" y="362" width="140" height="35" rx="2" fill="#fff"/>
+      <text x="90" y="384" text-anchor="middle" font-size="12" font-weight="600" fill="#333">KV Cache/token</text>
+      <text x="243" y="384" text-anchor="middle" font-size="12" fill="#c62828" font-weight="700">576 (共享)</text>
+      <text x="401" y="384" text-anchor="middle" font-size="12" fill="#333">256 x n_kv</text>
+      <text x="559" y="384" text-anchor="middle" font-size="12" fill="#333">256 x n_kv</text>
+      <text x="717" y="384" text-anchor="middle" font-size="12" fill="#333">256 x n_kv</text>
+      <text x="875" y="384" text-anchor="middle" font-size="12" fill="#333">256 x n_kv</text>
+
+      <!-- 高亮差异线 -->
+      <rect x="165" y="122" width="155" height="40" rx="0" fill="none" stroke="#c62828" stroke-width="2" stroke-dasharray="5,3"/>
+      <rect x="323" y="122" width="155" height="40" rx="0" fill="none" stroke="#2e7d32" stroke-width="2" stroke-dasharray="5,3"/>
+      <rect x="323" y="233" width="155" height="40" rx="0" fill="none" stroke="#2e7d32" stroke-width="2" stroke-dasharray="5,3"/>
+
+      <!-- 底部总结 -->
+      <rect x="50" y="420" width="950" height="120" rx="10" fill="white" stroke="#1565c0" stroke-width="2"/>
+      <text x="525" y="448" text-anchor="middle" font-size="15" font-weight="700" fill="#1565c0">核心差异总结</text>
+      <text x="70" y="475" font-size="13" fill="#333"><tspan fill="#c62828" font-weight="700">DeepSeek</tspan> 独特: Decoupled RoPE + MLA 矩阵吸收，RoPE 仅 64 维独立通道，主体在 512 维潜空间计算，KV Cache 压缩 ~57x</text>
+      <text x="70" y="498" font-size="13" fill="#333"><tspan fill="#2e7d32" font-weight="700">GLM</tspan> 独特: Partial RoPE (factor=0.5) + Interleaved 旋转，一半维度不旋转保留语义特征，是唯一用交错配对的主流模型</text>
+      <text x="70" y="521" font-size="13" fill="#333"><tspan fill="#6a1b9a" font-weight="700">Qwen/LLaMA/Mistral</tspan>: Full RoPE 最标准，核心差异在 base 频率 (10K vs 500K vs 1M) 和扩展策略 (ABF vs YaRN)</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ==================== Sec 10: 推理工程视角 ==================== -->
+<div class="card" id="sec10">
+  <h2>十、推理工程视角: RoPE 差异对 KV Cache 和算子设计的影响</h2>
+
+  <h3>10.1 KV Cache 存储差异</h3>
+  <div class="svg-wrap">
+    <svg viewBox="0 0 1000 210" xmlns="http://www.w3.org/2000/svg" style="max-width:980px;">
+      <rect x="0" y="0" width="1000" height="210" fill="#fafbfc" rx="8"/>
+      <text x="500" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#555">各模型 KV Cache 存储结构 (per token per layer)</text>
+
+      <!-- Full RoPE (Qwen/LLaMA/Mistral) -->
+      <rect x="30" y="50" width="280" height="140" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="170" y="75" text-anchor="middle" font-size="14" font-weight="700" fill="#1565c0">Full RoPE (Qwen/LLaMA)</text>
+
+      <rect x="50" y="90" width="240" height="26" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="170" y="108" text-anchor="middle" font-size="12" font-weight="700" fill="white">K [128 维] — 全部 RoPE 后存储</text>
+
+      <rect x="50" y="122" width="240" height="26" rx="4" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="170" y="140" text-anchor="middle" font-size="12" font-weight="700" fill="white">V [128 维] — 原始存储</text>
+
+      <text x="170" y="175" text-anchor="middle" font-size="13" fill="#1565c0" font-weight="600">per head: 256 维</text>
+
+      <!-- Partial (GLM) -->
+      <rect x="350" y="50" width="280" height="140" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="490" y="75" text-anchor="middle" font-size="14" font-weight="700" fill="#2e7d32">Partial RoPE (GLM-4)</text>
+
+      <rect x="370" y="90" width="120" height="26" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="430" y="108" text-anchor="middle" font-size="11" font-weight="700" fill="white">K_rope [64]</text>
+      <rect x="490" y="90" width="120" height="26" rx="4" fill="#ef9a9a" stroke="#c62828" stroke-width="1"/>
+      <text x="550" y="108" text-anchor="middle" font-size="11" font-weight="600" fill="#c62828">K_pass [64]</text>
+
+      <rect x="370" y="122" width="240" height="26" rx="4" fill="#ab47bc" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="490" y="140" text-anchor="middle" font-size="12" font-weight="700" fill="white">V [128 维]</text>
+
+      <text x="490" y="175" text-anchor="middle" font-size="13" fill="#2e7d32" font-weight="600">per head: 256 维 (同 Full)</text>
+
+      <!-- Decoupled (DeepSeek) -->
+      <rect x="670" y="50" width="310" height="140" rx="8" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+      <text x="825" y="75" text-anchor="middle" font-size="14" font-weight="700" fill="#c62828">Decoupled (DeepSeek MLA)</text>
+
+      <rect x="690" y="90" width="200" height="26" rx="4" fill="#ef5350" stroke="#c62828" stroke-width="2"/>
+      <text x="790" y="108" text-anchor="middle" font-size="12" font-weight="700" fill="white">c_t [512 维] — 压缩潜向量 (K+V 共享)</text>
+
+      <rect x="690" y="122" width="100" height="26" rx="4" fill="#ff8a65" stroke="#e65100" stroke-width="2"/>
+      <text x="740" y="140" text-anchor="middle" font-size="11" font-weight="700" fill="white">k_rope [64]</text>
+
+      <text x="825" y="175" text-anchor="middle" font-size="13" fill="#c62828" font-weight="600">所有头共享: 576 维 (vs 128头x256=32768)</text>
+    </svg>
+  </div>
+
+  <h3>10.2 推理算子实现差异</h3>
+  <table class="compare-table">
+    <thead>
+      <tr>
+        <th>工程要素</th>
+        <th>Full RoPE (Qwen/LLaMA)</th>
+        <th>Partial RoPE (GLM)</th>
+        <th>Decoupled RoPE (DeepSeek)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>RoPE 计算时机</td>
+        <td>Q, K 投影后立即旋转</td>
+        <td>只旋转前半维度，后半直通</td>
+        <td>只旋转独立的 q_pe/k_pe 通道</td>
+      </tr>
+      <tr>
+        <td>KV Cache 存储</td>
+        <td>RoPE 后的 K 和原始 V</td>
+        <td>RoPE 后的 K 和原始 V</td>
+        <td>压缩 c_t + RoPE 后的 k_rope</td>
+      </tr>
+      <tr>
+        <td>Attention Kernel</td>
+        <td>标准 FlashAttention</td>
+        <td>标准 FlashAttention</td>
+        <td>FlashMLA (定制 kernel)</td>
+      </tr>
+      <tr>
+        <td>矩阵吸收</td>
+        <td>不需要</td>
+        <td>不需要</td>
+        <td>必须 (W_UK 吸收到 Q 侧)</td>
+      </tr>
+      <tr>
+        <td>KV Cache 压缩比</td>
+        <td>1x (无压缩)</td>
+        <td>1x (无压缩)</td>
+        <td>~57x (极致压缩)</td>
+      </tr>
+      <tr>
+        <td>权重转换注意</td>
+        <td>Half-split 维度排列</td>
+        <td>Interleaved 维度排列</td>
+        <td>需要额外吸收权重矩阵</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-purple">
+    <strong>给推理引擎开发者的建议：</strong> ① 实现 Qwen/LLaMA/Mistral 时可以复用同一套 Full RoPE + GQA kernel；② 实现 GLM 时需注意 interleaved 旋转和 partial factor，权重加载时维度排列不同；③ 实现 DeepSeek MLA 时需要专门的 FlashMLA kernel，支持矩阵吸收路径和两路 score 合并，且 FlashMLA 对 head 数有 64/128 对齐要求。
+  </div>
+</div>
+
+<!-- ==================== Footer ==================== -->
+<div class="card" style="text-align:center; background:linear-gradient(135deg,#e3f2fd,#f3e5f5);">
+  <p style="font-size:0.88em; color:#888;">
+    参考来源：DeepSeek-V3 Technical Report (arXiv:2412.19437) |
+    GLM-4 HuggingFace Documentation |
+    Qwen3 Technical Report (arXiv:2505.09388) |
+    LLaMA-3 Paper |
+    YaRN (arXiv:2309.00071) |
+    EleutherAI RoPE Blog
+  </p>
+</div>
+
+</div>
+</body>
+</html>

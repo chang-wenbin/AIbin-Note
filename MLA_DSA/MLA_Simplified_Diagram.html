@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLA 架构简化图 — 关键参数 & Tensor 流</title>
+<style>
+  body {
+    font-family: -apple-system, "Noto Sans SC", sans-serif;
+    background: #f5f5f5;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  h2 { color: #1a237e; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 14px; margin-bottom: 20px; }
+  .legend {
+    display: flex; gap: 20px; margin-bottom: 16px; font-size: 13px;
+    flex-wrap: wrap; justify-content: center;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot {
+    width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<h2>MLA (Multi-head Latent Attention) 简化数据流图</h2>
+<div class="subtitle">Non-Absorbed 路径 · 以 DeepSeek-V3 参数为例 (h=128, d_c=512, d_rope=64, d_head=128)</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#4CAF50;"></div>Tensor (shape)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#FF9800;"></div>Linear 投影</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#2196F3;"></div>操作节点</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#E91E63;"></div>KV Cache 存储</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#9C27B0;"></div>Attention 计算</div>
+</div>
+
+<svg viewBox="0 0 1100 980" xmlns="http://www.w3.org/2000/svg" style="max-width:1050px; background:white; border-radius:12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1);">
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="ar-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#E91E63"/>
+    </marker>
+    <filter id="shadow">
+      <feDropShadow dx="1" dy="1" stdDeviation="2" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- ========== 输入 Hidden ========== -->
+  <rect x="400" y="920" width="300" height="42" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="550" y="938" text-anchor="middle" font-size="14" font-weight="700" fill="white">hidden</text>
+  <text x="550" y="955" text-anchor="middle" font-size="11" fill="#E8F5E9">[bs, seq, 7168]</text>
+
+  <!-- ========== Q 分支 (左侧) ========== -->
+
+  <!-- Q 下采样 Linear -->
+  <line x1="460" y1="920" x2="250" y2="870" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="130" y="830" width="240" height="40" rx="8" fill="#FF9800" filter="url(#shadow)"/>
+  <text x="250" y="848" text-anchor="middle" font-size="12" font-weight="700" fill="white">Q 下投影 (Down Proj)</text>
+  <text x="250" y="863" text-anchor="middle" font-size="10" fill="#FFF3E0">W: [7168, 1536]</text>
+
+  <!-- compress_q -->
+  <line x1="250" y1="830" x2="250" y2="800" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="155" y="762" width="190" height="38" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="250" y="778" text-anchor="middle" font-size="12" font-weight="600" fill="white">compress_q</text>
+  <text x="250" y="793" text-anchor="middle" font-size="10" fill="#E8F5E9">[bs, seq, 1536]</text>
+
+  <!-- RMS Norm + Q 上采样 -->
+  <line x1="250" y1="762" x2="250" y2="732" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="90" y="692" width="320" height="40" rx="8" fill="#FF9800" filter="url(#shadow)"/>
+  <text x="250" y="710" text-anchor="middle" font-size="12" font-weight="700" fill="white">RMSNorm → Q 上投影 (Up Proj)</text>
+  <text x="250" y="725" text-anchor="middle" font-size="10" fill="#FFF3E0">W: [1536, 128×(128+64)] = [1536, 24576]</text>
+
+  <!-- View & Split -->
+  <line x1="250" y1="692" x2="250" y2="662" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="160" y="630" width="180" height="32" rx="6" fill="#2196F3" filter="url(#shadow)"/>
+  <text x="250" y="651" text-anchor="middle" font-size="12" font-weight="600" fill="white">View & Split</text>
+
+  <!-- q_nope -->
+  <line x1="200" y1="630" x2="120" y2="590" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="30" y="555" width="180" height="38" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="120" y="571" text-anchor="middle" font-size="12" font-weight="600" fill="white">q_nope</text>
+  <text x="120" y="586" text-anchor="middle" font-size="10" fill="#E8F5E9">[bs, 128, seq, 128]</text>
+
+  <!-- q_pe -->
+  <line x1="300" y1="630" x2="360" y2="590" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="280" y="555" width="170" height="38" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="365" y="571" text-anchor="middle" font-size="12" font-weight="600" fill="white">q_pe</text>
+  <text x="365" y="586" text-anchor="middle" font-size="10" fill="#E8F5E9">[bs, 128, seq, 64]</text>
+
+  <!-- RoPE on q_pe -->
+  <rect x="310" y="520" width="110" height="26" rx="5" fill="#2196F3"/>
+  <text x="365" y="538" text-anchor="middle" font-size="11" font-weight="600" fill="white">+ RoPE</text>
+  <line x1="365" y1="555" x2="365" y2="546" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- Q Concat -->
+  <line x1="120" y1="555" x2="200" y2="485" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="365" y1="520" x2="280" y2="485" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="155" y="455" width="190" height="32" rx="6" fill="#2196F3" filter="url(#shadow)"/>
+  <text x="250" y="476" text-anchor="middle" font-size="12" font-weight="600" fill="white">Concat (dim=-1)</text>
+
+  <!-- Q final -->
+  <line x1="250" y1="455" x2="250" y2="420" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="140" y="382" width="220" height="38" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="250" y="398" text-anchor="middle" font-size="13" font-weight="700" fill="white">Q</text>
+  <text x="250" y="413" text-anchor="middle" font-size="11" fill="#E8F5E9">[bs, 128, seq, 192]</text>
+
+  <!-- ========== KV 分支 (右侧) ========== -->
+
+  <!-- KV 下采样 Linear -->
+  <line x1="640" y1="920" x2="830" y2="870" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="700" y="830" width="260" height="40" rx="8" fill="#FF9800" filter="url(#shadow)"/>
+  <text x="830" y="848" text-anchor="middle" font-size="12" font-weight="700" fill="white">KV 下投影 (Down Proj)</text>
+  <text x="830" y="863" text-anchor="middle" font-size="10" fill="#FFF3E0">W: [7168, 512+64] = [7168, 576]</text>
+
+  <!-- Split -->
+  <line x1="830" y1="830" x2="830" y2="800" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="750" y="768" width="160" height="32" rx="6" fill="#2196F3" filter="url(#shadow)"/>
+  <text x="830" y="789" text-anchor="middle" font-size="12" font-weight="600" fill="white">Split</text>
+
+  <!-- compress_kv (KV Cache!) -->
+  <line x1="790" y1="768" x2="740" y2="730" stroke="#E91E63" stroke-width="2" marker-end="url(#ar-red)"/>
+  <rect x="630" y="692" width="220" height="40" rx="8" fill="#E91E63" filter="url(#shadow)"/>
+  <text x="740" y="709" text-anchor="middle" font-size="12" font-weight="700" fill="white">compress_kv (KV Cache)</text>
+  <text x="740" y="724" text-anchor="middle" font-size="10" fill="#FCE4EC">[bs, seq, 512]  ← 仅缓存此!</text>
+
+  <!-- k_rope (KV Cache!) -->
+  <line x1="870" y1="768" x2="950" y2="730" stroke="#E91E63" stroke-width="2" marker-end="url(#ar-red)"/>
+  <rect x="870" y="692" width="190" height="40" rx="8" fill="#E91E63" filter="url(#shadow)"/>
+  <text x="965" y="709" text-anchor="middle" font-size="12" font-weight="700" fill="white">k_rope (KV Cache)</text>
+  <text x="965" y="724" text-anchor="middle" font-size="10" fill="#FCE4EC">[bs, 1, seq, 64]</text>
+
+  <!-- RoPE on k_rope -->
+  <rect x="910" y="660" width="110" height="26" rx="5" fill="#2196F3"/>
+  <text x="965" y="678" text-anchor="middle" font-size="11" font-weight="600" fill="white">+ RoPE</text>
+  <line x1="965" y1="692" x2="965" y2="686" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- KV 上采样 -->
+  <line x1="740" y1="692" x2="740" y2="655" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="590" y="615" width="300" height="40" rx="8" fill="#FF9800" filter="url(#shadow)"/>
+  <text x="740" y="633" text-anchor="middle" font-size="12" font-weight="700" fill="white">RMSNorm → KV 上投影 (Up Proj)</text>
+  <text x="740" y="648" text-anchor="middle" font-size="10" fill="#FFF3E0">W: [512, 128×(128+128)] = [512, 32768]</text>
+
+  <!-- View & Split KV -->
+  <line x1="740" y1="615" x2="740" y2="585" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="650" y="555" width="180" height="32" rx="6" fill="#2196F3" filter="url(#shadow)"/>
+  <text x="740" y="576" text-anchor="middle" font-size="12" font-weight="600" fill="white">View & Split</text>
+
+  <!-- k_c -->
+  <line x1="700" y1="555" x2="660" y2="520" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="570" y="485" width="180" height="38" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="660" y="501" text-anchor="middle" font-size="12" font-weight="600" fill="white">k_nope</text>
+  <text x="660" y="516" text-anchor="middle" font-size="10" fill="#E8F5E9">[bs, 128, seq, 128]</text>
+
+  <!-- v_c -->
+  <line x1="780" y1="555" x2="880" y2="520" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="790" y="485" width="180" height="38" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="880" y="501" text-anchor="middle" font-size="12" font-weight="600" fill="white">v</text>
+  <text x="880" y="516" text-anchor="middle" font-size="10" fill="#E8F5E9">[bs, 128, seq, 128]</text>
+
+  <!-- k_pe broadcast -->
+  <line x1="965" y1="660" x2="840" y2="460" stroke="#555" stroke-width="1.2" stroke-dasharray="5,3"/>
+  <text x="920" y="560" font-size="10" fill="#E91E63" font-weight="600" transform="rotate(-55,920,560)">broadcast 1→128</text>
+
+  <!-- K Concat -->
+  <line x1="660" y1="485" x2="720" y2="440" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="670" y="410" width="190" height="32" rx="6" fill="#2196F3" filter="url(#shadow)"/>
+  <text x="765" y="431" text-anchor="middle" font-size="12" font-weight="600" fill="white">Concat (k_nope, k_pe)</text>
+
+  <!-- K final -->
+  <line x1="765" y1="410" x2="765" y2="378" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="670" y="340" width="190" height="38" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="765" y="356" text-anchor="middle" font-size="13" font-weight="700" fill="white">K</text>
+  <text x="765" y="371" text-anchor="middle" font-size="11" fill="#E8F5E9">[bs, 128, seq, 192]</text>
+
+  <!-- V final -->
+  <line x1="880" y1="485" x2="940" y2="378" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="860" y="340" width="160" height="38" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="940" y="356" text-anchor="middle" font-size="13" font-weight="700" fill="white">V</text>
+  <text x="940" y="371" text-anchor="middle" font-size="11" fill="#E8F5E9">[bs, 128, seq, 128]</text>
+
+  <!-- ========== Attention ========== -->
+  <line x1="250" y1="382" x2="450" y2="290" stroke="#555" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="765" y1="340" x2="600" y2="290" stroke="#555" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="940" y1="340" x2="680" y2="290" stroke="#555" stroke-width="2" marker-end="url(#ar)"/>
+
+  <text x="340" y="330" font-size="13" font-weight="700" fill="#9C27B0">Q</text>
+  <text x="690" y="310" font-size="13" font-weight="700" fill="#9C27B0">K</text>
+  <text x="800" y="310" font-size="13" font-weight="700" fill="#9C27B0">V</text>
+
+  <rect x="380" y="252" width="340" height="42" rx="10" fill="#9C27B0" filter="url(#shadow)"/>
+  <text x="550" y="272" text-anchor="middle" font-size="15" font-weight="700" fill="white">Attention (MHA)</text>
+  <text x="550" y="289" text-anchor="middle" font-size="11" fill="#E1BEE7">QK^T/√d → Softmax → ×V</text>
+
+  <!-- O -->
+  <line x1="550" y1="252" x2="550" y2="220" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="440" y="182" width="220" height="38" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="550" y="198" text-anchor="middle" font-size="13" font-weight="700" fill="white">O (Attention Output)</text>
+  <text x="550" y="213" text-anchor="middle" font-size="11" fill="#E8F5E9">[bs, 128, seq, 128]</text>
+
+  <!-- O Project -->
+  <line x1="550" y1="182" x2="550" y2="150" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="400" y="112" width="300" height="40" rx="8" fill="#FF9800" filter="url(#shadow)"/>
+  <text x="550" y="130" text-anchor="middle" font-size="12" font-weight="700" fill="white">O 投影 (Output Proj)</text>
+  <text x="550" y="145" text-anchor="middle" font-size="10" fill="#FFF3E0">W: [128×128, 7168] = [16384, 7168]</text>
+
+  <!-- Output Hidden -->
+  <line x1="550" y1="112" x2="550" y2="80" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/>
+  <rect x="400" y="40" width="300" height="42" rx="8" fill="#4CAF50" filter="url(#shadow)"/>
+  <text x="550" y="58" text-anchor="middle" font-size="14" font-weight="700" fill="white">hidden (output)</text>
+  <text x="550" y="75" text-anchor="middle" font-size="11" fill="#E8F5E9">[bs, seq, 7168]</text>
+
+  <!-- ========== 关键参数标注框 ========== -->
+  <rect x="15" y="40" width="195" height="210" rx="10" fill="#FFF8E1" stroke="#FFC107" stroke-width="2" filter="url(#shadow)"/>
+  <text x="112" y="65" text-anchor="middle" font-size="13" font-weight="700" fill="#E65100">关键参数</text>
+  <line x1="25" y1="75" x2="200" y2="75" stroke="#FFD54F"/>
+  <text x="30" y="95" font-size="11" fill="#333">h_dim = 7168</text>
+  <text x="30" y="115" font-size="11" fill="#333">n_heads = 128</text>
+  <text x="30" y="135" font-size="11" fill="#333">d_head (qk) = 128</text>
+  <text x="30" y="155" font-size="11" fill="#333">d_head (v) = 128</text>
+  <text x="30" y="175" font-size="11" fill="#E91E63" font-weight="700">d_c (kv_lora) = 512</text>
+  <text x="30" y="195" font-size="11" fill="#E91E63" font-weight="700">d_rope = 64</text>
+  <text x="30" y="215" font-size="11" fill="#333">q_lora_rank = 1536</text>
+  <text x="30" y="235" font-size="11" fill="#1565c0" font-weight="600">KV Cache = 512+64</text>
+  <text x="30" y="245" font-size="9" fill="#1565c0">= 576 per token</text>
+
+  <!-- ========== KV Cache 说明框 ========== -->
+  <rect x="15" y="680" width="125" height="70" rx="8" fill="#FCE4EC" stroke="#E91E63" stroke-width="2"/>
+  <text x="77" y="700" text-anchor="middle" font-size="11" font-weight="700" fill="#C62828">KV Cache</text>
+  <text x="77" y="716" text-anchor="middle" font-size="10" fill="#C62828">仅存储:</text>
+  <text x="77" y="730" text-anchor="middle" font-size="10" fill="#C62828">c_kv [512]</text>
+  <text x="77" y="744" text-anchor="middle" font-size="10" fill="#C62828">k_rope [64]</text>
+
+</svg>
+
+</body>
+</html>

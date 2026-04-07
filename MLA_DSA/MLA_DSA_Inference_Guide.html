@@ -1,0 +1,1622 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLA & DSA 推理性能优化指南 — Hopper vs Blackwell</title>
+<style>
+  :root {
+    --primary: #1a73e8;
+    --primary-light: #e8f0fe;
+    --accent: #ea4335;
+    --accent-green: #34a853;
+    --accent-orange: #fbbc04;
+    --bg: #f8f9fa;
+    --card-bg: #ffffff;
+    --text: #202124;
+    --text-secondary: #5f6368;
+    --border: #dadce0;
+    --code-bg: #f1f3f4;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px 30px; }
+
+  /* Header */
+  .doc-header {
+    background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #1565c0 100%);
+    color: white;
+    padding: 50px 40px;
+    border-radius: 16px;
+    margin-bottom: 32px;
+    position: relative;
+    overflow: hidden;
+  }
+  .doc-header::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -10%;
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .doc-header h1 { font-size: 2em; font-weight: 700; margin-bottom: 8px; }
+  .doc-header .subtitle { font-size: 1.1em; opacity: 0.85; }
+  .doc-header .meta { margin-top: 16px; font-size: 0.85em; opacity: 0.7; }
+
+  /* TOC */
+  .toc {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 32px;
+  }
+  .toc h3 { font-size: 1.1em; color: var(--primary); margin-bottom: 12px; }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin-bottom: 6px; }
+  .toc a { color: var(--primary); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  /* Section */
+  .section {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-bottom: 28px;
+  }
+  .section h2 {
+    font-size: 1.4em;
+    color: var(--primary);
+    border-bottom: 2px solid var(--primary);
+    padding-bottom: 8px;
+    margin-bottom: 20px;
+  }
+  .section h3 {
+    font-size: 1.15em;
+    color: #333;
+    margin: 20px 0 10px;
+    padding-left: 10px;
+    border-left: 3px solid var(--primary);
+  }
+  .section p { margin-bottom: 12px; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.92em;
+  }
+  th, td {
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+  th {
+    background: var(--primary);
+    color: white;
+    font-weight: 600;
+  }
+  tr:nth-child(even) { background: #f8f9fa; }
+  tr:hover { background: #e8f0fe; }
+  .highlight-cell { background: #e6f4ea !important; font-weight: 600; }
+  .warn-cell { background: #fce8e6 !important; }
+
+  /* Architecture Diagrams (SVG) */
+  .diagram-container {
+    margin: 20px 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .diagram-container svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Callout boxes */
+  .callout {
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .callout-icon { font-size: 1.3em; flex-shrink: 0; margin-top: 2px; }
+  .callout-insight { background: #e8f0fe; border-left: 4px solid var(--primary); }
+  .callout-perf { background: #e6f4ea; border-left: 4px solid var(--accent-green); }
+  .callout-warn { background: #fce8e6; border-left: 4px solid var(--accent); }
+  .callout-tip { background: #fef7e0; border-left: 4px solid var(--accent-orange); }
+
+  /* Tag badges */
+  .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: 600;
+    margin-right: 4px;
+  }
+  .tag-prefill { background: #e8f0fe; color: #1a73e8; }
+  .tag-decode { background: #fce8e6; color: #ea4335; }
+  .tag-h { background: #fef7e0; color: #e37400; }
+  .tag-b { background: #e6f4ea; color: #137333; }
+
+  /* Comparison grid */
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .compare-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    background: var(--card-bg);
+  }
+  .compare-card h4 {
+    font-size: 1em;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .compare-card ul { padding-left: 18px; margin: 0; }
+  .compare-card li { margin-bottom: 4px; font-size: 0.92em; }
+
+  /* Formula blocks */
+  .formula {
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 12px 0;
+    font-family: "Fira Code", "Consolas", monospace;
+    font-size: 0.9em;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+  }
+
+  /* Metric bars */
+  .metric-bar-container { margin: 8px 0; }
+  .metric-label { font-size: 0.85em; color: var(--text-secondary); margin-bottom: 4px; }
+  .metric-bar-bg {
+    background: #e0e0e0;
+    border-radius: 6px;
+    height: 22px;
+    position: relative;
+    overflow: hidden;
+  }
+  .metric-bar {
+    height: 100%;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 8px;
+    font-size: 0.75em;
+    font-weight: 600;
+    color: white;
+    transition: width 0.5s ease;
+  }
+  .bar-h100 { background: linear-gradient(90deg, #fb8c00, #ff6f00); }
+  .bar-h800 { background: linear-gradient(90deg, #ffa726, #fb8c00); }
+  .bar-b200 { background: linear-gradient(90deg, #43a047, #2e7d32); }
+  .bar-b300 { background: linear-gradient(90deg, #66bb6a, #43a047); }
+
+  /* Recommendation cards */
+  .rec-card {
+    border: 2px solid var(--accent-green);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 12px 0;
+    background: linear-gradient(135deg, #f1f8e9, #e8f5e9);
+  }
+  .rec-card h4 { color: #2e7d32; margin-bottom: 8px; }
+
+  code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.88em;
+    font-family: "Fira Code", "Consolas", monospace;
+  }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 768px) {
+    .two-col, .compare-grid { grid-template-columns: 1fr; }
+    .container { padding: 12px 16px; }
+    .doc-header { padding: 30px 20px; }
+    .section { padding: 18px 16px; }
+  }
+
+  .summary-box {
+    background: linear-gradient(135deg, #ede7f6, #e8eaf6);
+    border: 2px solid #5c6bc0;
+    border-radius: 12px;
+    padding: 22px 26px;
+    margin: 16px 0;
+  }
+  .summary-box h4 { color: #283593; margin-bottom: 8px; }
+
+  .stage-label {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.9em;
+    margin-bottom: 8px;
+  }
+  .stage-prefill { background: #bbdefb; color: #0d47a1; }
+  .stage-decode { background: #ffcdd2; color: #b71c1c; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Header -->
+<div class="doc-header">
+  <h1>MLA & DSA 推理性能优化指南</h1>
+  <div class="subtitle">Hopper (H100/H800) vs Blackwell (B200/B300) · Prefill & Decode 阶段参数配置分析</div>
+  <div class="meta">版本 1.0 · 2026-03-31 · 聚焦：相同效果下推理性能最优化</div>
+</div>
+
+<!-- TOC -->
+<div class="toc">
+  <h3>目录</h3>
+  <ol>
+    <li><a href="#s1">架构概述：MLA vs DSA</a></li>
+    <li><a href="#s2">GPU 硬件特性对比：Hopper vs Blackwell</a></li>
+    <li><a href="#s3">Prefill 阶段：计算密集型分析</a></li>
+    <li><a href="#s4">Decode 阶段：访存密集型分析</a></li>
+    <li><a href="#s5">MLA 关键参数配置与性能影响</a></li>
+    <li><a href="#s6">DSA 关键参数配置与性能影响</a></li>
+    <li><a href="#s7">GPU 适配推荐：MLA × DSA × H/B 卡</a></li>
+    <li><a href="#s8">最优参数配置总结矩阵</a></li>
+    <li><a href="#s9">工程实践建议</a></li>
+  </ol>
+</div>
+
+<!-- ============ Section 1: Architecture Overview ============ -->
+<div class="section" id="s1">
+  <h2>1. 架构概述：MLA vs DSA</h2>
+
+  <h3>1.1 MLA（Multi-head Latent Attention）</h3>
+  <p>MLA 由 DeepSeek-V2 首次提出，核心思想是通过<strong>低秩联合压缩</strong>将 KV 缓存压缩到一个低维度的潜空间（latent space）向量中。推理时仅缓存该潜向量，需要计算注意力时再按需解压恢复完整的 K/V。</p>
+
+  <!-- MLA Architecture Diagram -->
+  <div class="diagram-container">
+    <svg viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg" style="max-width:860px;">
+      <!-- Background -->
+      <rect x="0" y="0" width="900" height="420" fill="#fafbfc" rx="12"/>
+
+      <!-- Title -->
+      <text x="450" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="#1a237e">MLA 架构：低秩压缩 & 按需解压</text>
+
+      <!-- Input h_t -->
+      <rect x="30" y="60" width="120" height="50" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="90" y="90" text-anchor="middle" font-size="13" font-weight="600" fill="#0d47a1">输入 h_t</text>
+      <text x="90" y="105" text-anchor="middle" font-size="10" fill="#5f6368">d_model</text>
+
+      <!-- Down Projection -->
+      <line x1="150" y1="85" x2="200" y2="85" stroke="#1565c0" stroke-width="2" marker-end="url(#arrow-blue)"/>
+      <rect x="200" y="55" width="130" height="60" rx="8" fill="#bbdefb" stroke="#1565c0" stroke-width="2"/>
+      <text x="265" y="80" text-anchor="middle" font-size="12" font-weight="600" fill="#0d47a1">Down Projection</text>
+      <text x="265" y="98" text-anchor="middle" font-size="10" fill="#5f6368">W_DKV: d→d_c</text>
+
+      <!-- Latent c_t (KV Cache) -->
+      <line x1="330" y1="85" x2="380" y2="85" stroke="#1565c0" stroke-width="2" marker-end="url(#arrow-blue)"/>
+      <rect x="380" y="50" width="140" height="70" rx="10" fill="#1565c0" stroke="#0d47a1" stroke-width="2"/>
+      <text x="450" y="75" text-anchor="middle" font-size="13" font-weight="700" fill="white">潜向量 c_t^KV</text>
+      <text x="450" y="95" text-anchor="middle" font-size="11" fill="#bbdefb">d_c (=512)</text>
+      <text x="450" y="112" text-anchor="middle" font-size="9" fill="#90caf9">← 仅缓存此向量</text>
+
+      <!-- Up Projection K -->
+      <line x1="520" y1="70" x2="580" y2="50" stroke="#43a047" stroke-width="2" marker-end="url(#arrow-green)"/>
+      <rect x="580" y="25" width="120" height="50" rx="8" fill="#e8f5e9" stroke="#43a047" stroke-width="2"/>
+      <text x="640" y="48" text-anchor="middle" font-size="12" font-weight="600" fill="#2e7d32">Up Proj K</text>
+      <text x="640" y="65" text-anchor="middle" font-size="10" fill="#5f6368">W_UK: d_c→d_h×n_h</text>
+
+      <!-- Up Projection V -->
+      <line x1="520" y1="100" x2="580" y2="120" stroke="#e65100" stroke-width="2" marker-end="url(#arrow-orange)"/>
+      <rect x="580" y="95" width="120" height="50" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+      <text x="640" y="118" text-anchor="middle" font-size="12" font-weight="600" fill="#e65100">Up Proj V</text>
+      <text x="640" y="135" text-anchor="middle" font-size="10" fill="#5f6368">W_UV: d_c→d_h×n_h</text>
+
+      <!-- Attention -->
+      <line x1="700" y1="50" x2="760" y2="85" stroke="#333" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <line x1="700" y1="120" x2="760" y2="95" stroke="#333" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <rect x="760" y="65" width="110" height="45" rx="8" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="815" y="92" text-anchor="middle" font-size="12" font-weight="600" fill="#7b1fa2">Attention</text>
+
+      <!-- RoPE branch -->
+      <rect x="30" y="150" width="120" height="45" rx="8" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+      <text x="90" y="175" text-anchor="middle" font-size="12" font-weight="600" fill="#c62828">RoPE Key</text>
+      <text x="90" y="190" text-anchor="middle" font-size="10" fill="#5f6368">d_rope (=64)</text>
+      <line x1="150" y1="172" x2="380" y2="172" stroke="#c62828" stroke-width="1.5" stroke-dasharray="6,3"/>
+      <text x="260" y="166" text-anchor="middle" font-size="9" fill="#c62828">单独缓存 RoPE 位置信息</text>
+
+      <!-- Absorbed path explanation -->
+      <rect x="30" y="230" width="840" height="170" rx="10" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1"/>
+      <text x="50" y="258" font-size="14" font-weight="700" fill="#333">两种计算路径：</text>
+
+      <!-- Non-absorbed (Prefill) -->
+      <rect x="50" y="270" width="370" height="115" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+      <text x="70" y="295" font-size="12" font-weight="700" fill="#0d47a1">Non-Absorbed 路径（MHA 模式）</text>
+      <text x="70" y="315" font-size="11" fill="#333">• 先解压 c_t → K, V，再做标准 MHA</text>
+      <text x="70" y="333" font-size="11" fill="#333">• 计算量大但可并行：适合 Prefill</text>
+      <text x="70" y="351" font-size="11" fill="#333">• batch 较大时 FLOPS 利用率高</text>
+      <text x="70" y="369" font-size="11" fill="#1565c0">→ Prefill 阶段推荐 ✓</text>
+
+      <!-- Absorbed (Decode) -->
+      <rect x="480" y="270" width="370" height="115" rx="8" fill="#fce8e6" stroke="#c62828" stroke-width="1.5"/>
+      <text x="500" y="295" font-size="12" font-weight="700" fill="#c62828">Absorbed 路径（MQA 模式）</text>
+      <text x="500" y="315" font-size="11" fill="#333">• W_UK 吸收进 W_Q，直接在潜空间计算</text>
+      <text x="500" y="333" font-size="11" fill="#333">• 避免 KV 解压：极大减少显存访问</text>
+      <text x="500" y="351" font-size="11" fill="#333">• 单 token 生成时 Arithmetic Intensity ↑2x</text>
+      <text x="500" y="369" font-size="11" fill="#c62828">→ Decode 阶段推荐 ✓</text>
+
+      <!-- Arrow markers -->
+      <defs>
+        <marker id="arrow-blue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#1565c0"/>
+        </marker>
+        <marker id="arrow-green" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#43a047"/>
+        </marker>
+        <marker id="arrow-orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#e65100"/>
+        </marker>
+        <marker id="arrow-dark" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <div class="callout callout-insight">
+    <div class="callout-icon">&#128161;</div>
+    <div><strong>MLA 核心优势：</strong>DeepSeek-V3 的 MLA 将每 token KV 缓存从传统 MHA 的约 516 KB（如 Llama-3.1 405B）压缩至仅 ~70 KB，减少约 <strong>93.3%</strong>。这意味着 Decode 阶段的显存带宽压力大幅降低，直接提升 token 吞吐率。</div>
+  </div>
+
+  <h3>1.2 DSA（DeepSeek Sparse Attention）</h3>
+  <p>DSA 于 DeepSeek-V3.2 引入，是在 MLA 基础之上的<strong>稀疏注意力机制</strong>。它通过一个轻量级的 Lightning Indexer 评估每个 query token 与历史 token 的相关性，仅选择最相关的 top-k token 参与注意力计算，将注意力复杂度从 O(L²) 降至 O(L·k)。</p>
+
+  <!-- DSA Architecture Diagram -->
+  <div class="diagram-container">
+    <svg viewBox="0 0 900 350" xmlns="http://www.w3.org/2000/svg" style="max-width:860px;">
+      <rect x="0" y="0" width="900" height="350" fill="#fafbfc" rx="12"/>
+      <text x="450" y="28" text-anchor="middle" font-size="16" font-weight="700" fill="#1a237e">DSA 架构：Lightning Indexer + Top-k 稀疏选择</text>
+
+      <!-- Full KV Sequence -->
+      <text x="50" y="68" font-size="12" font-weight="600" fill="#5f6368">MLA 潜向量序列 (长度 L)</text>
+      <g>
+        <rect x="50" y="75" width="18" height="28" rx="3" fill="#bbdefb" stroke="#1565c0"/>
+        <rect x="72" y="75" width="18" height="28" rx="3" fill="#bbdefb" stroke="#1565c0"/>
+        <rect x="94" y="75" width="18" height="28" rx="3" fill="#bbdefb" stroke="#1565c0"/>
+        <rect x="116" y="75" width="18" height="28" rx="3" fill="#e8f5e9" stroke="#43a047" stroke-width="2"/>
+        <rect x="138" y="75" width="18" height="28" rx="3" fill="#bbdefb" stroke="#1565c0"/>
+        <rect x="160" y="75" width="18" height="28" rx="3" fill="#bbdefb" stroke="#1565c0"/>
+        <rect x="182" y="75" width="18" height="28" rx="3" fill="#e8f5e9" stroke="#43a047" stroke-width="2"/>
+        <rect x="204" y="75" width="18" height="28" rx="3" fill="#bbdefb" stroke="#1565c0"/>
+        <rect x="226" y="75" width="18" height="28" rx="3" fill="#e8f5e9" stroke="#43a047" stroke-width="2"/>
+        <rect x="248" y="75" width="18" height="28" rx="3" fill="#bbdefb" stroke="#1565c0"/>
+        <rect x="270" y="75" width="18" height="28" rx="3" fill="#bbdefb" stroke="#1565c0"/>
+        <rect x="292" y="75" width="18" height="28" rx="3" fill="#e8f5e9" stroke="#43a047" stroke-width="2"/>
+        <text x="320" y="94" font-size="12" fill="#5f6368">... (长序列)</text>
+      </g>
+      <text x="50" y="120" font-size="10" fill="#43a047">■ 被选中的 token</text>
+      <text x="180" y="120" font-size="10" fill="#1565c0">■ 未被选中</text>
+
+      <!-- Lightning Indexer -->
+      <line x1="200" y1="130" x2="200" y2="150" stroke="#7b1fa2" stroke-width="2" marker-end="url(#arrow-purple)"/>
+      <rect x="100" y="150" width="200" height="55" rx="8" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="200" y="175" text-anchor="middle" font-size="12" font-weight="700" fill="#7b1fa2">Lightning Indexer</text>
+      <text x="200" y="195" text-anchor="middle" font-size="10" fill="#5f6368">FP8 批量矩阵乘 · 评分排序</text>
+
+      <!-- Query token -->
+      <rect x="380" y="155" width="100" height="45" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+      <text x="430" y="180" text-anchor="middle" font-size="12" font-weight="600" fill="#e65100">Query Token</text>
+      <line x1="300" y1="177" x2="380" y2="177" stroke="#7b1fa2" stroke-width="1.5" stroke-dasharray="5,3"/>
+
+      <!-- Top-k Selection -->
+      <line x1="200" y1="205" x2="200" y2="230" stroke="#7b1fa2" stroke-width="2" marker-end="url(#arrow-purple)"/>
+      <rect x="80" y="230" width="240" height="50" rx="8" fill="#ede7f6" stroke="#5e35b1" stroke-width="2"/>
+      <text x="200" y="255" text-anchor="middle" font-size="12" font-weight="700" fill="#5e35b1">Top-k 选择 (GPU partial sort)</text>
+      <text x="200" y="272" text-anchor="middle" font-size="10" fill="#5f6368">k ≪ L · block-aligned</text>
+
+      <!-- Selected tokens -->
+      <line x1="200" y1="280" x2="200" y2="300" stroke="#43a047" stroke-width="2" marker-end="url(#arrow-green2)"/>
+      <g>
+        <rect x="100" y="302" width="28" height="28" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="2"/>
+        <rect x="136" y="302" width="28" height="28" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="2"/>
+        <rect x="172" y="302" width="28" height="28" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="2"/>
+        <rect x="208" y="302" width="28" height="28" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="2"/>
+        <text x="258" y="321" font-size="11" fill="#2e7d32">k 个被选 token</text>
+      </g>
+
+      <!-- Sparse Attention -->
+      <line x1="380" y1="316" x2="420" y2="316" stroke="#333" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <line x1="430" y1="200" x2="430" y2="290" stroke="#e65100" stroke-width="1.5" stroke-dasharray="5,3"/>
+      <rect x="420" y="290" width="160" height="50" rx="8" fill="#1565c0" stroke="#0d47a1" stroke-width="2"/>
+      <text x="500" y="315" text-anchor="middle" font-size="13" font-weight="700" fill="white">稀疏 Attention</text>
+      <text x="500" y="332" text-anchor="middle" font-size="10" fill="#90caf9">O(L·k) 复杂度</text>
+
+      <!-- Key params box -->
+      <rect x="630" y="70" width="250" height="260" rx="10" fill="#fff" stroke="#bdbdbd" stroke-width="1"/>
+      <text x="755" y="95" text-anchor="middle" font-size="13" font-weight="700" fill="#333">DSA 关键参数</text>
+      <line x1="645" y1="105" x2="865" y2="105" stroke="#e0e0e0"/>
+      <text x="650" y="128" font-size="11" fill="#333">压缩块大小 (block_size): 32</text>
+      <text x="650" y="150" font-size="11" fill="#333">滑动步长 (stride): 16</text>
+      <text x="650" y="172" font-size="11" fill="#333">选中块大小: 64 tokens</text>
+      <text x="650" y="194" font-size="11" fill="#333">选中块数量: 16 blocks</text>
+      <text x="650" y="216" font-size="11" fill="#333">初始激活块: 1 block</text>
+      <text x="650" y="238" font-size="11" fill="#333">局部窗口块: 2 blocks</text>
+      <text x="650" y="260" font-size="11" fill="#333">滑动窗口: 512 tokens</text>
+      <text x="650" y="285" font-size="11" font-weight="600" fill="#1565c0">实现: MQA 模式 on MLA</text>
+      <text x="650" y="305" font-size="11" font-weight="600" fill="#1565c0">精度: FP8 indexer</text>
+      <text x="650" y="322" font-size="10" fill="#5f6368">CUDA custom kernels</text>
+
+      <defs>
+        <marker id="arrow-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#7b1fa2"/>
+        </marker>
+        <marker id="arrow-green2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#43a047"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <div class="callout callout-insight">
+    <div class="callout-icon">&#128161;</div>
+    <div><strong>MLA + DSA 协同：</strong>MLA 压缩了 KV 缓存的「体积」（减少访存），DSA 压缩了注意力计算的「范围」（减少计算量）。两者结合使 DeepSeek-V3.2 在超长上下文（128k+）下推理性能大幅提升，同时维持模型效果。</div>
+  </div>
+</div>
+
+<!-- ============ Section 2: GPU Comparison ============ -->
+<div class="section" id="s2">
+  <h2>2. GPU 硬件特性对比：Hopper vs Blackwell</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>规格</th>
+        <th><span class="tag tag-h">H100 SXM</span></th>
+        <th><span class="tag tag-h">H800 SXM</span></th>
+        <th><span class="tag tag-b">B200 SXM</span></th>
+        <th><span class="tag tag-b">B300 SXM</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>架构</strong></td>
+        <td>Hopper (GH100)</td>
+        <td>Hopper (GH100)</td>
+        <td>Blackwell (GB202)</td>
+        <td>Blackwell (GB202)</td>
+      </tr>
+      <tr>
+        <td><strong>制程</strong></td>
+        <td>TSMC 4N</td>
+        <td>TSMC 4N</td>
+        <td>TSMC 4NP (chiplet)</td>
+        <td>TSMC 4NP (chiplet)</td>
+      </tr>
+      <tr>
+        <td><strong>HBM 容量</strong></td>
+        <td>80 GB (HBM3)</td>
+        <td>80 GB (HBM3)</td>
+        <td class="highlight-cell">192 GB (HBM3e)</td>
+        <td class="highlight-cell">288 GB (HBM3e)</td>
+      </tr>
+      <tr>
+        <td><strong>HBM 带宽</strong></td>
+        <td>3.35 TB/s</td>
+        <td>3.35 TB/s</td>
+        <td class="highlight-cell">8.0 TB/s</td>
+        <td class="highlight-cell">8.0 TB/s</td>
+      </tr>
+      <tr>
+        <td><strong>FP16 TFLOPS</strong></td>
+        <td>990 (dense)</td>
+        <td>990 (dense)</td>
+        <td>~2,250</td>
+        <td>~2,500</td>
+      </tr>
+      <tr>
+        <td><strong>FP8 TFLOPS</strong></td>
+        <td>1,979 (dense)</td>
+        <td>1,979 (dense)</td>
+        <td class="highlight-cell">4,500 (dense)</td>
+        <td class="highlight-cell">~5,000 (dense)</td>
+      </tr>
+      <tr>
+        <td><strong>FP4 支持</strong></td>
+        <td class="warn-cell">不支持</td>
+        <td class="warn-cell">不支持</td>
+        <td class="highlight-cell">9,000 TFLOPS (dense)</td>
+        <td class="highlight-cell">~10,000+ TFLOPS</td>
+      </tr>
+      <tr>
+        <td><strong>NVLink 带宽</strong></td>
+        <td>900 GB/s</td>
+        <td>400 GB/s</td>
+        <td>1,800 GB/s (NVLink5)</td>
+        <td>1,800 GB/s (NVLink5)</td>
+      </tr>
+      <tr>
+        <td><strong>TDP</strong></td>
+        <td>700W</td>
+        <td>700W</td>
+        <td>1000W</td>
+        <td>1200W</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>2.1 带宽 & 算力可视化</h3>
+
+  <div class="two-col">
+    <div>
+      <p style="font-weight:600; margin-bottom: 8px;">HBM 带宽 (TB/s)</p>
+      <div class="metric-bar-container">
+        <div class="metric-label">H100 / H800</div>
+        <div class="metric-bar-bg"><div class="metric-bar bar-h100" style="width:42%;">3.35 TB/s</div></div>
+      </div>
+      <div class="metric-bar-container">
+        <div class="metric-label">B200</div>
+        <div class="metric-bar-bg"><div class="metric-bar bar-b200" style="width:100%;">8.0 TB/s</div></div>
+      </div>
+      <div class="metric-bar-container">
+        <div class="metric-label">B300</div>
+        <div class="metric-bar-bg"><div class="metric-bar bar-b300" style="width:100%;">8.0 TB/s</div></div>
+      </div>
+    </div>
+    <div>
+      <p style="font-weight:600; margin-bottom: 8px;">FP8 算力 (TFLOPS)</p>
+      <div class="metric-bar-container">
+        <div class="metric-label">H100 / H800</div>
+        <div class="metric-bar-bg"><div class="metric-bar bar-h100" style="width:40%;">1,979</div></div>
+      </div>
+      <div class="metric-bar-container">
+        <div class="metric-label">B200</div>
+        <div class="metric-bar-bg"><div class="metric-bar bar-b200" style="width:90%;">4,500</div></div>
+      </div>
+      <div class="metric-bar-container">
+        <div class="metric-label">B300</div>
+        <div class="metric-bar-bg"><div class="metric-bar bar-b300" style="width:100%;">~5,000</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-perf">
+    <div class="callout-icon">&#9889;</div>
+    <div><strong>关键差异总结：</strong>Blackwell 相比 Hopper 有三个质变——① HBM 带宽 2.4x 提升（Decode 阶段直接受益）；② FP8 算力 2.3x 提升（Prefill 阶段直接受益）；③ 新增 FP4 精度支持（推理加倍潜力）。H800 相比 H100 主要劣势在 NVLink 带宽（400 vs 900 GB/s），多卡通信受限。</div>
+  </div>
+</div>
+
+<!-- ============ Section 3: Prefill Stage ============ -->
+<div class="section" id="s3">
+  <h2>3. Prefill 阶段：计算密集型分析</h2>
+
+  <div class="stage-label stage-prefill">PREFILL 阶段</div>
+  <p>Prefill 阶段一次性处理完整的输入 prompt，属于<strong>计算密集型 (Compute-bound)</strong>。其性能瓶颈主要取决于 GPU 的 FLOPS 算力和计算效率。</p>
+
+  <!-- Prefill flow diagram -->
+  <div class="diagram-container">
+    <svg viewBox="0 0 900 280" xmlns="http://www.w3.org/2000/svg" style="max-width:860px;">
+      <rect x="0" y="0" width="900" height="280" fill="#fafbfc" rx="12"/>
+      <text x="450" y="25" text-anchor="middle" font-size="14" font-weight="700" fill="#0d47a1">Prefill 阶段计算流程与瓶颈</text>
+
+      <!-- Input tokens -->
+      <rect x="30" y="50" width="120" height="45" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="90" y="72" text-anchor="middle" font-size="11" font-weight="600" fill="#0d47a1">输入 Tokens</text>
+      <text x="90" y="87" text-anchor="middle" font-size="9" fill="#5f6368">batch × seq_len</text>
+
+      <!-- MLA Non-Absorbed -->
+      <line x1="150" y1="72" x2="195" y2="72" stroke="#1565c0" stroke-width="2" marker-end="url(#arrow-blue)"/>
+      <rect x="195" y="45" width="150" height="55" rx="8" fill="#bbdefb" stroke="#1565c0" stroke-width="2"/>
+      <text x="270" y="68" text-anchor="middle" font-size="11" font-weight="700" fill="#0d47a1">MLA Non-Absorbed</text>
+      <text x="270" y="85" text-anchor="middle" font-size="9" fill="#5f6368">先解压 c→K,V 再做 MHA</text>
+      <text x="270" y="95" text-anchor="middle" font-size="9" fill="#1565c0">✓ 高 FLOPS 利用率</text>
+
+      <!-- DSA Indexer (optional in prefill) -->
+      <line x1="345" y1="72" x2="400" y2="72" stroke="#7b1fa2" stroke-width="2" marker-end="url(#arrow-purple)"/>
+      <rect x="400" y="45" width="150" height="55" rx="8" fill="#ede7f6" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="475" y="65" text-anchor="middle" font-size="11" font-weight="700" fill="#5e35b1">DSA 稀疏选择</text>
+      <text x="475" y="82" text-anchor="middle" font-size="9" fill="#5f6368">长序列时启用 (>4k)</text>
+      <text x="475" y="95" text-anchor="middle" font-size="9" fill="#7b1fa2">O(L²)→O(L·k) 降计算</text>
+
+      <!-- FFN/MoE -->
+      <line x1="550" y1="72" x2="605" y2="72" stroke="#333" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <rect x="605" y="45" width="120" height="55" rx="8" fill="#f5f5f5" stroke="#757575" stroke-width="2"/>
+      <text x="665" y="68" text-anchor="middle" font-size="11" font-weight="700" fill="#424242">FFN / MoE</text>
+      <text x="665" y="85" text-anchor="middle" font-size="9" fill="#5f6368">主要计算开销</text>
+
+      <!-- Output -->
+      <line x1="725" y1="72" x2="770" y2="72" stroke="#333" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <rect x="770" y="50" width="110" height="45" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="825" y="72" text-anchor="middle" font-size="11" font-weight="600" fill="#2e7d32">KV Cache</text>
+      <text x="825" y="87" text-anchor="middle" font-size="9" fill="#5f6368">存储潜向量</text>
+
+      <!-- Bottleneck analysis -->
+      <rect x="30" y="130" width="410" height="135" rx="10" fill="#e8f0fe" stroke="#1565c0" stroke-width="1"/>
+      <text x="50" y="155" font-size="12" font-weight="700" fill="#0d47a1">Prefill 性能瓶颈分析</text>
+      <text x="50" y="178" font-size="11" fill="#333">主要瓶颈: <tspan font-weight="600">GPU FLOPS（计算密集型）</tspan></text>
+      <text x="50" y="198" font-size="11" fill="#333">次要瓶颈: 多卡间 KV cache 传输（TP 场景）</text>
+      <text x="50" y="218" font-size="11" fill="#333">关键指标: Arithmetic Intensity (FLOPS/Byte)</text>
+      <text x="50" y="240" font-size="11" fill="#1565c0">MLA Prefill 使用 Non-Absorbed 路径</text>
+      <text x="50" y="256" font-size="11" fill="#1565c0">→ 大 batch 下 AI 高, GPU 算力打满</text>
+
+      <!-- GPU recommendation -->
+      <rect x="470" y="130" width="400" height="135" rx="10" fill="#e6f4ea" stroke="#2e7d32" stroke-width="1"/>
+      <text x="490" y="155" font-size="12" font-weight="700" fill="#2e7d32">GPU 选择影响</text>
+      <text x="490" y="178" font-size="11" fill="#333"><tspan font-weight="600" fill="#2e7d32">B200/B300:</tspan> FP8 算力 4500-5000 TFLOPS</text>
+      <text x="490" y="198" font-size="11" fill="#333">→ Prefill TTFT 降低 ~50%+</text>
+      <text x="490" y="218" font-size="11" fill="#333"><tspan font-weight="600" fill="#e37400">H100/H800:</tspan> FP8 算力 1979 TFLOPS</text>
+      <text x="490" y="238" font-size="11" fill="#333">→ 需更多卡并行或降低精度来补偿</text>
+      <text x="490" y="258" font-size="11" fill="#e65100">H800 NVLink 仅 400GB/s, TP&gt;2 时通信受限</text>
+    </svg>
+  </div>
+
+  <h3>3.1 MLA Prefill 阶段的计算路径选择</h3>
+
+  <div class="compare-grid">
+    <div class="compare-card">
+      <h4>&#9989; Non-Absorbed（推荐用于 Prefill）</h4>
+      <ul>
+        <li>先将潜向量 c_t 解压为完整 K、V</li>
+        <li>使用标准 MHA 内核（FlashAttention 等）</li>
+        <li>大 batch/长 seq 时，GEMM 效率高</li>
+        <li>充分利用 Tensor Core 算力</li>
+        <li>适用条件：新 token 数量 x ≥ 阈值（如 2048）</li>
+      </ul>
+    </div>
+    <div class="compare-card">
+      <h4>&#10060; Absorbed（Prefill 不推荐）</h4>
+      <ul>
+        <li>需要将 W_UK 吸收进查询矩阵</li>
+        <li>Prefill 大矩阵乘时反而增加开销</li>
+        <li>优势在单 token decode，不在批量 prefill</li>
+        <li>当 x 很大时 absorbed 路径实际更慢</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>3.2 DSA 在 Prefill 中的作用</h3>
+  <p>在短序列 Prefill（&lt;4K tokens）时，DSA 的稀疏选择开销（Lightning Indexer 评分 + top-k 排序）可能超过其带来的计算节省，因此通常<strong>不建议对短 prompt 启用 DSA</strong>。当序列长度超过 4K-8K 时，DSA 的 O(L·k) 优势开始显现，能有效降低 Prefill 延迟。</p>
+
+  <div class="callout callout-tip">
+    <div class="callout-icon">&#128204;</div>
+    <div><strong>Prefill 阶段最佳实践：</strong>在 H 卡上，由于 FLOPS 相对有限，建议启用 FP8 精度 + chunked prefill + Non-Absorbed MLA 路径。在 B 卡上，可进一步探索 FP4 prefill（B200/B300 支持），结合 DSA 处理超长上下文。</div>
+  </div>
+</div>
+
+<!-- ============ Section 4: Decode Stage ============ -->
+<div class="section" id="s4">
+  <h2>4. Decode 阶段：访存密集型分析</h2>
+
+  <div class="stage-label stage-decode">DECODE 阶段</div>
+  <p>Decode 阶段每步仅生成一个 token，属于<strong>访存密集型 (Memory-bandwidth-bound)</strong>。其性能瓶颈主要取决于 HBM 带宽和 KV 缓存大小。</p>
+
+  <!-- Decode flow diagram -->
+  <div class="diagram-container">
+    <svg viewBox="0 0 900 280" xmlns="http://www.w3.org/2000/svg" style="max-width:860px;">
+      <rect x="0" y="0" width="900" height="280" fill="#fafbfc" rx="12"/>
+      <text x="450" y="25" text-anchor="middle" font-size="14" font-weight="700" fill="#c62828">Decode 阶段计算流程与瓶颈</text>
+
+      <!-- Single token -->
+      <rect x="30" y="50" width="100" height="45" rx="8" fill="#ffcdd2" stroke="#c62828" stroke-width="2"/>
+      <text x="80" y="72" text-anchor="middle" font-size="11" font-weight="600" fill="#c62828">单 Token</text>
+      <text x="80" y="87" text-anchor="middle" font-size="9" fill="#5f6368">1 token/step</text>
+
+      <!-- MLA Absorbed -->
+      <line x1="130" y1="72" x2="175" y2="72" stroke="#c62828" stroke-width="2" marker-end="url(#arrow-red)"/>
+      <rect x="175" y="45" width="150" height="55" rx="8" fill="#ffcdd2" stroke="#c62828" stroke-width="2"/>
+      <text x="250" y="65" text-anchor="middle" font-size="11" font-weight="700" fill="#c62828">MLA Absorbed</text>
+      <text x="250" y="82" text-anchor="middle" font-size="9" fill="#5f6368">直接在潜空间计算</text>
+      <text x="250" y="95" text-anchor="middle" font-size="9" fill="#c62828">✓ 无需解压 KV</text>
+
+      <!-- KV Cache Read -->
+      <rect x="175" y="115" width="150" height="40" rx="6" fill="#1565c0"/>
+      <text x="250" y="138" text-anchor="middle" font-size="10" font-weight="600" fill="white">读取潜向量 (d_c=512)</text>
+      <line x1="250" y1="100" x2="250" y2="115" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+      <!-- DSA Selection -->
+      <line x1="325" y1="72" x2="380" y2="72" stroke="#7b1fa2" stroke-width="2" marker-end="url(#arrow-purple)"/>
+      <rect x="380" y="45" width="150" height="55" rx="8" fill="#ede7f6" stroke="#7b1fa2" stroke-width="2"/>
+      <text x="455" y="65" text-anchor="middle" font-size="11" font-weight="700" fill="#5e35b1">DSA Top-k</text>
+      <text x="455" y="82" text-anchor="middle" font-size="9" fill="#5f6368">仅读取 k 个 token</text>
+      <text x="455" y="95" text-anchor="middle" font-size="9" fill="#7b1fa2">✓ 减少 KV cache 读取</text>
+
+      <!-- Output -->
+      <line x1="530" y1="72" x2="580" y2="72" stroke="#333" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <rect x="580" y="45" width="100" height="55" rx="8" fill="#f5f5f5" stroke="#757575" stroke-width="2"/>
+      <text x="630" y="68" text-anchor="middle" font-size="11" font-weight="700" fill="#424242">FFN/MoE</text>
+      <text x="630" y="85" text-anchor="middle" font-size="9" fill="#5f6368">权重加载</text>
+
+      <line x1="680" y1="72" x2="730" y2="72" stroke="#333" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <rect x="730" y="50" width="140" height="45" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="800" y="72" text-anchor="middle" font-size="11" font-weight="600" fill="#2e7d32">Output Token</text>
+      <text x="800" y="87" text-anchor="middle" font-size="9" fill="#5f6368">append to cache</text>
+
+      <!-- Bottleneck analysis -->
+      <rect x="30" y="170" width="410" height="100" rx="10" fill="#fce8e6" stroke="#c62828" stroke-width="1"/>
+      <text x="50" y="195" font-size="12" font-weight="700" fill="#c62828">Decode 性能瓶颈分析</text>
+      <text x="50" y="215" font-size="11" fill="#333">主要瓶颈: <tspan font-weight="600">HBM 带宽（访存密集型）</tspan></text>
+      <text x="50" y="235" font-size="11" fill="#333">MLA Absorbed 路径: KV cache 仅需读 d_c 维度</text>
+      <text x="50" y="255" font-size="11" fill="#333">DSA 进一步: 仅读取 top-k tokens 的 cache</text>
+
+      <!-- GPU recommendation -->
+      <rect x="470" y="170" width="400" height="100" rx="10" fill="#e6f4ea" stroke="#2e7d32" stroke-width="1"/>
+      <text x="490" y="195" font-size="12" font-weight="700" fill="#2e7d32">GPU 带宽收益</text>
+      <text x="490" y="215" font-size="11" fill="#333"><tspan font-weight="600" fill="#2e7d32">B200/B300:</tspan> 8 TB/s → Decode 吞吐 ~2.4x</text>
+      <text x="490" y="235" font-size="11" fill="#333"><tspan font-weight="600" fill="#e37400">H100/H800:</tspan> 3.35 TB/s → MLA 压缩更关键</text>
+      <text x="490" y="255" font-size="11" fill="#333">B 卡 192-288GB 容量可支撑更大 batch</text>
+
+      <defs>
+        <marker id="arrow-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#c62828"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <h3>4.1 MLA Decode 阶段的核心优势</h3>
+
+  <div class="formula">
+    <strong>传统 MHA Decode:</strong> 每 step 需读取 KV = n_layers × n_heads × 2 × d_head × seq_len bytes<br>
+    <strong>MLA Absorbed Decode:</strong> 每 step 需读取 KV = n_layers × (d_c + d_rope) × seq_len bytes<br><br>
+    <strong>以 DeepSeek-V3 为例:</strong><br>
+    &nbsp;&nbsp;d_c = 512, d_rope = 64 → 每 token 缓存 = (512+64) × 2B = 1,152 Bytes (FP16) ≈ 576 Bytes (FP8)<br>
+    &nbsp;&nbsp;MHA 等效: 128 heads × 128 d_head × 2(K+V) × 2B = 65,536 Bytes<br>
+    &nbsp;&nbsp;<strong>压缩比 ≈ 57:1 (FP16) / 114:1 (FP8)</strong>
+  </div>
+
+  <h3>4.2 MLA + DSA Decode 的叠加优化</h3>
+  <p>在 Decode 阶段，DSA 在 MLA 已经压缩的潜空间上再做稀疏选择。假设序列长度为 L，选择 top-k 个 token：</p>
+  <div class="formula">
+    <strong>纯 MLA Decode 读取量:</strong> n_layers × (d_c + d_rope) × L bytes<br>
+    <strong>MLA + DSA Decode 读取量:</strong> n_layers × (d_c + d_rope) × k bytes &nbsp;&nbsp;(k ≪ L)<br><br>
+    当 L=32K, k=1024 时，DSA 额外减少 ~97% 的 KV cache 读取
+  </div>
+
+  <div class="callout callout-perf">
+    <div class="callout-icon">&#9889;</div>
+    <div><strong>Decode 阶段核心洞见：</strong>MLA 的 Absorbed 路径使 Decode 从「多头并行读取大量 KV」变为「单潜向量维度读取」，Arithmetic Intensity 翻倍。DSA 在此基础上进一步减少读取 token 数。在 B 卡 8 TB/s 带宽下，这意味着 token 生成速率可达 H 卡的 2-3 倍。</div>
+  </div>
+</div>
+
+<!-- ============ Section 5: MLA Parameters ============ -->
+<div class="section" id="s5">
+  <h2>5. MLA 关键参数配置与性能影响</h2>
+
+  <h3>5.1 参数总览</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>参数</th>
+        <th>含义</th>
+        <th>DeepSeek-V3 值</th>
+        <th>性能影响</th>
+        <th>效果影响</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>d_c</code> (KV 潜维度)</td>
+        <td>KV 压缩后的潜空间维度</td>
+        <td>512</td>
+        <td>&#8595; d_c → KV cache ↓, 带宽 ↓, Decode 快</td>
+        <td>&#8595; d_c 过小 → 表达能力下降</td>
+      </tr>
+      <tr>
+        <td><code>d_c_q</code> (Q 潜维度)</td>
+        <td>Q 压缩后的潜空间维度</td>
+        <td>1536</td>
+        <td>影响 Prefill 中 Q 的计算量</td>
+        <td>决定查询表达能力</td>
+      </tr>
+      <tr>
+        <td><code>d_rope</code></td>
+        <td>RoPE 位置编码维度</td>
+        <td>64</td>
+        <td>需单独缓存，增加少量 cache</td>
+        <td>影响位置感知能力</td>
+      </tr>
+      <tr>
+        <td><code>n_heads</code></td>
+        <td>注意力头数</td>
+        <td>128</td>
+        <td>Non-Absorbed: 影响计算量<br>Absorbed: 仅影响 Q 侧</td>
+        <td>多头提升模型多样性</td>
+      </tr>
+      <tr>
+        <td><code>d_head</code></td>
+        <td>每头维度</td>
+        <td>128</td>
+        <td>Absorbed 路径中被 d_c 替代</td>
+        <td>影响单头表达能力</td>
+      </tr>
+      <tr>
+        <td>精度（FP16/FP8/FP4）</td>
+        <td>KV cache 和计算精度</td>
+        <td>FP8 推荐</td>
+        <td class="highlight-cell">FP8→FP4: cache -50%, 算力 +2x (B卡)</td>
+        <td>低精度可能轻微影响效果</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>5.2 d_c 参数的性能-效果权衡</h3>
+
+  <!-- d_c tradeoff visualization -->
+  <div class="diagram-container">
+    <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" style="max-width:680px;">
+      <rect x="0" y="0" width="700" height="300" fill="#fafbfc" rx="12"/>
+      <text x="350" y="25" text-anchor="middle" font-size="14" font-weight="700" fill="#333">d_c 对性能和效果的影响曲线</text>
+
+      <!-- Axes -->
+      <line x1="80" y1="250" x2="650" y2="250" stroke="#333" stroke-width="2"/>
+      <line x1="80" y1="250" x2="80" y2="50" stroke="#333" stroke-width="2"/>
+      <text x="365" y="285" text-anchor="middle" font-size="12" fill="#333">d_c (KV 潜维度)</text>
+      <text x="30" y="150" text-anchor="middle" font-size="12" fill="#333" transform="rotate(-90, 30, 150)">指标值</text>
+
+      <!-- X axis labels -->
+      <text x="130" y="268" text-anchor="middle" font-size="10" fill="#5f6368">128</text>
+      <text x="230" y="268" text-anchor="middle" font-size="10" fill="#5f6368">256</text>
+      <text x="330" y="268" text-anchor="middle" font-size="10" fill="#5f6368">512</text>
+      <text x="430" y="268" text-anchor="middle" font-size="10" fill="#5f6368">1024</text>
+      <text x="530" y="268" text-anchor="middle" font-size="10" fill="#5f6368">2048</text>
+
+      <!-- Model Quality curve (blue, saturating) -->
+      <path d="M130,220 Q180,140 230,100 Q280,75 330,68 Q400,62 430,60 Q500,58 530,57 L600,56" fill="none" stroke="#1565c0" stroke-width="3"/>
+      <circle cx="330" cy="68" r="5" fill="#1565c0"/>
+      <text x="610" y="60" font-size="10" font-weight="600" fill="#1565c0">模型效果</text>
+
+      <!-- Decode Speed curve (red, decreasing) -->
+      <path d="M130,70 Q180,90 230,120 Q280,155 330,175 Q400,210 430,220 Q500,233 530,238 L600,240" fill="none" stroke="#ea4335" stroke-width="3"/>
+      <circle cx="330" cy="175" r="5" fill="#ea4335"/>
+      <text x="610" y="244" font-size="10" font-weight="600" fill="#ea4335">Decode 速度</text>
+
+      <!-- Sweet spot -->
+      <line x1="330" y1="50" x2="330" y2="250" stroke="#43a047" stroke-width="2" stroke-dasharray="6,4"/>
+      <rect x="290" y="40" width="80" height="20" rx="4" fill="#43a047"/>
+      <text x="330" y="54" text-anchor="middle" font-size="10" font-weight="700" fill="white">甜蜜点</text>
+
+      <!-- Annotation -->
+      <rect x="130" y="110" width="140" height="35" rx="6" fill="#fce8e6" stroke="#ea4335"/>
+      <text x="200" y="132" text-anchor="middle" font-size="9" fill="#c62828">d_c 过小: 效果损失严重</text>
+      <rect x="440" y="90" width="155" height="35" rx="6" fill="#fce8e6" stroke="#ea4335"/>
+      <text x="517" y="112" text-anchor="middle" font-size="9" fill="#c62828">d_c 过大: 性能收益递减</text>
+    </svg>
+  </div>
+
+  <div class="callout callout-perf">
+    <div class="callout-icon">&#9889;</div>
+    <div><strong>推荐配置：</strong><code>d_c = 512</code> 是经验证的最优平衡点。在 H 卡上进一步降低 d_c 获取更高 Decode 吞吐时需谨慎评估效果损失；在 B 卡上由于带宽充裕，d_c = 512 已足够发挥性能优势，无需进一步压缩。</div>
+  </div>
+
+  <h3>5.3 精度选择对不同 GPU 的影响</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>精度</th>
+        <th>KV Cache/Token</th>
+        <th>H100/H800 适用性</th>
+        <th>B200/B300 适用性</th>
+        <th>效果影响</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>FP16 / BF16</td>
+        <td>~1,152 B</td>
+        <td>基线方案，安全稳定</td>
+        <td>浪费 B 卡优势</td>
+        <td>无损</td>
+      </tr>
+      <tr>
+        <td class="highlight-cell">FP8</td>
+        <td class="highlight-cell">~576 B</td>
+        <td class="highlight-cell">推荐首选 ✓</td>
+        <td class="highlight-cell">推荐首选 ✓</td>
+        <td>极微损（&lt;0.5% PPL）</td>
+      </tr>
+      <tr>
+        <td>FP4</td>
+        <td>~288 B</td>
+        <td class="warn-cell">不支持</td>
+        <td class="highlight-cell">B 卡独有优势 ✓</td>
+        <td>需校准，~1-2% PPL 损</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============ Section 6: DSA Parameters ============ -->
+<div class="section" id="s6">
+  <h2>6. DSA 关键参数配置与性能影响</h2>
+
+  <h3>6.1 参数总览</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>参数</th>
+        <th>默认值</th>
+        <th>作用</th>
+        <th>&#8593; 增大时</th>
+        <th>&#8595; 减小时</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>block_size</code><br>(压缩块大小)</td>
+        <td>32</td>
+        <td>Indexer 评分的粒度单位</td>
+        <td>Indexer 更快，粒度粗</td>
+        <td>选择更精细，Indexer 开销大</td>
+      </tr>
+      <tr>
+        <td><code>stride</code><br>(滑动步长)</td>
+        <td>16</td>
+        <td>块间滑动的 token 数</td>
+        <td>覆盖率降低，速度略快</td>
+        <td>重叠更多，信息保留好</td>
+      </tr>
+      <tr>
+        <td><code>selected_block_size</code><br>(选中块大小)</td>
+        <td>64</td>
+        <td>每个被选 block 的 token 数</td>
+        <td>访存对齐好，GPU 利用高</td>
+        <td>选择更精细但内存不对齐</td>
+      </tr>
+      <tr>
+        <td><code>num_selected_blocks</code><br>(选中块数)</td>
+        <td>16</td>
+        <td>每个 query 参与的块数</td>
+        <td>效果好，计算量大</td>
+        <td>更快但可能丢信息</td>
+      </tr>
+      <tr>
+        <td><code>sliding_window</code><br>(滑动窗口)</td>
+        <td>512</td>
+        <td>最近 token 始终参与</td>
+        <td>局部信息保留好，带宽↑</td>
+        <td>可能丢近期上下文</td>
+      </tr>
+      <tr>
+        <td><code>initial_blocks</code></td>
+        <td>1</td>
+        <td>始终参与的初始块</td>
+        <td>保留全局开头信息</td>
+        <td>可能丢失 prompt 头部</td>
+      </tr>
+      <tr>
+        <td><code>local_blocks</code></td>
+        <td>2</td>
+        <td>始终参与的局部块</td>
+        <td>近距离上下文更丰富</td>
+        <td>近距离信息可能不足</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>6.2 GPU 特性对 DSA 参数的影响</h3>
+
+  <div class="compare-grid">
+    <div class="compare-card" style="border-color: #fb8c00;">
+      <h4><span class="tag tag-h">H100/H800</span> DSA 调优策略</h4>
+      <ul>
+        <li><strong>更激进的稀疏度：</strong>由于 H 卡带宽有限(3.35 TB/s)，减少 <code>num_selected_blocks</code> 到 12-14 可有效降低 KV cache 读取量</li>
+        <li><strong>较大 <code>block_size</code> (64)：</strong>减少 Indexer 计算次数，节省算力</li>
+        <li><strong>保守的 <code>sliding_window</code> (512)：</strong>确保局部信息完整性</li>
+        <li><strong>FP8 Indexer：</strong>H100 FP8 Tensor Core 加速评分</li>
+        <li><strong>H800 注意：</strong>NVLink 受限，TP 场景需最小化跨卡 KV 传输</li>
+      </ul>
+    </div>
+    <div class="compare-card" style="border-color: #43a047;">
+      <h4><span class="tag tag-b">B200/B300</span> DSA 调优策略</h4>
+      <ul>
+        <li><strong>可容忍更多选中块：</strong>8 TB/s 带宽可支撑 <code>num_selected_blocks</code> = 16-20，获取更好效果</li>
+        <li><strong>精细 <code>block_size</code> (32)：</strong>B 卡算力充裕，更细粒度选择提升效果</li>
+        <li><strong>FP4 Indexer（可探索）：</strong>B 卡 FP4 吞吐极高，Indexer 评分可尝试 FP4</li>
+        <li><strong>更大 <code>sliding_window</code> (512-1024)：</strong>带宽允许更大局部窗口</li>
+        <li><strong>B300 288GB 优势：</strong>超大 batch decode 时不受显存瓶颈</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>6.3 DSA 稀疏度 vs 效果权衡</h3>
+
+  <div class="diagram-container">
+    <svg viewBox="0 0 700 260" xmlns="http://www.w3.org/2000/svg" style="max-width:680px;">
+      <rect x="0" y="0" width="700" height="260" fill="#fafbfc" rx="12"/>
+      <text x="350" y="25" text-anchor="middle" font-size="14" font-weight="700" fill="#333">有效 token 数 k 对效果和速度的影响</text>
+
+      <!-- Axes -->
+      <line x1="80" y1="220" x2="650" y2="220" stroke="#333" stroke-width="2"/>
+      <line x1="80" y1="220" x2="80" y2="45" stroke="#333" stroke-width="2"/>
+      <text x="365" y="250" text-anchor="middle" font-size="11" fill="#333">k (有效参与的 token 数) / 稀疏度</text>
+
+      <!-- X labels: sparse → dense -->
+      <text x="130" y="236" text-anchor="middle" font-size="9" fill="#5f6368">k=256</text>
+      <text x="250" y="236" text-anchor="middle" font-size="9" fill="#5f6368">k=512</text>
+      <text x="370" y="236" text-anchor="middle" font-size="9" fill="#5f6368">k=1024</text>
+      <text x="490" y="236" text-anchor="middle" font-size="9" fill="#5f6368">k=2048</text>
+      <text x="600" y="236" text-anchor="middle" font-size="9" fill="#5f6368">Full Attn</text>
+
+      <!-- Quality curve -->
+      <path d="M130,180 Q200,110 250,90 Q320,72 370,65 Q440,60 490,58 Q550,56 600,55" fill="none" stroke="#1565c0" stroke-width="2.5"/>
+      <text x="615" y="50" font-size="9" font-weight="600" fill="#1565c0">模型效果</text>
+
+      <!-- Decode speed curve -->
+      <path d="M130,60 Q200,75 250,95 Q320,130 370,150 Q440,175 490,190 Q550,200 600,210" fill="none" stroke="#ea4335" stroke-width="2.5"/>
+      <text x="615" y="215" font-size="9" font-weight="600" fill="#ea4335">Decode 速度</text>
+
+      <!-- H card sweet spot -->
+      <rect x="215" y="55" width="70" height="18" rx="4" fill="#fb8c00"/>
+      <text x="250" y="67" text-anchor="middle" font-size="8" font-weight="700" fill="white">H 卡最优</text>
+      <line x1="250" y1="73" x2="250" y2="220" stroke="#fb8c00" stroke-width="1.5" stroke-dasharray="5,3"/>
+
+      <!-- B card sweet spot -->
+      <rect x="335" y="55" width="70" height="18" rx="4" fill="#43a047"/>
+      <text x="370" y="67" text-anchor="middle" font-size="8" font-weight="700" fill="white">B 卡最优</text>
+      <line x1="370" y1="73" x2="370" y2="220" stroke="#43a047" stroke-width="1.5" stroke-dasharray="5,3"/>
+    </svg>
+  </div>
+
+  <div class="callout callout-insight">
+    <div class="callout-icon">&#128161;</div>
+    <div><strong>核心发现：</strong>H 卡由于带宽受限，DSA 的最优 k 偏小（~512-768），需要更激进的稀疏度来保证 Decode 吞吐；B 卡带宽充裕，k 可设得更大（~1024-1536），在保持高吞吐的同时获取更好的模型效果。换句话说，B 卡能在「相同推理速度」下获得「更好的效果」。</div>
+  </div>
+</div>
+
+<!-- ============ Section 7: GPU-specific Recommendations ============ -->
+<div class="section" id="s7">
+  <h2>7. GPU 适配推荐：MLA × DSA × H/B 卡</h2>
+
+  <h3>7.1 Prefill 阶段配置矩阵</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>配置项</th>
+        <th><span class="tag tag-h">H100</span></th>
+        <th><span class="tag tag-h">H800</span></th>
+        <th><span class="tag tag-b">B200</span></th>
+        <th><span class="tag tag-b">B300</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>MLA 路径</strong></td>
+        <td>Non-Absorbed</td>
+        <td>Non-Absorbed</td>
+        <td>Non-Absorbed</td>
+        <td>Non-Absorbed</td>
+      </tr>
+      <tr>
+        <td><strong>计算精度</strong></td>
+        <td class="highlight-cell">FP8</td>
+        <td class="highlight-cell">FP8</td>
+        <td class="highlight-cell">FP8 / FP4 可探索</td>
+        <td class="highlight-cell">FP8 / FP4 可探索</td>
+      </tr>
+      <tr>
+        <td><strong>DSA 启用阈值</strong></td>
+        <td>seq &gt; 8K</td>
+        <td>seq &gt; 8K</td>
+        <td>seq &gt; 4K</td>
+        <td>seq &gt; 4K</td>
+      </tr>
+      <tr>
+        <td><strong>Chunked Prefill</strong></td>
+        <td>chunk = 2048</td>
+        <td>chunk = 2048</td>
+        <td>chunk = 4096</td>
+        <td>chunk = 4096-8192</td>
+      </tr>
+      <tr>
+        <td><strong>TP 并行度</strong></td>
+        <td>TP=8 (NVLink 900)</td>
+        <td>TP=4-8 (NVLink 400, 受限)</td>
+        <td>TP=8 (NVLink5 1800)</td>
+        <td>TP=8 (NVLink5 1800)</td>
+      </tr>
+      <tr>
+        <td><strong>Attention Backend</strong></td>
+        <td>FlashAttention-2</td>
+        <td>FlashAttention-2</td>
+        <td>FlashAttention-3 / FlashMLA</td>
+        <td>FlashAttention-3 / FlashMLA</td>
+      </tr>
+      <tr>
+        <td><strong>预期 TTFT 相对值</strong></td>
+        <td>1.0x (基线)</td>
+        <td>~1.1-1.3x (NVLink 受限)</td>
+        <td class="highlight-cell">~0.4-0.5x ✓</td>
+        <td class="highlight-cell">~0.35-0.45x ✓</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>7.2 Decode 阶段配置矩阵</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>配置项</th>
+        <th><span class="tag tag-h">H100</span></th>
+        <th><span class="tag tag-h">H800</span></th>
+        <th><span class="tag tag-b">B200</span></th>
+        <th><span class="tag tag-b">B300</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>MLA 路径</strong></td>
+        <td>Absorbed (MQA)</td>
+        <td>Absorbed (MQA)</td>
+        <td>Absorbed (MQA)</td>
+        <td>Absorbed (MQA)</td>
+      </tr>
+      <tr>
+        <td><strong>KV Cache 精度</strong></td>
+        <td class="highlight-cell">FP8</td>
+        <td class="highlight-cell">FP8</td>
+        <td class="highlight-cell">FP8 → FP4 可探索</td>
+        <td class="highlight-cell">FP8 → FP4 可探索</td>
+      </tr>
+      <tr>
+        <td><strong>DSA num_selected</strong></td>
+        <td>12-14 (激进稀疏)</td>
+        <td>10-12 (更激进)</td>
+        <td>16-20 (保效果)</td>
+        <td>16-20 (保效果)</td>
+      </tr>
+      <tr>
+        <td><strong>DSA sliding_window</strong></td>
+        <td>512</td>
+        <td>384-512</td>
+        <td>512-1024</td>
+        <td>512-1024</td>
+      </tr>
+      <tr>
+        <td><strong>DSA block_size</strong></td>
+        <td>64 (粗粒度省算力)</td>
+        <td>64</td>
+        <td>32 (细粒度保效果)</td>
+        <td>32</td>
+      </tr>
+      <tr>
+        <td><strong>Max Batch Size</strong></td>
+        <td>受限于 80GB HBM</td>
+        <td>受限于 80GB HBM</td>
+        <td class="highlight-cell">192GB → batch ↑ 2.4x</td>
+        <td class="highlight-cell">288GB → batch ↑ 3.6x</td>
+      </tr>
+      <tr>
+        <td><strong>Decode Backend</strong></td>
+        <td>FlashMLA / CutlassMLA</td>
+        <td>FlashMLA / CutlassMLA</td>
+        <td>FlashMLA / TRTLLM MLA</td>
+        <td>FlashMLA / TRTLLM MLA</td>
+      </tr>
+      <tr>
+        <td><strong>预期 token/s 相对值</strong></td>
+        <td>1.0x (基线)</td>
+        <td>~0.85-0.95x</td>
+        <td class="highlight-cell">~2.0-2.5x ✓</td>
+        <td class="highlight-cell">~2.5-3.0x ✓</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============ Section 8: Summary Matrix ============ -->
+<div class="section" id="s8">
+  <h2>8. 最优参数配置总结矩阵</h2>
+
+  <div class="summary-box">
+    <h4>&#127942; 核心原则：相同效果下追求最优推理性能</h4>
+    <p>以下配置方案按「效果等价」原则设计。每个 GPU 平台选择其硬件特性下能达到最高推理性能的参数组合，同时确保模型效果无显著退化（PPL 损失 &lt;1%）。</p>
+  </div>
+
+  <h3>8.1 MLA 最优配置</h3>
+  <table>
+    <thead>
+      <tr>
+        <th rowspan="2">参数</th>
+        <th colspan="2" style="text-align:center;background:#e37400;">Hopper 系列</th>
+        <th colspan="2" style="text-align:center;background:#2e7d32;">Blackwell 系列</th>
+      </tr>
+      <tr>
+        <th style="background:#fb8c00;">H100</th>
+        <th style="background:#fb8c00;">H800</th>
+        <th style="background:#43a047;">B200</th>
+        <th style="background:#43a047;">B300</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>d_c</code></td>
+        <td>512</td>
+        <td>512</td>
+        <td>512</td>
+        <td>512</td>
+      </tr>
+      <tr>
+        <td><code>d_rope</code></td>
+        <td>64</td>
+        <td>64</td>
+        <td>64</td>
+        <td>64</td>
+      </tr>
+      <tr>
+        <td>Prefill 路径</td>
+        <td>Non-Absorbed</td>
+        <td>Non-Absorbed</td>
+        <td>Non-Absorbed</td>
+        <td>Non-Absorbed</td>
+      </tr>
+      <tr>
+        <td>Decode 路径</td>
+        <td>Absorbed</td>
+        <td>Absorbed</td>
+        <td>Absorbed</td>
+        <td>Absorbed</td>
+      </tr>
+      <tr>
+        <td>KV Cache 精度</td>
+        <td class="highlight-cell">FP8 ✓</td>
+        <td class="highlight-cell">FP8 ✓</td>
+        <td class="highlight-cell">FP8 (FP4 可探索) ✓</td>
+        <td class="highlight-cell">FP8 (FP4 可探索) ✓</td>
+      </tr>
+      <tr>
+        <td>计算精度</td>
+        <td>FP8</td>
+        <td>FP8</td>
+        <td>FP8 / FP4</td>
+        <td>FP8 / FP4</td>
+      </tr>
+      <tr>
+        <td>Attention Kernel</td>
+        <td>FA2 + FlashMLA</td>
+        <td>FA2 + FlashMLA</td>
+        <td>FA3 + FlashMLA</td>
+        <td>FA3 + FlashMLA</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>8.2 DSA 最优配置</h3>
+  <table>
+    <thead>
+      <tr>
+        <th rowspan="2">参数</th>
+        <th colspan="2" style="text-align:center;background:#e37400;">Hopper 系列</th>
+        <th colspan="2" style="text-align:center;background:#2e7d32;">Blackwell 系列</th>
+      </tr>
+      <tr>
+        <th style="background:#fb8c00;">H100</th>
+        <th style="background:#fb8c00;">H800</th>
+        <th style="background:#43a047;">B200</th>
+        <th style="background:#43a047;">B300</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>block_size</code></td>
+        <td>64</td>
+        <td>64</td>
+        <td>32</td>
+        <td>32</td>
+      </tr>
+      <tr>
+        <td><code>stride</code></td>
+        <td>32</td>
+        <td>32</td>
+        <td>16</td>
+        <td>16</td>
+      </tr>
+      <tr>
+        <td><code>selected_block_size</code></td>
+        <td>64</td>
+        <td>64</td>
+        <td>64</td>
+        <td>64</td>
+      </tr>
+      <tr>
+        <td><code>num_selected_blocks</code></td>
+        <td>12-14</td>
+        <td>10-12</td>
+        <td class="highlight-cell">16-20 ✓</td>
+        <td class="highlight-cell">16-20 ✓</td>
+      </tr>
+      <tr>
+        <td><code>sliding_window</code></td>
+        <td>512</td>
+        <td>384-512</td>
+        <td>512-1024</td>
+        <td>512-1024</td>
+      </tr>
+      <tr>
+        <td><code>initial_blocks</code></td>
+        <td>1</td>
+        <td>1</td>
+        <td>1</td>
+        <td>1</td>
+      </tr>
+      <tr>
+        <td><code>local_blocks</code></td>
+        <td>2</td>
+        <td>2</td>
+        <td>2-3</td>
+        <td>2-3</td>
+      </tr>
+      <tr>
+        <td>启用阈值</td>
+        <td>seq &gt; 8K</td>
+        <td>seq &gt; 8K</td>
+        <td>seq &gt; 4K</td>
+        <td>seq &gt; 4K</td>
+      </tr>
+      <tr>
+        <td>Indexer 精度</td>
+        <td>FP8</td>
+        <td>FP8</td>
+        <td>FP8 / FP4</td>
+        <td>FP8 / FP4</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>8.3 综合性能预期（相对 H100 基线）</h3>
+
+  <div class="diagram-container">
+    <svg viewBox="0 0 780 320" xmlns="http://www.w3.org/2000/svg" style="max-width:760px;">
+      <rect x="0" y="0" width="780" height="320" fill="#fafbfc" rx="12"/>
+      <text x="390" y="25" text-anchor="middle" font-size="14" font-weight="700" fill="#333">各 GPU 推理性能相对比较 (H100 = 1.0x)</text>
+
+      <!-- Labels -->
+      <text x="120" y="65" text-anchor="end" font-size="12" font-weight="600" fill="#333">Prefill TTFT</text>
+      <text x="120" y="135" text-anchor="end" font-size="12" font-weight="600" fill="#333">Decode token/s</text>
+      <text x="120" y="205" text-anchor="end" font-size="12" font-weight="600" fill="#333">Max Batch (Decode)</text>
+      <text x="120" y="275" text-anchor="end" font-size="12" font-weight="600" fill="#333">长序列 (128K)</text>
+
+      <!-- Prefill bars -->
+      <rect x="140" y="50" width="150" height="24" rx="4" fill="#fb8c00"/>
+      <text x="300" y="67" font-size="10" font-weight="600" fill="#333">H100: 1.0x</text>
+      <rect x="340" y="50" width="120" height="24" rx="4" fill="#ffa726"/>
+      <text x="470" y="67" font-size="10" font-weight="600" fill="#333">H800: ~0.8x</text>
+      <rect x="510" y="50" width="100" height="24" rx="4" fill="#43a047"/>
+      <text x="620" y="67" font-size="10" font-weight="600" fill="#333">B200: 2.0-2.5x</text>
+      <rect x="660" y="50" width="90" height="24" rx="4" fill="#66bb6a"/>
+      <text x="660" y="42" font-size="10" font-weight="600" fill="#333">B300: 2.5-3x</text>
+
+      <!-- Decode bars -->
+      <rect x="140" y="120" width="150" height="24" rx="4" fill="#fb8c00"/>
+      <text x="300" y="137" font-size="10" font-weight="600" fill="#333">H100: 1.0x</text>
+      <rect x="340" y="120" width="130" height="24" rx="4" fill="#ffa726"/>
+      <text x="480" y="137" font-size="10" font-weight="600" fill="#333">H800: ~0.9x</text>
+      <rect x="520" y="120" width="100" height="24" rx="4" fill="#43a047"/>
+      <text x="630" y="137" font-size="10" font-weight="600" fill="#333">B200: 2.0-2.5x</text>
+      <rect x="670" y="120" width="85" height="24" rx="4" fill="#66bb6a"/>
+      <text x="670" y="112" font-size="10" font-weight="600" fill="#333">B300: 2.5-3x</text>
+
+      <!-- Max Batch bars -->
+      <rect x="140" y="190" width="100" height="24" rx="4" fill="#fb8c00"/>
+      <text x="250" y="207" font-size="10" font-weight="600" fill="#333">H100: 1.0x (80GB)</text>
+      <rect x="290" y="190" width="100" height="24" rx="4" fill="#ffa726"/>
+      <text x="400" y="207" font-size="10" font-weight="600" fill="#333">H800: 1.0x (80GB)</text>
+      <rect x="440" y="190" width="140" height="24" rx="4" fill="#43a047"/>
+      <text x="590" y="207" font-size="10" font-weight="600" fill="#333">B200: 2.4x (192GB)</text>
+      <rect x="630" y="190" width="130" height="24" rx="4" fill="#66bb6a"/>
+      <text x="630" y="182" font-size="10" font-weight="600" fill="#333">B300: 3.6x (288GB)</text>
+
+      <!-- Long context bars -->
+      <rect x="140" y="260" width="120" height="24" rx="4" fill="#fb8c00"/>
+      <text x="270" y="277" font-size="10" font-weight="600" fill="#333">H100: 1.0x</text>
+      <rect x="310" y="260" width="90" height="24" rx="4" fill="#ffa726"/>
+      <text x="410" y="277" font-size="10" font-weight="600" fill="#333">H800: ~0.7x</text>
+      <rect x="450" y="260" width="130" height="24" rx="4" fill="#43a047"/>
+      <text x="590" y="277" font-size="10" font-weight="600" fill="#333">B200: 3-4x (DSA+MLA)</text>
+      <rect x="630" y="260" width="130" height="24" rx="4" fill="#66bb6a"/>
+      <text x="630" y="252" font-size="10" font-weight="600" fill="#333">B300: 4-5x</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ============ Section 9: Engineering Practices ============ -->
+<div class="section" id="s9">
+  <h2>9. 工程实践建议</h2>
+
+  <h3>9.1 Prefill / Decode 分离部署（Disaggregated Serving）</h3>
+  <div class="rec-card">
+    <h4>&#9989; 推荐架构：Prefill-Decode 分离</h4>
+    <p>将 Prefill 和 Decode 部署在不同的 GPU 集群上，各自选择最优参数配置。Prefill 节点专注算力最大化（Non-Absorbed + 大 chunk），Decode 节点专注带宽最大化（Absorbed + DSA 稀疏）。混合部署时（如 H 卡做 Prefill，B 卡做 Decode），可通过 KV cache 迁移协议实现。</p>
+  </div>
+
+  <h3>9.2 H 卡环境的最大化利用策略</h3>
+
+  <div class="rec-card">
+    <h4>H100/H800 推理优化清单</h4>
+    <p><strong>① MLA Absorbed + FP8 KV Cache：</strong>这是 H 卡 Decode 的基础优化。MLA 将 KV 读取量压缩 ~57x，FP8 再减半。对 3.35 TB/s 的 H 卡来说，这等于让有效带宽逻辑上提升到「等效 >100 TB/s」级别的 Full MHA 场景。</p>
+    <p><strong>② DSA 激进稀疏：</strong>在 H 卡上，将 <code>num_selected_blocks</code> 从 16 降到 12，<code>block_size</code> 增大到 64。虽然稍有效果损失（可控在 &lt;0.5% PPL），但 Decode 吞吐提升 15-25%。</p>
+    <p><strong>③ H800 特别注意：</strong>由于 NVLink 仅 400 GB/s（H100 的 ~44%），TP=8 时多卡通信成为瓶颈。建议 TP=4 + PP=2 的混合并行，或使用 TPLA（Tensor Parallel Latent Attention）技术减少跨卡 KV 传输。</p>
+  </div>
+
+  <h3>9.3 B 卡环境的最大化利用策略</h3>
+
+  <div class="rec-card">
+    <h4>B200/B300 推理优化清单</h4>
+    <p><strong>① FP4 精度探索：</strong>B 卡独有 FP4 支持，FP4 KV cache 可进一步将每 token 缓存从 576B (FP8) 降至 288B。配合 FP4 Tensor Core 的 9-10 PFLOPS 算力，理论上 Prefill 速度可再翻倍。需注意校准以控制效果损失。</p>
+    <p><strong>② 大 Batch Decode：</strong>B200 192GB / B300 288GB 的显存容量允许支撑 2.4-3.6 倍的 batch size。MLA 压缩的 KV cache 在大 batch 下优势更明显——单卡可容纳更多并发请求。</p>
+    <p><strong>③ DSA 宽容模式：</strong>B 卡带宽富裕，DSA 的 <code>num_selected_blocks</code> 可设为 16-20，获取接近 Full Attention 的效果。这是 B 卡「相同速度下效果更好」的核心原因。</p>
+    <p><strong>④ NVLink5 优势：</strong>1800 GB/s 互联带宽使 TP=8 无通信瓶颈，可充分利用全卡算力。</p>
+  </div>
+
+  <h3>9.4 推荐的推理框架与 Kernel</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>框架 / Kernel</th>
+        <th>支持 MLA</th>
+        <th>支持 DSA</th>
+        <th>H 卡优化</th>
+        <th>B 卡优化</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>SGLang</strong></td>
+        <td>&#9989; (多 backend)</td>
+        <td>&#9989;</td>
+        <td>&#9989; FA2 + FlashMLA</td>
+        <td>&#9989; FA3 + CutlassMLA</td>
+      </tr>
+      <tr>
+        <td><strong>vLLM</strong></td>
+        <td>&#9989;</td>
+        <td>&#9989; (V3.2)</td>
+        <td>&#9989;</td>
+        <td>&#9989;</td>
+      </tr>
+      <tr>
+        <td><strong>TensorRT-LLM</strong></td>
+        <td>&#9989;</td>
+        <td>部分</td>
+        <td>&#9989;</td>
+        <td>&#9989; (FP4 支持)</td>
+      </tr>
+      <tr>
+        <td><strong>FlashMLA Kernel</strong></td>
+        <td>&#9989; 原生</td>
+        <td>-</td>
+        <td>&#9989;</td>
+        <td>&#9989;</td>
+      </tr>
+      <tr>
+        <td><strong>CutlassMLA Kernel</strong></td>
+        <td>&#9989; 原生</td>
+        <td>-</td>
+        <td>&#9989;</td>
+        <td>&#9989; (FP4)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>9.5 关键决策流程图</h3>
+  <div class="diagram-container">
+    <svg viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg" style="max-width:780px;">
+      <rect x="0" y="0" width="800" height="500" fill="#fafbfc" rx="12"/>
+      <text x="400" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#333">推理配置决策流程</text>
+
+      <!-- Start -->
+      <ellipse cx="400" cy="60" rx="80" ry="22" fill="#1565c0"/>
+      <text x="400" y="65" text-anchor="middle" font-size="11" font-weight="600" fill="white">开始推理配置</text>
+
+      <!-- GPU check -->
+      <line x1="400" y1="82" x2="400" y2="105" stroke="#333" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <rect x="300" y="105" width="200" height="40" rx="6" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+      <text x="400" y="130" text-anchor="middle" font-size="11" font-weight="600" fill="#e65100">GPU 类型?</text>
+
+      <!-- H card branch -->
+      <line x1="340" y1="145" x2="200" y2="175" stroke="#fb8c00" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <text x="250" y="162" font-size="10" fill="#fb8c00">H 卡</text>
+      <rect x="100" y="175" width="200" height="35" rx="6" fill="#fff3e0" stroke="#fb8c00" stroke-width="2"/>
+      <text x="200" y="197" text-anchor="middle" font-size="10" font-weight="600" fill="#e37400">精度: FP8 (KV + 计算)</text>
+
+      <!-- B card branch -->
+      <line x1="460" y1="145" x2="600" y2="175" stroke="#43a047" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <text x="540" y="162" font-size="10" fill="#43a047">B 卡</text>
+      <rect x="500" y="175" width="200" height="35" rx="6" fill="#e8f5e9" stroke="#43a047" stroke-width="2"/>
+      <text x="600" y="197" text-anchor="middle" font-size="10" font-weight="600" fill="#2e7d32">精度: FP8 / 探索 FP4</text>
+
+      <!-- H: Phase check -->
+      <line x1="200" y1="210" x2="200" y2="240" stroke="#333" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <rect x="100" y="240" width="200" height="35" rx="6" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="200" y="262" text-anchor="middle" font-size="10" font-weight="600" fill="#0d47a1">阶段?</text>
+
+      <!-- H: Prefill -->
+      <line x1="140" y1="275" x2="100" y2="305" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-dark)"/>
+      <text x="95" y="295" font-size="9" fill="#1565c0">Prefill</text>
+      <rect x="20" y="305" width="160" height="65" rx="6" fill="#e3f2fd" stroke="#1565c0"/>
+      <text x="100" y="322" text-anchor="middle" font-size="9" fill="#333">Non-Absorbed MLA</text>
+      <text x="100" y="338" text-anchor="middle" font-size="9" fill="#333">DSA: seq&gt;8K 才启用</text>
+      <text x="100" y="354" text-anchor="middle" font-size="9" fill="#333">Chunk=2048, TP=8</text>
+      <text x="100" y="365" text-anchor="middle" font-size="8" fill="#1565c0">H800: TP=4+PP=2</text>
+
+      <!-- H: Decode -->
+      <line x1="260" y1="275" x2="300" y2="305" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-dark)"/>
+      <text x="300" y="295" font-size="9" fill="#c62828">Decode</text>
+      <rect x="220" y="305" width="160" height="65" rx="6" fill="#fce8e6" stroke="#c62828"/>
+      <text x="300" y="322" text-anchor="middle" font-size="9" fill="#333">Absorbed MLA (MQA)</text>
+      <text x="300" y="338" text-anchor="middle" font-size="9" fill="#333">DSA: blocks=12-14</text>
+      <text x="300" y="354" text-anchor="middle" font-size="9" fill="#333">block_size=64, SW=512</text>
+      <text x="300" y="365" text-anchor="middle" font-size="8" fill="#c62828">FP8 KV Cache</text>
+
+      <!-- B: Phase check -->
+      <line x1="600" y1="210" x2="600" y2="240" stroke="#333" stroke-width="2" marker-end="url(#arrow-dark)"/>
+      <rect x="500" y="240" width="200" height="35" rx="6" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="600" y="262" text-anchor="middle" font-size="10" font-weight="600" fill="#0d47a1">阶段?</text>
+
+      <!-- B: Prefill -->
+      <line x1="540" y1="275" x2="500" y2="305" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-dark)"/>
+      <text x="495" y="295" font-size="9" fill="#1565c0">Prefill</text>
+      <rect x="420" y="305" width="160" height="65" rx="6" fill="#e3f2fd" stroke="#1565c0"/>
+      <text x="500" y="322" text-anchor="middle" font-size="9" fill="#333">Non-Absorbed MLA</text>
+      <text x="500" y="338" text-anchor="middle" font-size="9" fill="#333">DSA: seq&gt;4K 启用</text>
+      <text x="500" y="354" text-anchor="middle" font-size="9" fill="#333">Chunk=4096-8192</text>
+      <text x="500" y="365" text-anchor="middle" font-size="8" fill="#43a047">FP8/FP4, TP=8, FA3</text>
+
+      <!-- B: Decode -->
+      <line x1="660" y1="275" x2="700" y2="305" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-dark)"/>
+      <text x="700" y="295" font-size="9" fill="#c62828">Decode</text>
+      <rect x="620" y="305" width="160" height="65" rx="6" fill="#fce8e6" stroke="#c62828"/>
+      <text x="700" y="322" text-anchor="middle" font-size="9" fill="#333">Absorbed MLA (MQA)</text>
+      <text x="700" y="338" text-anchor="middle" font-size="9" fill="#333">DSA: blocks=16-20</text>
+      <text x="700" y="354" text-anchor="middle" font-size="9" fill="#333">block_size=32, SW=1024</text>
+      <text x="700" y="365" text-anchor="middle" font-size="8" fill="#43a047">FP8/FP4, 大batch</text>
+
+      <!-- Summary row -->
+      <rect x="50" y="400" width="300" height="80" rx="8" fill="#fff3e0" stroke="#e37400" stroke-width="2"/>
+      <text x="200" y="425" text-anchor="middle" font-size="12" font-weight="700" fill="#e37400">H 卡策略总结</text>
+      <text x="200" y="445" text-anchor="middle" font-size="10" fill="#333">用更激进的稀疏度弥补带宽不足</text>
+      <text x="200" y="462" text-anchor="middle" font-size="10" fill="#333">FP8 为主，保守精度保效果</text>
+      <text x="200" y="476" text-anchor="middle" font-size="9" fill="#e37400">H800 需特别关注 NVLink 瓶颈</text>
+
+      <rect x="450" y="400" width="300" height="80" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="600" y="425" text-anchor="middle" font-size="12" font-weight="700" fill="#2e7d32">B 卡策略总结</text>
+      <text x="600" y="445" text-anchor="middle" font-size="10" fill="#333">带宽充裕，DSA 可更宽容保效果</text>
+      <text x="600" y="462" text-anchor="middle" font-size="10" fill="#333">FP4 是独有加分项，大 batch 优势</text>
+      <text x="600" y="476" text-anchor="middle" font-size="9" fill="#2e7d32">同速度下效果更好，或同效果下速度更快</text>
+    </svg>
+  </div>
+
+  <div class="callout callout-warn">
+    <div class="callout-icon">&#9888;&#65039;</div>
+    <div><strong>注意事项：</strong>上述参数配置基于公开技术报告和社区实践整理，实际最优值受模型规模、具体任务类型、序列长度分布、并发量等因素影响，建议在目标场景下进行系统性 profiling 验证。FP4 精度方案目前仍处于早期阶段，需进行充分的精度校准和效果评估。</div>
+  </div>
+</div>
+
+<!-- Footer -->
+<div style="text-align:center; padding: 20px; color: #9e9e9e; font-size: 0.85em;">
+  <p>MLA & DSA 推理性能优化指南 · v1.0 · 2026-03-31</p>
+  <p>参考来源：DeepSeek-V2/V3/V3.2 技术报告 · NVIDIA 官方规格 · SGLang/vLLM 文档</p>
+</div>
+
+</div><!-- container end -->
+</body>
+</html>

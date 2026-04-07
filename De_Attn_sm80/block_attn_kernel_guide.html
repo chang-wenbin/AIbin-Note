@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Block Attention Kernel 深度解析</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg-card: #181b24;
+    --bg-code: #1e222d;
+    --border: #2a2f3e;
+    --text: #e1e4ec;
+    --text-dim: #8b90a0;
+    --accent-blue: #5b9cf6;
+    --accent-green: #4ade80;
+    --accent-orange: #f59e42;
+    --accent-red: #f87171;
+    --accent-purple: #a78bfa;
+    --accent-cyan: #22d3ee;
+    --accent-yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Pro Text', -apple-system, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.75;
+    padding: 0;
+  }
+
+  /* Hero */
+  .hero {
+    background: linear-gradient(135deg, #141824 0%, #1a1f33 50%, #1c1528 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 80px 40px 60px;
+    text-align: center;
+  }
+  .hero h1 {
+    font-size: 2.8rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 12px;
+    background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero p {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    max-width: 700px;
+    margin: 0 auto;
+  }
+  .hero .badge-row { margin-top: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+
+  /* Layout */
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 28px; }
+
+  /* Table of Contents */
+  .toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-bottom: 48px;
+  }
+  .toc h2 { font-size: 1.2rem; margin-bottom: 14px; color: var(--accent-blue); }
+  .toc ol { padding-left: 22px; }
+  .toc li { margin: 6px 0; }
+  .toc a { color: var(--text-dim); text-decoration: none; transition: color .2s; }
+  .toc a:hover { color: var(--accent-cyan); }
+
+  /* Section headings */
+  h2.section-title {
+    font-size: 1.65rem;
+    font-weight: 700;
+    margin: 56px 0 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  h2.section-title .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  h3 { font-size: 1.2rem; margin: 28px 0 12px; color: var(--accent-cyan); }
+  h4 { font-size: 1.05rem; margin: 20px 0 8px; color: var(--accent-orange); }
+
+  p { margin: 8px 0 14px; }
+
+  /* Cards */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin: 18px 0;
+  }
+  .card-title {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 20px;
+    font-size: 0.92rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--accent-blue); font-weight: 600; white-space: nowrap; }
+  td code { background: var(--bg-code); padding: 2px 6px; border-radius: 4px; font-size: 0.88rem; }
+
+  /* Code blocks */
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 22px;
+    overflow-x: auto;
+    margin: 12px 0 18px;
+    font-size: 0.86rem;
+    line-height: 1.6;
+  }
+  code { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; }
+  .kw { color: var(--accent-purple); }
+  .fn { color: var(--accent-blue); }
+  .cm { color: #6b7280; font-style: italic; }
+  .st { color: var(--accent-green); }
+  .num { color: var(--accent-orange); }
+
+  /* SVG diagram container */
+  .diagram-wrap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    margin: 20px 0;
+    overflow-x: auto;
+    text-align: center;
+  }
+  .diagram-wrap svg { max-width: 100%; height: auto; }
+  .diagram-caption {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-top: 12px;
+    text-align: center;
+  }
+
+  /* Callout boxes */
+  .callout {
+    border-left: 4px solid;
+    padding: 14px 20px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size: 0.93rem;
+  }
+  .callout-blue { border-color: var(--accent-blue); background: rgba(91,156,246,.08); }
+  .callout-green { border-color: var(--accent-green); background: rgba(74,222,128,.08); }
+  .callout-orange { border-color: var(--accent-orange); background: rgba(245,158,66,.08); }
+  .callout-red { border-color: var(--accent-red); background: rgba(248,113,113,.08); }
+  .callout strong { color: var(--accent-cyan); }
+
+  /* Math */
+  .math {
+    background: var(--bg-code);
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-family: 'SF Mono', monospace;
+    font-size: 0.9rem;
+    margin: 2px 0;
+  }
+  .math-block {
+    display: block;
+    text-align: center;
+    padding: 14px 20px;
+    margin: 12px 0;
+  }
+
+  /* Grid for param cards */
+  .param-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 14px 0;
+  }
+  .param-card {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .param-card .label { font-size: 0.78rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .param-card .value { font-size: 1.3rem; font-weight: 700; margin-top: 2px; }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--border);
+    margin-top: 60px;
+  }
+
+  /* Color utilities */
+  .c-blue { color: var(--accent-blue); }
+  .c-green { color: var(--accent-green); }
+  .c-orange { color: var(--accent-orange); }
+  .c-red { color: var(--accent-red); }
+  .c-purple { color: var(--accent-purple); }
+  .c-cyan { color: var(--accent-cyan); }
+  .c-yellow { color: var(--accent-yellow); }
+
+  .flow-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin: 12px 0;
+  }
+  .flow-step .step-num {
+    flex-shrink: 0;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #fff;
+  }
+  .flow-step .step-body { flex: 1; }
+</style>
+</head>
+<body>
+
+<!-- ========== HERO ========== -->
+<div class="hero">
+  <h1>Block Attention Kernel</h1>
+  <p>Multi-Block Paged GQA Attention on SM80 (A100) &mdash; CUDA Kernel 深度解析</p>
+  <div class="badge-row">
+    <span class="badge" style="color:var(--accent-blue)">SM80 Tensor Core</span>
+    <span class="badge" style="color:var(--accent-green)">Paged KV Cache</span>
+    <span class="badge" style="color:var(--accent-orange)">GQA / MQA</span>
+    <span class="badge" style="color:var(--accent-purple)">Online Softmax</span>
+    <span class="badge" style="color:var(--accent-cyan)">INT4/INT8 Quantization</span>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ========== TOC ========== -->
+<div class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#sec1">整体架构：两阶段流水线</a></li>
+    <li><a href="#sec2">核心常量与数据结构</a></li>
+    <li><a href="#sec3">Shared Memory 布局与 Swizzle</a></li>
+    <li><a href="#sec4">Partition Kernel 完整流程</a></li>
+    <li><a href="#sec5">Paged KV Cache 指针跳转</a></li>
+    <li><a href="#sec6">GEMM 实现：Software Pipelining</a></li>
+    <li><a href="#sec7">MMA Layout 转换：convert_layout_acc_rowcol</a></li>
+    <li><a href="#sec8">边界 Mask 处理</a></li>
+    <li><a href="#sec9">Online Softmax 与 Output Rescale</a></li>
+    <li><a href="#sec10">P&times;V 的 SMEM 中转</a></li>
+    <li><a href="#sec11">Partition 收尾：写出 max / sum / O</a></li>
+    <li><a href="#sec12">Reduce Kernel：全局归一化</a></li>
+    <li><a href="#sec13">Warp-Level Allreduce</a></li>
+  </ol>
+</div>
+
+<!-- ================================================================== -->
+<!-- SECTION 1: 整体架构 -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec1">
+  <span class="num" style="background:var(--accent-blue);color:#fff">1</span>
+  整体架构：两阶段流水线
+</h2>
+
+<p>
+  这个 kernel 实现了 <strong>Multi-Block Paged GQA Attention</strong>。当序列长度很长时，单个 thread block 无法处理完所有 KV token，
+  因此将序列切分为多个 <strong>partition</strong>，每个 partition 由一个独立的 thread block 并行计算，最后通过一个 <strong>reduce kernel</strong> 合并所有 partition 的结果。
+</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 1020 620" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <!-- Background -->
+  <rect width="1020" height="620" fill="#181b24" rx="12"/>
+
+  <!-- Title -->
+  <text x="510" y="38" fill="#e1e4ec" font-size="18" font-weight="700" text-anchor="middle">两阶段 Multi-Block Attention 架构</text>
+
+  <!-- Input bar -->
+  <rect x="60" y="60" width="900" height="36" rx="6" fill="#1e222d" stroke="#2a2f3e"/>
+  <text x="510" y="83" fill="#8b90a0" font-size="13" text-anchor="middle">KV Cache 序列 (seq_len tokens)    ——    每 kBlockSize=64 个 token 为一个 block，每 kTileN=2 个 block 为一个 partition</text>
+
+  <!-- Partition boxes (Stage 1) -->
+  <text x="60" y="124" fill="#5b9cf6" font-size="14" font-weight="600">Stage 1: Partition Kernel (并行)</text>
+
+  <rect x="60"  y="136" width="195" height="230" rx="8" fill="#1a2233" stroke="#5b9cf6" stroke-width="1.5"/>
+  <rect x="275" y="136" width="195" height="230" rx="8" fill="#1a2233" stroke="#5b9cf6" stroke-width="1.5"/>
+  <rect x="490" y="136" width="195" height="230" rx="8" fill="#1a2233" stroke="#5b9cf6" stroke-width="1.5"/>
+  <rect x="720" y="136" width="195" height="230" rx="8" fill="#1a2233" stroke="#5b9cf6" stroke-dasharray="6,3"/>
+
+  <text x="158" y="160" fill="#5b9cf6" font-size="12" font-weight="600" text-anchor="middle">Partition 0</text>
+  <text x="373" y="160" fill="#5b9cf6" font-size="12" font-weight="600" text-anchor="middle">Partition 1</text>
+  <text x="588" y="160" fill="#5b9cf6" font-size="12" font-weight="600" text-anchor="middle">Partition 2</text>
+  <text x="818" y="160" fill="#8b90a0" font-size="12" font-weight="600" text-anchor="middle">Partition P-1</text>
+  <text x="818" y="250" fill="#8b90a0" font-size="22" text-anchor="middle">...</text>
+
+  <!-- Inner steps for partition 0 -->
+  <rect x="74" y="172" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="158" y="189" fill="#4ade80" font-size="11" text-anchor="middle">Q &times; K  (Tensor Core GEMM)</text>
+
+  <rect x="74" y="202" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="158" y="219" fill="#fbbf24" font-size="11" text-anchor="middle">Mask + Online Softmax</text>
+
+  <rect x="74" y="232" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="158" y="249" fill="#a78bfa" font-size="11" text-anchor="middle">P &times; V  (Tensor Core GEMM)</text>
+
+  <rect x="74" y="262" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="158" y="279" fill="#22d3ee" font-size="11" text-anchor="middle">Rescale O (online softmax)</text>
+
+  <!-- Inner steps repeated for partition 1 -->
+  <rect x="289" y="172" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="373" y="189" fill="#4ade80" font-size="11" text-anchor="middle">Q &times; K  (Tensor Core GEMM)</text>
+  <rect x="289" y="202" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="373" y="219" fill="#fbbf24" font-size="11" text-anchor="middle">Mask + Online Softmax</text>
+  <rect x="289" y="232" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="373" y="249" fill="#a78bfa" font-size="11" text-anchor="middle">P &times; V  (Tensor Core GEMM)</text>
+  <rect x="289" y="262" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="373" y="279" fill="#22d3ee" font-size="11" text-anchor="middle">Rescale O (online softmax)</text>
+
+  <!-- Inner steps repeated for partition 2 -->
+  <rect x="504" y="172" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="588" y="189" fill="#4ade80" font-size="11" text-anchor="middle">Q &times; K  (Tensor Core GEMM)</text>
+  <rect x="504" y="202" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="588" y="219" fill="#fbbf24" font-size="11" text-anchor="middle">Mask + Online Softmax</text>
+  <rect x="504" y="232" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="588" y="249" fill="#a78bfa" font-size="11" text-anchor="middle">P &times; V  (Tensor Core GEMM)</text>
+  <rect x="504" y="262" width="167" height="24" rx="4" fill="#22304a"/>
+  <text x="588" y="279" fill="#22d3ee" font-size="11" text-anchor="middle">Rescale O (online softmax)</text>
+
+  <!-- Output arrows from stage 1 -->
+  <rect x="74" y="298" width="167" height="56" rx="4" fill="#1e2a1e" stroke="#4ade80" stroke-width="0.8"/>
+  <text x="158" y="317" fill="#e1e4ec" font-size="10.5" text-anchor="middle">Output:</text>
+  <text x="158" y="333" fill="#4ade80" font-size="10" text-anchor="middle">m&#x2080;, d&#x2080;, O&#x2080;</text>
+  <text x="158" y="347" fill="#8b90a0" font-size="9" text-anchor="middle">max, sum, unnorm. output</text>
+
+  <rect x="289" y="298" width="167" height="56" rx="4" fill="#1e2a1e" stroke="#4ade80" stroke-width="0.8"/>
+  <text x="373" y="317" fill="#e1e4ec" font-size="10.5" text-anchor="middle">Output:</text>
+  <text x="373" y="333" fill="#4ade80" font-size="10" text-anchor="middle">m&#x2081;, d&#x2081;, O&#x2081;</text>
+  <text x="373" y="347" fill="#8b90a0" font-size="9" text-anchor="middle">max, sum, unnorm. output</text>
+
+  <rect x="504" y="298" width="167" height="56" rx="4" fill="#1e2a1e" stroke="#4ade80" stroke-width="0.8"/>
+  <text x="588" y="317" fill="#e1e4ec" font-size="10.5" text-anchor="middle">Output:</text>
+  <text x="588" y="333" fill="#4ade80" font-size="10" text-anchor="middle">m&#x2082;, d&#x2082;, O&#x2082;</text>
+  <text x="588" y="347" fill="#8b90a0" font-size="9" text-anchor="middle">max, sum, unnorm. output</text>
+
+  <!-- Arrows down -->
+  <line x1="158" y1="358" x2="158" y2="400" stroke="#5b9cf6" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="373" y1="358" x2="373" y2="400" stroke="#5b9cf6" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="588" y1="358" x2="588" y2="400" stroke="#5b9cf6" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Global Memory bar -->
+  <rect x="60" y="388" width="640" height="32" rx="6" fill="#2a1e2e" stroke="#a78bfa"/>
+  <text x="380" y="409" fill="#a78bfa" font-size="12" font-weight="600" text-anchor="middle">Global Memory: params.maxs[ ] / params.sums[ ] / params.partition_attn_out[ ]</text>
+
+  <!-- Stage 2 -->
+  <text x="60" y="450" fill="#f59e42" font-size="14" font-weight="600">Stage 2: Reduce Kernel</text>
+
+  <rect x="60" y="462" width="900" height="130" rx="8" fill="#2a2218" stroke="#f59e42" stroke-width="1.5"/>
+
+  <!-- Step boxes inside reduce -->
+  <rect x="80" y="480" width="250" height="48" rx="6" fill="#332a18"/>
+  <text x="205" y="500" fill="#f59e42" font-size="11.5" font-weight="600" text-anchor="middle">caluate_logit_scale</text>
+  <text x="205" y="516" fill="#e1e4ec" font-size="10.5" text-anchor="middle">m_global = max(m&#x2080;..m&#x209a;)</text>
+
+  <rect x="350" y="480" width="290" height="48" rx="6" fill="#332a18"/>
+  <text x="495" y="500" fill="#f59e42" font-size="11.5" font-weight="600" text-anchor="middle">Rescale &amp; Sum</text>
+  <text x="495" y="516" fill="#e1e4ec" font-size="10.5" text-anchor="middle">&#x03B1;&#x209a; = exp(m&#x209a; - m_global),  sum_global = &#x2211;&#x03B1;&#x209a;&middot;d&#x209a;</text>
+
+  <rect x="660" y="480" width="280" height="48" rx="6" fill="#332a18"/>
+  <text x="800" y="500" fill="#f59e42" font-size="11.5" font-weight="600" text-anchor="middle">Weighted Reduce + Normalize</text>
+  <text x="800" y="516" fill="#e1e4ec" font-size="10.5" text-anchor="middle">O = &#x2211;(&#x03B1;&#x209a;&middot;O&#x209a;) / sum_global</text>
+
+  <!-- Arrow between reduce steps -->
+  <line x1="332" y1="504" x2="348" y2="504" stroke="#f59e42" stroke-width="1.2" marker-end="url(#arr2)"/>
+  <line x1="642" y1="504" x2="658" y2="504" stroke="#f59e42" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+  <!-- Final output -->
+  <rect x="340" y="546" width="300" height="34" rx="6" fill="#1e2a1e" stroke="#4ade80" stroke-width="1.5"/>
+  <text x="490" y="568" fill="#4ade80" font-size="13" font-weight="600" text-anchor="middle">params.attn_out (FP16 / INT8)</text>
+
+  <line x1="490" y1="530" x2="490" y2="544" stroke="#4ade80" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+  <!-- Arrow defs -->
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#5b9cf6"/>
+    </marker>
+    <marker id="arr2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#f59e42"/>
+    </marker>
+    <marker id="arr3" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#4ade80"/>
+    </marker>
+  </defs>
+</svg>
+<div class="diagram-caption">图 1：两阶段 Multi-Block Attention 架构总览</div>
+</div>
+
+<div class="callout callout-blue">
+  <strong>为什么需要两个阶段？</strong>
+  每个 partition 独立计算时，只能得到局部的 softmax 结果（因为没有看到其他 partition 的 score）。
+  reduce kernel 通过 online softmax 的数学性质，利用各 partition 导出的 max 和 sum 将局部结果修正为全局正确的 attention output。
+</div>
+
+<!-- ================================================================== -->
+<!-- SECTION 2: 核心常量 -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec2">
+  <span class="num" style="background:var(--accent-green);color:#000">2</span>
+  核心常量与数据结构
+</h2>
+
+<div class="param-grid">
+  <div class="param-card"><div class="label">kBlockSize</div><div class="value c-green">64</div><div style="font-size:0.82rem;color:var(--text-dim)">KV cache block 大小（token 数）</div></div>
+  <div class="param-card"><div class="label">kHeadDim</div><div class="value c-blue">128</div><div style="font-size:0.82rem;color:var(--text-dim)">每个 head 的维度</div></div>
+  <div class="param-card"><div class="label">kTileN</div><div class="value c-orange">2</div><div style="font-size:0.82rem;color:var(--text-dim)">每个 partition 处理的 block 数</div></div>
+  <div class="param-card"><div class="label">kBlockN</div><div class="value c-purple">128</div><div style="font-size:0.82rem;color:var(--text-dim)">kTileN &times; kBlockSize</div></div>
+  <div class="param-card"><div class="label">kBlockM</div><div class="value c-cyan">16</div><div style="font-size:0.82rem;color:var(--text-dim)">kGqaGroupSize 对齐到 16</div></div>
+  <div class="param-card"><div class="label">kNWarps</div><div class="value c-yellow">4</div><div style="font-size:0.82rem;color:var(--text-dim)">每个 block 4 个 warp = 128 线程</div></div>
+  <div class="param-card"><div class="label">kBlockKSmem</div><div class="value c-red">64</div><div style="font-size:0.82rem;color:var(--text-dim)">Smem atom 列宽（&le;64 避免 bank conflict）</div></div>
+  <div class="param-card"><div class="label">MMA Atom</div><div class="value c-purple" style="font-size:1rem">16&times;8&times;16</div><div style="font-size:0.82rem;color:var(--text-dim)">SM80 Tensor Core 指令</div></div>
+</div>
+
+<h3>Grid 配置</h3>
+<table>
+  <tr><th>维度</th><th>索引</th><th>含义</th></tr>
+  <tr><td><code>blockIdx.x</code></td><td><code>partition_idx</code></td><td>序列被切分成的 partition 编号</td></tr>
+  <tr><td><code>blockIdx.y</code></td><td><code>bi</code></td><td>batch index</td></tr>
+  <tr><td><code>blockIdx.z</code></td><td><code>kv_head_idx</code></td><td>KV head 编号（GQA 中多个 Q head 共享同一个 KV head）</td></tr>
+</table>
+
+<h3>Block_attn_params 结构体</h3>
+<div class="card">
+<table>
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+  <tr><td><code>qkv_input</code></td><td>T*</td><td>QKV 合并存储，shape: [token_num, head_num + 2*kv_head_num, head_dim]</td></tr>
+  <tr><td><code>cache_k / cache_v</code></td><td>cache_type*</td><td>Paged KV cache（可能是 FP16 / INT8 / INT4）</td></tr>
+  <tr><td><code>block_table</code></td><td>int*</td><td>逻辑 block &rarr; 物理 block 的映射表</td></tr>
+  <tr><td><code>partition_attn_out</code></td><td>T*</td><td>各 partition 的未归一化 output</td></tr>
+  <tr><td><code>maxs / sums</code></td><td>float*</td><td>各 partition 的局部 max 和 softmax 分母</td></tr>
+  <tr><td><code>attn_out</code></td><td>out_type*</td><td>最终输出（FP16 或 INT8）</td></tr>
+  <tr><td><code>inv_sqrt_dh</code></td><td>float</td><td>1/&radic;d<sub>k</sub> = 1/&radic;128 &asymp; 0.0884</td></tr>
+</table>
+</div>
+
+<!-- ================================================================== -->
+<!-- SECTION 3: Shared Memory -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec3">
+  <span class="num" style="background:var(--accent-orange);color:#000">3</span>
+  Shared Memory 布局与 Swizzle
+</h2>
+
+<h3>SmemLayoutAtomQ：基础 Atom</h3>
+<p>
+  所有 shared memory layout 都基于一个 <strong>8&times;64 的 atom</strong>，叠加了 <code>Swizzle&lt;3,3,3&gt;</code> 来消除 bank conflict：
+</p>
+<pre><code><span class="kw">using</span> SmemLayoutAtomQ = <span class="fn">composition</span>(
+    Swizzle&lt;<span class="num">3</span>, <span class="num">3</span>, <span class="num">3</span>&gt;{},
+    Layout&lt;Shape&lt;Int&lt;<span class="num">8</span>&gt;, Int&lt;<span class="num">64</span>&gt;&gt;,
+           Stride&lt;Int&lt;<span class="num">64</span>&gt;, _1&gt;&gt;{});
+</code></pre>
+
+<div class="callout callout-orange">
+  <strong>Swizzle&lt;3,3,3&gt; 的含义：</strong>
+  对地址做 bit 级变换：<code>addr[5:3] ^= addr[8:6]</code>。这使得相邻行的同一列映射到不同的 bank，
+  128 个线程同时读取时不产生 bank conflict。
+</div>
+
+<h3>tile_to_shape：平铺 Atom 到目标大小</h3>
+<pre><code><span class="kw">using</span> SmemLayoutKV = <span class="fn">tile_to_shape</span>(
+    SmemLayoutAtomQ{},                         <span class="cm">// 8&times;64 的 atom</span>
+    Shape&lt;Int&lt;kBlockSize&gt;, Int&lt;kHeadDim&gt;&gt;{});  <span class="cm">// 目标: 64&times;128</span>
+</code></pre>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <rect width="720" height="300" fill="#181b24" rx="10"/>
+  <text x="360" y="30" fill="#e1e4ec" font-size="14" font-weight="600" text-anchor="middle">tile_to_shape: 8&times;64 atom 平铺为 64&times;128</text>
+
+  <!-- Left: atom -->
+  <rect x="40" y="55" width="120" height="60" rx="4" fill="#2a3348" stroke="#5b9cf6" stroke-width="1.5"/>
+  <text x="100" y="90" fill="#5b9cf6" font-size="12" text-anchor="middle">8 &times; 64</text>
+  <text x="100" y="106" fill="#8b90a0" font-size="10" text-anchor="middle">+ Swizzle</text>
+  <text x="100" y="140" fill="#8b90a0" font-size="11" text-anchor="middle">Atom</text>
+
+  <!-- Arrow -->
+  <line x1="175" y1="85" x2="225" y2="85" stroke="#5b9cf6" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="200" y="78" fill="#8b90a0" font-size="10" text-anchor="middle">tile</text>
+
+  <!-- Right: tiled result -->
+  <g transform="translate(240, 50)">
+    <!-- Grid 8x2 of atoms -->
+    <rect x="0" y="0" width="200" height="240" rx="4" fill="none" stroke="#4ade80" stroke-width="2"/>
+    <!-- Row lines -->
+    <line x1="0" y1="30" x2="200" y2="30" stroke="#2a2f3e" stroke-dasharray="3,3"/>
+    <line x1="0" y1="60" x2="200" y2="60" stroke="#2a2f3e" stroke-dasharray="3,3"/>
+    <line x1="0" y1="90" x2="200" y2="90" stroke="#2a2f3e" stroke-dasharray="3,3"/>
+    <line x1="0" y1="120" x2="200" y2="120" stroke="#2a2f3e" stroke-dasharray="3,3"/>
+    <line x1="0" y1="150" x2="200" y2="150" stroke="#2a2f3e" stroke-dasharray="3,3"/>
+    <line x1="0" y1="180" x2="200" y2="180" stroke="#2a2f3e" stroke-dasharray="3,3"/>
+    <line x1="0" y1="210" x2="200" y2="210" stroke="#2a2f3e" stroke-dasharray="3,3"/>
+    <!-- Col line -->
+    <line x1="100" y1="0" x2="100" y2="240" stroke="#2a2f3e" stroke-dasharray="3,3"/>
+
+    <!-- Label cells -->
+    <text x="50" y="20" fill="#5b9cf6" font-size="9" text-anchor="middle">col 0-63</text>
+    <text x="150" y="20" fill="#5b9cf6" font-size="9" text-anchor="middle">col 64-127</text>
+
+    <text x="50" y="50" fill="#8b90a0" font-size="9" text-anchor="middle">atom</text>
+    <text x="150" y="50" fill="#8b90a0" font-size="9" text-anchor="middle">atom</text>
+    <text x="50" y="80" fill="#8b90a0" font-size="9" text-anchor="middle">atom</text>
+    <text x="150" y="80" fill="#8b90a0" font-size="9" text-anchor="middle">atom</text>
+    <text x="100" y="138" fill="#8b90a0" font-size="9" text-anchor="middle">... (each 8&times;64 with Swizzle) ...</text>
+    <text x="50" y="200" fill="#8b90a0" font-size="9" text-anchor="middle">atom</text>
+    <text x="150" y="200" fill="#8b90a0" font-size="9" text-anchor="middle">atom</text>
+    <text x="50" y="230" fill="#8b90a0" font-size="9" text-anchor="middle">atom</text>
+    <text x="150" y="230" fill="#8b90a0" font-size="9" text-anchor="middle">atom</text>
+
+    <!-- Dimension labels -->
+    <text x="-12" y="124" fill="#4ade80" font-size="11" text-anchor="middle" transform="rotate(-90,-12,124)">64 rows (kBlockSize)</text>
+    <text x="100" y="264" fill="#4ade80" font-size="11" text-anchor="middle">128 cols (kHeadDim)</text>
+  </g>
+
+  <!-- Calculation -->
+  <g transform="translate(480, 60)">
+    <text x="0" y="16" fill="#e1e4ec" font-size="12" font-weight="600">平铺次数：</text>
+    <text x="0" y="40" fill="#f59e42" font-size="12">行: 64 / 8 = <tspan font-weight="700">8</tspan> 个 atom</text>
+    <text x="0" y="60" fill="#f59e42" font-size="12">列: 128 / 64 = <tspan font-weight="700">2</tspan> 个 atom</text>
+    <text x="0" y="84" fill="#8b90a0" font-size="11">共 16 个 atom，</text>
+    <text x="0" y="100" fill="#8b90a0" font-size="11">每个内部独立 Swizzle</text>
+    <text x="0" y="140" fill="#e1e4ec" font-size="12" font-weight="600">复用关系：</text>
+    <text x="0" y="164" fill="#22d3ee" font-size="11">SmemLayoutQ = [16 &times; 128]</text>
+    <text x="0" y="182" fill="#22d3ee" font-size="11">SmemLayoutKV = [64 &times; 128]</text>
+    <text x="0" y="200" fill="#22d3ee" font-size="11">SmemLayoutQK = [16 &times; 64]</text>
+    <text x="0" y="218" fill="#8b90a0" font-size="10">全部复用同一个 atom，</text>
+    <text x="0" y="234" fill="#8b90a0" font-size="10">只是 tile 的目标大小不同</text>
+  </g>
+</svg>
+<div class="diagram-caption">图 2：Shared Memory Layout 通过 tile_to_shape 生成</div>
+</div>
+
+<h3>Shared Memory 分区</h3>
+<pre><code>smem_ ─┬─ sQ        [kBlockM &times; kHeadDim]   = [16 &times; 128]  <span class="cm">// Q 矩阵</span>
+       ├─ sQbias    [kBlockM &times; kHeadDim]   = [16 &times; 128]  <span class="cm">// Q bias</span>
+       ├─ sQK       [kBlockM &times; kBlockSize] = [16 &times; 64]   <span class="cm">// P = softmax(S)，复用</span>
+       ├─ sK        [kBlockSize &times; kHeadDimKV]             <span class="cm">// K cache block</span>
+       └─ sV / sVt  [kBlockSize &times; kHeadDimKV]             <span class="cm">// V cache block (+ 转置视图)</span>
+</code></pre>
+
+<!-- ================================================================== -->
+<!-- SECTION 4: Partition Kernel 流程 -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec4">
+  <span class="num" style="background:var(--accent-purple);color:#fff">4</span>
+  Partition Kernel 完整流程
+</h2>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 1000 950" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <rect width="1000" height="950" fill="#181b24" rx="12"/>
+  <text x="500" y="32" fill="#e1e4ec" font-size="16" font-weight="700" text-anchor="middle">multi_block_gqa_attention_kernel 执行流程</text>
+
+  <!-- Phase: Init -->
+  <rect x="30" y="50" width="940" height="170" rx="8" fill="#1a2233" stroke="#5b9cf6" stroke-width="1"/>
+  <text x="50" y="72" fill="#5b9cf6" font-size="13" font-weight="700">Phase 0: 初始化</text>
+
+  <rect x="50" y="84" width="200" height="50" rx="6" fill="#22304a"/>
+  <text x="150" y="104" fill="#e1e4ec" font-size="11" text-anchor="middle">GMEM &rarr; SMEM:</text>
+  <text x="150" y="120" fill="#4ade80" font-size="11" text-anchor="middle">加载 Q, Qbias 到 sQ, sQbias</text>
+
+  <rect x="270" y="84" width="200" height="50" rx="6" fill="#22304a"/>
+  <text x="370" y="104" fill="#e1e4ec" font-size="11" text-anchor="middle">cp_async_fence + wait</text>
+  <text x="370" y="120" fill="#8b90a0" font-size="11" text-anchor="middle">等待 Q 搬运完成</text>
+
+  <rect x="490" y="84" width="200" height="50" rx="6" fill="#22304a"/>
+  <text x="590" y="104" fill="#e1e4ec" font-size="11" text-anchor="middle">GMEM &rarr; SMEM:</text>
+  <text x="590" y="120" fill="#fbbf24" font-size="11" text-anchor="middle">预取第 0 个 K block 到 sK</text>
+
+  <rect x="710" y="84" width="240" height="50" rx="6" fill="#22304a"/>
+  <text x="830" y="104" fill="#e1e4ec" font-size="11" text-anchor="middle">在 SMEM 上做 RoPE:</text>
+  <text x="830" y="120" fill="#a78bfa" font-size="11" text-anchor="middle">Q = (Q + bias) &times; RoPE</text>
+
+  <rect x="50" y="148" width="440" height="50" rx="6" fill="#22304a"/>
+  <text x="270" y="168" fill="#e1e4ec" font-size="11" text-anchor="middle">加载量化参数：scale_k, zp_k, scale_v, zp_v</text>
+  <text x="270" y="184" fill="#8b90a0" font-size="10" text-anchor="middle">每个线程读取自己负责的 per-channel / per-token 量化参数</text>
+
+  <rect x="510" y="148" width="440" height="50" rx="6" fill="#22304a"/>
+  <text x="730" y="168" fill="#e1e4ec" font-size="11" text-anchor="middle">初始化累加器和 softmax 状态：</text>
+  <text x="730" y="184" fill="#22d3ee" font-size="10" text-anchor="middle">acc_o = 0, acc_s = 0, scores_max = -INF, scores_sum = 0</text>
+
+  <!-- Phase: Main loop -->
+  <rect x="30" y="232" width="940" height="572" rx="8" fill="#1c1528" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="50" y="257" fill="#a78bfa" font-size="13" font-weight="700">Main Loop: for n in [0, kTileN)     (kTileN=2, 每次处理 1 个 64-token block)</text>
+
+  <!-- Step 1 -->
+  <rect x="50" y="272" width="900" height="42" rx="6" fill="#22304a"/>
+  <text x="60" y="293" fill="#4ade80" font-size="11" font-weight="700">Step 1</text>
+  <text x="120" y="293" fill="#e1e4ec" font-size="11">等待 K 加载完成 (cp_async_wait + __syncthreads)，然后跳转 V 指针并发起 V 的异步加载</text>
+  <text x="60" y="308" fill="#8b90a0" font-size="10">V 指针跳转: tVgV += (block_table[n] - block_table[n-1]) &times; cache_offset_step &nbsp;&nbsp;（Paged KV Cache 增量寻址）</text>
+
+  <!-- Step 2 -->
+  <rect x="50" y="322" width="900" height="42" rx="6" fill="#22304a"/>
+  <text x="60" y="343" fill="#5b9cf6" font-size="11" font-weight="700">Step 2</text>
+  <text x="120" y="343" fill="#e1e4ec" font-size="11">计算 S = Q &times; K<tspan font-size="9" baseline-shift="super">T</tspan> &nbsp;&nbsp;(Tensor Core GEMM，shape: [16&times;128] &times; [128&times;64] &rarr; [16&times;64])</text>
+  <text x="60" y="358" fill="#8b90a0" font-size="10">n=0 时从 smem 加载 Q 到寄存器；n>0 时 Q 已在寄存器 (A_in_regs=true)。内部 K 维度分 2 片流水线预取。</text>
+
+  <!-- Step 3 -->
+  <rect x="50" y="372" width="900" height="42" rx="6" fill="#22304a"/>
+  <text x="60" y="393" fill="#fbbf24" font-size="11" font-weight="700">Step 3</text>
+  <text x="120" y="393" fill="#e1e4ec" font-size="11">Layout 转换: convert_layout_acc_rowcol(acc_s) &rarr; scores[row, col] &nbsp;&nbsp;（MMA 3阶 &rarr; 2阶行列）</text>
+  <text x="60" y="408" fill="#8b90a0" font-size="10">每个线程的 scores shape: (2_row &times; MMA_M, 2_col &times; MMA_N) = (2, 4) &nbsp;&nbsp;方便按行做 softmax</text>
+
+  <!-- Step 4 -->
+  <rect x="50" y="422" width="900" height="36" rx="6" fill="#22304a"/>
+  <text x="60" y="445" fill="#f87171" font-size="11" font-weight="700">Step 4</text>
+  <text x="120" y="445" fill="#e1e4ec" font-size="11">边界 Mask: 最后一个 partition 中不满 64 的 block，将超出 seq_len 的列置为 -INF</text>
+
+  <!-- Step 5 -->
+  <rect x="50" y="466" width="900" height="52" rx="6" fill="#22304a"/>
+  <text x="60" y="487" fill="#f59e42" font-size="11" font-weight="700">Step 5</text>
+  <text x="120" y="487" fill="#e1e4ec" font-size="11">reduce_max: warp 内 shuffle 归约 &rarr; 写 scores_warp &rarr; 跨 warp 归约得全局行最大值</text>
+  <text x="60" y="508" fill="#8b90a0" font-size="10">同时预取下一个 K block 到 sK（与 max 归约重叠执行，隐藏 memory latency）</text>
+
+  <!-- Step 6 -->
+  <rect x="50" y="526" width="900" height="52" rx="6" fill="#22304a"/>
+  <text x="60" y="547" fill="#22d3ee" font-size="11" font-weight="700">Step 6</text>
+  <text x="120" y="547" fill="#e1e4ec" font-size="11">Online Softmax + Rescale O:</text>
+  <text x="60" y="568" fill="#22d3ee" font-size="10">Is_first (n=0): scores = exp((s - max) &times; scale), sum += scores</text>
+  <text x="480" y="568" fill="#a78bfa" font-size="10">Not first (n>0): &alpha; = exp((max_prev - max_new) &times; scale), acc_o &times;= &alpha;, sum &times;= &alpha;, 再算 exp</text>
+
+  <!-- Step 7 -->
+  <rect x="50" y="586" width="900" height="42" rx="6" fill="#22304a"/>
+  <text x="60" y="607" fill="#a78bfa" font-size="11" font-weight="700">Step 7</text>
+  <text x="120" y="607" fill="#e1e4ec" font-size="11">P 写回 SMEM: acc_s (FP32 reg, C layout) &rarr; rS (FP16 reg) &rarr; sQK (smem, A layout)</text>
+  <text x="60" y="622" fill="#8b90a0" font-size="10">因为 Tensor Core 的 C-layout 和 A-layout 不兼容，必须经过 smem 中转，sQK 复用了之前的空间</text>
+
+  <!-- Step 8 -->
+  <rect x="50" y="636" width="900" height="42" rx="6" fill="#22304a"/>
+  <text x="60" y="657" fill="#4ade80" font-size="11" font-weight="700">Step 8</text>
+  <text x="120" y="657" fill="#e1e4ec" font-size="11">计算 O += P &times; V &nbsp;&nbsp;(Tensor Core GEMM，shape: [16&times;64] &times; [64&times;128] &rarr; [16&times;128])</text>
+  <text x="60" y="672" fill="#8b90a0" font-size="10">P 从 sQK 读取 (A 矩阵)，V<tspan font-size="9" baseline-shift="super">T</tspan> 从 sVt 读取 (B 矩阵，转置访问)。累加到 acc_o。</text>
+
+  <!-- Loop arrow -->
+  <path d="M960,682 Q975,682 975,480 Q975,268 960,268" fill="none" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="982" y="480" fill="#a78bfa" font-size="10" text-anchor="start" transform="rotate(90,982,480)">next block</text>
+
+  <!-- Phase: Epilogue -->
+  <rect x="50" y="698" width="900" height="92" rx="6" fill="#1e2a1e" stroke="#4ade80"/>
+  <text x="70" y="720" fill="#4ade80" font-size="12" font-weight="700">Epilogue: 写出结果到 Global Memory</text>
+  <text x="70" y="742" fill="#e1e4ec" font-size="11">1. params.maxs[partition_idx] = scores_max &times; inv_sqrt_dh &nbsp;&nbsp;（局部 max，已乘 scale）</text>
+  <text x="70" y="760" fill="#e1e4ec" font-size="11">2. params.sums[partition_idx] = &Sigma; scores_sum &nbsp;&nbsp;（局部 softmax 分母，跨 warp 归约后的结果）</text>
+  <text x="70" y="778" fill="#e1e4ec" font-size="11">3. params.partition_attn_out[partition_idx] = acc_o &nbsp;&nbsp;（未归一化的 output，经 reg &rarr; smem &rarr; gmem）</text>
+
+  <!-- Timeline annotation -->
+  <text x="500" y="830" fill="#8b90a0" font-size="12" text-anchor="middle">每个 partition kernel 完成后，等待 reduce kernel 做全局合并</text>
+
+  <!-- Legend -->
+  <rect x="50" y="860" width="900" height="78" rx="6" fill="#1e222d"/>
+  <text x="70" y="882" fill="#8b90a0" font-size="11" font-weight="600">Color Legend:</text>
+  <rect x="70" y="892" width="12" height="12" rx="2" fill="#4ade80"/>  <text x="90" y="903" fill="#8b90a0" font-size="10">Data Movement / Memory</text>
+  <rect x="250" y="892" width="12" height="12" rx="2" fill="#5b9cf6"/> <text x="270" y="903" fill="#8b90a0" font-size="10">GEMM Compute</text>
+  <rect x="400" y="892" width="12" height="12" rx="2" fill="#fbbf24"/> <text x="420" y="903" fill="#8b90a0" font-size="10">Layout Transform</text>
+  <rect x="560" y="892" width="12" height="12" rx="2" fill="#f87171"/> <text x="580" y="903" fill="#8b90a0" font-size="10">Mask / Boundary</text>
+  <rect x="720" y="892" width="12" height="12" rx="2" fill="#22d3ee"/> <text x="740" y="903" fill="#8b90a0" font-size="10">Softmax / Rescale</text>
+  <rect x="70" y="916" width="12" height="12" rx="2" fill="#a78bfa"/> <text x="90" y="927" fill="#8b90a0" font-size="10">SMEM Relay (layout convert)</text>
+  <rect x="250" y="916" width="12" height="12" rx="2" fill="#f59e42"/> <text x="270" y="927" fill="#8b90a0" font-size="10">Reduction (max/sum)</text>
+</svg>
+<div class="diagram-caption">图 3：Partition Kernel 完整执行流程（每个 thread block 的工作）</div>
+</div>
+
+
+<!-- ================================================================== -->
+<!-- SECTION 5: Paged KV Cache -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec5">
+  <span class="num" style="background:var(--accent-cyan);color:#000">5</span>
+  Paged KV Cache 指针跳转
+</h2>
+
+<p>
+  在 Paged Attention 中，逻辑上连续的 KV block 在物理内存中<strong>不一定连续</strong>。
+  <code>block_table</code> 记录了逻辑 block &rarr; 物理 block 的映射。
+</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 800 340" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <rect width="800" height="340" fill="#181b24" rx="10"/>
+  <text x="400" y="28" fill="#e1e4ec" font-size="14" font-weight="600" text-anchor="middle">Paged KV Cache 增量指针跳转</text>
+
+  <!-- Block table -->
+  <text x="40" y="64" fill="#5b9cf6" font-size="12" font-weight="600">block_table:</text>
+  <rect x="140" y="48" width="60" height="30" rx="4" fill="#22304a" stroke="#5b9cf6"/>
+  <text x="170" y="68" fill="#e1e4ec" font-size="13" text-anchor="middle" font-weight="700">5</text>
+  <text x="170" y="42" fill="#8b90a0" font-size="9" text-anchor="middle">[0]</text>
+
+  <rect x="210" y="48" width="60" height="30" rx="4" fill="#22304a" stroke="#5b9cf6"/>
+  <text x="240" y="68" fill="#e1e4ec" font-size="13" text-anchor="middle" font-weight="700">12</text>
+  <text x="240" y="42" fill="#8b90a0" font-size="9" text-anchor="middle">[1]</text>
+
+  <rect x="280" y="48" width="60" height="30" rx="4" fill="#22304a" stroke="#5b9cf6"/>
+  <text x="310" y="68" fill="#e1e4ec" font-size="13" text-anchor="middle" font-weight="700">3</text>
+  <text x="310" y="42" fill="#8b90a0" font-size="9" text-anchor="middle">[2]</text>
+
+  <rect x="350" y="48" width="60" height="30" rx="4" fill="#22304a" stroke="#5b9cf6"/>
+  <text x="380" y="68" fill="#e1e4ec" font-size="13" text-anchor="middle" font-weight="700">8</text>
+  <text x="380" y="42" fill="#8b90a0" font-size="9" text-anchor="middle">[3]</text>
+
+  <!-- Physical memory bar -->
+  <text x="40" y="120" fill="#4ade80" font-size="12" font-weight="600">Physical Memory (KV Cache):</text>
+  <g transform="translate(40, 130)">
+    <rect x="0" y="0" width="50" height="30" rx="3" fill="#1e222d" stroke="#2a2f3e"/>
+    <text x="25" y="20" fill="#8b90a0" font-size="10" text-anchor="middle">0</text>
+    <rect x="55" y="0" width="50" height="30" rx="3" fill="#1e222d" stroke="#2a2f3e"/>
+    <text x="80" y="20" fill="#8b90a0" font-size="10" text-anchor="middle">1</text>
+    <rect x="110" y="0" width="50" height="30" rx="3" fill="#1e222d" stroke="#2a2f3e"/>
+    <text x="135" y="20" fill="#8b90a0" font-size="10" text-anchor="middle">2</text>
+    <rect x="165" y="0" width="50" height="30" rx="3" fill="#2a1e2e" stroke="#f87171"/>
+    <text x="190" y="20" fill="#f87171" font-size="10" text-anchor="middle" font-weight="700">3</text>
+    <rect x="220" y="0" width="50" height="30" rx="3" fill="#1e222d" stroke="#2a2f3e"/>
+    <text x="245" y="20" fill="#8b90a0" font-size="10" text-anchor="middle">4</text>
+    <rect x="275" y="0" width="50" height="30" rx="3" fill="#1e2a1e" stroke="#4ade80"/>
+    <text x="300" y="20" fill="#4ade80" font-size="10" text-anchor="middle" font-weight="700">5</text>
+    <rect x="330" y="0" width="50" height="30" rx="3" fill="#1e222d" stroke="#2a2f3e"/>
+    <text x="355" y="20" fill="#8b90a0" font-size="10" text-anchor="middle">6</text>
+    <rect x="385" y="0" width="50" height="30" rx="3" fill="#1e222d" stroke="#2a2f3e"/>
+    <text x="410" y="20" fill="#8b90a0" font-size="10" text-anchor="middle">7</text>
+    <rect x="440" y="0" width="50" height="30" rx="3" fill="#2a2a1e" stroke="#fbbf24"/>
+    <text x="465" y="20" fill="#fbbf24" font-size="10" text-anchor="middle" font-weight="700">8</text>
+    <rect x="495" y="0" width="50" height="30" rx="3" fill="#1e222d" stroke="#2a2f3e"/>
+    <text x="520" y="20" fill="#8b90a0" font-size="10" text-anchor="middle">9</text>
+    <rect x="550" y="0" width="50" height="30" rx="3" fill="#1e222d" stroke="#2a2f3e"/>
+    <text x="575" y="20" fill="#8b90a0" font-size="10" text-anchor="middle">10</text>
+    <rect x="605" y="0" width="50" height="30" rx="3" fill="#1e222d" stroke="#2a2f3e"/>
+    <text x="630" y="20" fill="#8b90a0" font-size="10" text-anchor="middle">11</text>
+    <rect x="660" y="0" width="50" height="30" rx="3" fill="#1a2233" stroke="#5b9cf6"/>
+    <text x="685" y="20" fill="#5b9cf6" font-size="10" text-anchor="middle" font-weight="700">12</text>
+  </g>
+
+  <!-- Code -->
+  <text x="40" y="202" fill="#f59e42" font-size="12" font-weight="600">增量跳转代码：</text>
+  <rect x="40" y="210" width="720" height="34" rx="4" fill="#1e222d" stroke="#2a2f3e"/>
+  <text x="52" y="232" fill="#e1e4ec" font-size="12" font-family="SF Mono, monospace">tVgV.data() += (block_table[n] - block_table[n-1]) &times; cache_offset_step</text>
+
+  <!-- Example table -->
+  <text x="40" y="272" fill="#22d3ee" font-size="12" font-weight="600">示例（block_table = {5, 12, 3, 8}）：</text>
+  <g transform="translate(40, 282)">
+    <text x="0" y="15" fill="#4ade80" font-size="11">n=0: 初始指向物理块 5 (cache_offset 直接计算)</text>
+    <text x="0" y="33" fill="#5b9cf6" font-size="11">n=1: ptr += (12-5) &times; S = <tspan fill="#f59e42" font-weight="700">+7S</tspan>  &rarr; 指向物理块 12</text>
+    <text x="420" y="15" fill="#f87171" font-size="11">n=2: ptr += (3-12) &times; S = <tspan fill="#f59e42" font-weight="700">-9S</tspan>  &rarr; 指向物理块 3</text>
+    <text x="420" y="33" fill="#fbbf24" font-size="11">n=3: ptr += (8-3) &times; S = <tspan fill="#f59e42" font-weight="700">+5S</tspan>  &rarr; 指向物理块 8</text>
+  </g>
+</svg>
+<div class="diagram-caption">图 4：Paged KV Cache 的增量指针跳转（差值可正可负）</div>
+</div>
+
+<!-- ================================================================== -->
+<!-- SECTION 6: GEMM -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec6">
+  <span class="num" style="background:var(--accent-red);color:#fff">6</span>
+  GEMM 实现：Software Pipelining
+</h2>
+
+<p>
+  核心 GEMM 函数沿 K 维度切片，实现了 <strong>depth-1 的 smem &rarr; register 预取流水线</strong>。
+  先发射 copy（走 Load/Store 单元），再发射 gemm（走 Tensor Core），两者可以并行执行。
+</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 800 280" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <rect width="800" height="280" fill="#181b24" rx="10"/>
+  <text x="400" y="28" fill="#e1e4ec" font-size="14" font-weight="600" text-anchor="middle">GEMM Software Pipelining 时序图</text>
+
+  <!-- Timeline headers -->
+  <text x="120" y="58" fill="#8b90a0" font-size="11" text-anchor="end">阶段</text>
+  <text x="200" y="58" fill="#5b9cf6" font-size="11" text-anchor="middle">Load 单元</text>
+  <text x="500" y="58" fill="#4ade80" font-size="11" text-anchor="middle">Tensor Core</text>
+
+  <!-- Prolog -->
+  <text x="120" y="88" fill="#f59e42" font-size="11" text-anchor="end">Prolog</text>
+  <rect x="140" y="72" width="120" height="24" rx="4" fill="#1a2233" stroke="#5b9cf6"/>
+  <text x="200" y="89" fill="#5b9cf6" font-size="10" text-anchor="middle">load K=0</text>
+
+  <!-- i=0 -->
+  <text x="120" y="128" fill="#f59e42" font-size="11" text-anchor="end">i = 0</text>
+  <rect x="140" y="112" width="120" height="24" rx="4" fill="#1a2233" stroke="#5b9cf6"/>
+  <text x="200" y="129" fill="#5b9cf6" font-size="10" text-anchor="middle">load K=1</text>
+  <rect x="320" y="112" width="360" height="24" rx="4" fill="#1e2a1e" stroke="#4ade80"/>
+  <text x="500" y="129" fill="#4ade80" font-size="10" text-anchor="middle">MMA K=0 &nbsp;&nbsp;(与 load K=1 并行)</text>
+
+  <!-- i=1 -->
+  <text x="120" y="168" fill="#f59e42" font-size="11" text-anchor="end">i = 1</text>
+  <rect x="140" y="152" width="120" height="24" rx="4" fill="#1a2233" stroke="#5b9cf6"/>
+  <text x="200" y="169" fill="#5b9cf6" font-size="10" text-anchor="middle">load K=2</text>
+  <rect x="320" y="152" width="360" height="24" rx="4" fill="#1e2a1e" stroke="#4ade80"/>
+  <text x="500" y="169" fill="#4ade80" font-size="10" text-anchor="middle">MMA K=1 &nbsp;&nbsp;(与 load K=2 并行)</text>
+
+  <!-- i=last -->
+  <text x="120" y="208" fill="#f59e42" font-size="11" text-anchor="end">i = last</text>
+  <rect x="140" y="192" width="120" height="24" rx="4" fill="#1e222d" stroke="#2a2f3e" stroke-dasharray="4,3"/>
+  <text x="200" y="209" fill="#8b90a0" font-size="10" text-anchor="middle">(no load)</text>
+  <rect x="320" y="192" width="360" height="24" rx="4" fill="#1e2a1e" stroke="#4ade80"/>
+  <text x="500" y="209" fill="#4ade80" font-size="10" text-anchor="middle">MMA K=last</text>
+
+  <!-- Key params -->
+  <rect x="140" y="234" width="540" height="32" rx="6" fill="#1e222d" stroke="#2a2f3e"/>
+  <text x="410" y="255" fill="#8b90a0" font-size="11" text-anchor="middle">
+    S = Q&times;K: K 维度 128 / kBlockKSmem 64 = <tspan fill="#f59e42" font-weight="700">2 片</tspan> &nbsp;&nbsp; | &nbsp;&nbsp;
+    A_in_regs: n=0 时 false (加载 Q)，n>0 时 true (Q 已在寄存器)
+  </text>
+</svg>
+<div class="diagram-caption">图 5：GEMM 中 smem&rarr;reg 预取流水线时序</div>
+</div>
+
+<h3>retile_D 的作用</h3>
+<p>
+  <code>smem_thr_copy_A.retile_D(tCrA)</code> 把同一块寄存器从 <strong>MMA 计算的 layout</strong> 重新解释为
+  <strong>smem copy 指令（如 ldmatrix）的 layout</strong>。不搬数据，只换视图。
+  后续 <code>copy(smem_thr_copy_A, tCsA(_, _, i), tCrA_copy_view(_, _, i))</code> 按 copy-friendly 的 layout 把数据搬进寄存器，
+  而 <code>cute::gemm(tiled_mma, tCrA(_, _, i), tCrB(_, _, i), acc)</code> 按 MMA-friendly 的 layout 消费同一组寄存器。
+</p>
+
+<!-- ================================================================== -->
+<!-- SECTION 7: Layout 转换 -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec7">
+  <span class="num" style="background:var(--accent-yellow);color:#000">7</span>
+  MMA Layout 转换：convert_layout_acc_rowcol
+</h2>
+
+<pre><code><span class="kw">auto</span> l = <span class="fn">logical_divide</span>(acc_layout, Shape&lt;_2&gt;{});   <span class="cm">// (4, MMA_M, MMA_N) &rarr; ((2,2), MMA_M, MMA_N)</span>
+<span class="kw">return</span> <span class="fn">make_layout</span>(
+    make_layout(get&lt;<span class="num">0,1</span>&gt;(l), get&lt;<span class="num">1</span>&gt;(l)),   <span class="cm">// 行: (2_row, MMA_M)</span>
+    make_layout(get&lt;<span class="num">0,0</span>&gt;(l), get&lt;<span class="num">2</span>&gt;(l))    <span class="cm">// 列: (2_col, MMA_N)</span>
+);
+</code></pre>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 800 300" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <rect width="800" height="300" fill="#181b24" rx="10"/>
+  <text x="400" y="28" fill="#e1e4ec" font-size="14" font-weight="600" text-anchor="middle">SM80 MMA 16&times;8 Output Tile &mdash; 每个线程持有 4 个元素</text>
+
+  <!-- 16x8 grid -->
+  <g transform="translate(60, 50)">
+    <!-- Grid outline -->
+    <rect x="0" y="0" width="240" height="200" fill="none" stroke="#5b9cf6" stroke-width="1.5" rx="4"/>
+
+    <!-- Halves -->
+    <rect x="0" y="0" width="120" height="100" fill="rgba(74,222,128,0.1)" rx="4"/>
+    <rect x="120" y="0" width="120" height="100" fill="rgba(91,156,246,0.1)" rx="4"/>
+    <rect x="0" y="100" width="120" height="100" fill="rgba(167,139,250,0.1)" rx="4"/>
+    <rect x="120" y="100" width="120" height="100" fill="rgba(245,158,66,0.1)" rx="4"/>
+
+    <!-- Labels -->
+    <text x="60" y="55" fill="#4ade80" font-size="18" text-anchor="middle" font-weight="700">elt[0]</text>
+    <text x="180" y="55" fill="#5b9cf6" font-size="18" text-anchor="middle" font-weight="700">elt[1]</text>
+    <text x="60" y="155" fill="#a78bfa" font-size="18" text-anchor="middle" font-weight="700">elt[2]</text>
+    <text x="180" y="155" fill="#f59e42" font-size="18" text-anchor="middle" font-weight="700">elt[3]</text>
+
+    <!-- Dimension labels -->
+    <text x="120" y="222" fill="#8b90a0" font-size="11" text-anchor="middle">col 0-3 &nbsp;&nbsp;|&nbsp;&nbsp; col 4-7</text>
+    <text x="-14" y="50" fill="#8b90a0" font-size="11" text-anchor="middle" transform="rotate(-90,-14,50)">row 0-7</text>
+    <text x="-14" y="150" fill="#8b90a0" font-size="11" text-anchor="middle" transform="rotate(-90,-14,150)">row 8-15</text>
+
+    <!-- Divider lines -->
+    <line x1="120" y1="0" x2="120" y2="200" stroke="#2a2f3e" stroke-width="1"/>
+    <line x1="0" y1="100" x2="240" y2="100" stroke="#2a2f3e" stroke-width="1"/>
+  </g>
+
+  <!-- Arrow -->
+  <text x="370" y="150" fill="#f59e42" font-size="28" text-anchor="middle">&rarr;</text>
+  <text x="370" y="175" fill="#8b90a0" font-size="10" text-anchor="middle">convert_layout</text>
+  <text x="370" y="190" fill="#8b90a0" font-size="10" text-anchor="middle">_acc_rowcol</text>
+
+  <!-- Result -->
+  <g transform="translate(440, 60)">
+    <rect x="0" y="0" width="320" height="170" rx="6" fill="#1e222d" stroke="#22d3ee"/>
+    <text x="160" y="26" fill="#22d3ee" font-size="13" font-weight="600" text-anchor="middle">scores(mi, ni) &mdash; shape (2, 4)</text>
+
+    <!-- Table -->
+    <text x="20" y="56" fill="#8b90a0" font-size="10">mi\ni</text>
+    <text x="90" y="56" fill="#5b9cf6" font-size="10" text-anchor="middle">0</text>
+    <text x="140" y="56" fill="#5b9cf6" font-size="10" text-anchor="middle">1</text>
+    <text x="200" y="56" fill="#5b9cf6" font-size="10" text-anchor="middle">2</text>
+    <text x="260" y="56" fill="#5b9cf6" font-size="10" text-anchor="middle">3</text>
+
+    <text x="30" y="82" fill="#4ade80" font-size="11" text-anchor="middle">0</text>
+    <text x="90" y="82" fill="#4ade80" font-size="11" text-anchor="middle">elt[0]</text>
+    <text x="140" y="82" fill="#5b9cf6" font-size="11" text-anchor="middle">elt[1]</text>
+    <text x="200" y="82" fill="#4ade80" font-size="11" text-anchor="middle">MMA_N=1</text>
+    <text x="260" y="82" fill="#5b9cf6" font-size="11" text-anchor="middle">MMA_N=1</text>
+
+    <text x="30" y="110" fill="#a78bfa" font-size="11" text-anchor="middle">1</text>
+    <text x="90" y="110" fill="#a78bfa" font-size="11" text-anchor="middle">elt[2]</text>
+    <text x="140" y="110" fill="#f59e42" font-size="11" text-anchor="middle">elt[3]</text>
+    <text x="200" y="110" fill="#a78bfa" font-size="11" text-anchor="middle">MMA_N=1</text>
+    <text x="260" y="110" fill="#f59e42" font-size="11" text-anchor="middle">MMA_N=1</text>
+
+    <line x1="10" y1="62" x2="300" y2="62" stroke="#2a2f3e"/>
+    <line x1="10" y1="90" x2="300" y2="90" stroke="#2a2f3e"/>
+
+    <text x="160" y="145" fill="#8b90a0" font-size="10" text-anchor="middle">行 = (2_row, MMA_M=1) = 2</text>
+    <text x="160" y="161" fill="#8b90a0" font-size="10" text-anchor="middle">列 = (2_col, MMA_N=2) = 4</text>
+  </g>
+</svg>
+<div class="diagram-caption">图 6：MMA 累加器 3 阶 layout &rarr; 2 阶 (row, col) 行列 layout</div>
+</div>
+
+<p>
+  转换后，外层循环 <code>mi</code> 遍历行，内层循环 <code>ni</code> 遍历列，方便逐行做 softmax 的 reduce_max、reduce_sum、apply_mask 等操作。
+</p>
+
+<!-- ================================================================== -->
+<!-- SECTION 8: 边界 Mask -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec8">
+  <span class="num" style="background:var(--accent-red);color:#fff">8</span>
+  边界 Mask 处理
+</h2>
+
+<pre><code><span class="kw">if</span> (partition_idx == partition_num - 1 && cur_remain_seq_len &lt; kBlockSize) {
+    block_attn::<span class="fn">apply_mask</span>&lt;kMiLen&gt;(scores, warp_id, col, cur_remain_seq_len);
+}
+</code></pre>
+
+<p>
+  只有<strong>最后一个 partition 的最后一个 block</strong> 才可能不满 64 个 token。
+  <code>apply_mask</code> 还原每个线程持有的 score 元素对应的真实列索引：
+</p>
+
+<div class="card">
+  <div class="card-title">列索引还原公式</div>
+  <div class="math math-block">col_index = warp_id &times; 8 + ni &times; 32 + col &times; 2</div>
+  <table>
+    <tr><th>分量</th><th>含义</th><th>范围</th></tr>
+    <tr><td><code>warp_id &times; 8</code></td><td>每个 warp 负责 8 列的一段</td><td>0, 8, 16, 24</td></tr>
+    <tr><td><code>ni &times; 32</code></td><td>不同 MMA tile 之间间隔 32</td><td>0, 32</td></tr>
+    <tr><td><code>col &times; 2</code></td><td>lane 在 8 列 MMA tile 内的偏移</td><td>0, 2, 4, 6</td></tr>
+  </table>
+  <p style="margin-top:10px">
+    如果 <code>col_index &ge; remain_seq_len</code>，将对应的 <code>scores(mi, ni*2)</code> 和 <code>scores(mi, ni*2+1)</code> 置为 <strong>-INF</strong>。
+    经过 softmax 后 e<sup>-&infin;</sup> = 0，这些无效位置对输出没有贡献。
+  </p>
+</div>
+
+<!-- ================================================================== -->
+<!-- SECTION 9: Online Softmax -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec9">
+  <span class="num" style="background:var(--accent-cyan);color:#000">9</span>
+  Online Softmax 与 Output Rescale
+</h2>
+
+<p>
+  这是 FlashAttention 的核心算法——<strong>在不知道完整序列的情况下，增量更新 softmax</strong>。
+</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 860 400" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <rect width="860" height="400" fill="#181b24" rx="10"/>
+  <text x="430" y="30" fill="#e1e4ec" font-size="15" font-weight="700" text-anchor="middle">Online Softmax 递推更新</text>
+
+  <!-- Block 0 -->
+  <rect x="30" y="55" width="370" height="145" rx="8" fill="#1a2233" stroke="#4ade80"/>
+  <text x="215" y="78" fill="#4ade80" font-size="13" font-weight="700" text-anchor="middle">Block 0 (Is_first = true)</text>
+
+  <text x="50" y="105" fill="#e1e4ec" font-size="12">1. m&#x2080; = max(S&#x2080;)</text>
+  <text x="50" y="130" fill="#e1e4ec" font-size="12">2. P&#x2080;(i) = exp((S&#x2080;(i) - m&#x2080;) &times; scale)</text>
+  <text x="50" y="155" fill="#e1e4ec" font-size="12">3. d&#x2080; = &Sigma; P&#x2080;(i)</text>
+  <text x="50" y="180" fill="#e1e4ec" font-size="12">4. O&#x2080; = P&#x2080; &times; V&#x2080;</text>
+
+  <!-- Arrow -->
+  <line x1="405" y1="130" x2="445" y2="130" stroke="#f59e42" stroke-width="2" marker-end="url(#arr2)"/>
+
+  <!-- Block 1 -->
+  <rect x="450" y="55" width="380" height="220" rx="8" fill="#2a2218" stroke="#f59e42"/>
+  <text x="640" y="78" fill="#f59e42" font-size="13" font-weight="700" text-anchor="middle">Block 1 (Is_first = false)</text>
+
+  <text x="470" y="105" fill="#e1e4ec" font-size="12">1. m&#x2081; = max(m&#x2080;, max(S&#x2081;))</text>
+  <text x="470" y="132" fill="#22d3ee" font-size="12">2. &alpha; = exp((m&#x2080; - m&#x2081;) &times; scale)</text>
+  <text x="470" y="159" fill="#a78bfa" font-size="12">3. d&#x2080; &times;= &alpha; &nbsp;&nbsp;&nbsp;<tspan fill="#8b90a0" font-size="10">(修正旧的 sum)</tspan></text>
+  <text x="470" y="186" fill="#a78bfa" font-size="12">4. O&#x2080; &times;= &alpha; &nbsp;&nbsp;&nbsp;<tspan fill="#8b90a0" font-size="10">(修正旧的 output)</tspan></text>
+  <text x="470" y="213" fill="#e1e4ec" font-size="12">5. P&#x2081;(i) = exp((S&#x2081;(i) - m&#x2081;) &times; scale)</text>
+  <text x="470" y="240" fill="#e1e4ec" font-size="12">6. d = d&#x2080; + &Sigma; P&#x2081;(i)</text>
+  <text x="470" y="267" fill="#e1e4ec" font-size="12">7. O = O&#x2080; + P&#x2081; &times; V&#x2081;</text>
+
+  <!-- Mathematical note -->
+  <rect x="30" y="300" width="800" height="85" rx="8" fill="#1e222d" stroke="#2a2f3e"/>
+  <text x="50" y="325" fill="#22d3ee" font-size="13" font-weight="600">数学本质：</text>
+  <text x="50" y="350" fill="#e1e4ec" font-size="12">&alpha; &le; 1（因为 m&#x2080; &le; m&#x2081;），所以旧的贡献被缩小，保证了 exp 不溢出。</text>
+  <text x="50" y="374" fill="#e1e4ec" font-size="12">最终归一化在 reduce kernel 中完成：O_final = &Sigma;(&alpha;&#x209a; &times; O&#x209a;) / &Sigma;(&alpha;&#x209a; &times; d&#x209a;)，不需要在 partition 内除。</text>
+</svg>
+<div class="diagram-caption">图 7：Online Softmax 增量更新过程</div>
+</div>
+
+<div class="callout callout-green">
+  <strong>scale_apply_exp2 中的关键行：</strong><br>
+  <code>tensor(mi, ni) = expf(tensor(mi, ni) * scale - max_scaled)</code><br>
+  等价于 exp((score - max) &times; scale)，减去 max 保证指数参数 &le; 0，结果在 (0, 1] 范围，防止浮点溢出。
+  <code>max_scaled = max[mi] * scale</code> 提到循环外避免重复计算。
+</div>
+
+<!-- ================================================================== -->
+<!-- SECTION 10: P*V SMEM 中转 -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec10">
+  <span class="num" style="background:var(--accent-purple);color:#fff">10</span>
+  P&times;V 的 SMEM 中转
+</h2>
+
+<p>
+  计算完 softmax 后，需要做 O = P &times; V。但 P 目前在寄存器中，且 layout 是 MMA 的 <strong>C 矩阵 (输出) layout</strong>，
+  而 P&times;V 的 GEMM 中 P 需要作为 <strong>A 矩阵 (输入) layout</strong>。两者不兼容，必须经过 shared memory 中转。
+</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 780 160" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <rect width="780" height="160" fill="#181b24" rx="10"/>
+
+  <!-- Step 1 -->
+  <rect x="30" y="30" width="160" height="100" rx="6" fill="#2a1e2e" stroke="#a78bfa"/>
+  <text x="110" y="60" fill="#a78bfa" font-size="12" text-anchor="middle" font-weight="600">Register</text>
+  <text x="110" y="80" fill="#e1e4ec" font-size="11" text-anchor="middle">acc_s (FP32)</text>
+  <text x="110" y="98" fill="#8b90a0" font-size="10" text-anchor="middle">C-layout</text>
+  <text x="110" y="115" fill="#8b90a0" font-size="9" text-anchor="middle">&darr; convert_type &rarr; FP16</text>
+
+  <line x1="195" y1="80" x2="245" y2="80" stroke="#f59e42" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <text x="220" y="72" fill="#f59e42" font-size="9" text-anchor="middle">write</text>
+
+  <!-- Step 2 -->
+  <rect x="250" y="30" width="160" height="100" rx="6" fill="#22304a" stroke="#5b9cf6"/>
+  <text x="330" y="60" fill="#5b9cf6" font-size="12" text-anchor="middle" font-weight="600">Shared Memory</text>
+  <text x="330" y="80" fill="#e1e4ec" font-size="11" text-anchor="middle">sQK [16&times;64]</text>
+  <text x="330" y="98" fill="#8b90a0" font-size="10" text-anchor="middle">复用之前的空间</text>
+  <text x="330" y="115" fill="#8b90a0" font-size="9" text-anchor="middle">A-friendly layout</text>
+
+  <line x1="415" y1="80" x2="465" y2="80" stroke="#4ade80" stroke-width="1.5" marker-end="url(#arr3)"/>
+  <text x="440" y="72" fill="#4ade80" font-size="9" text-anchor="middle">read</text>
+
+  <!-- Step 3 -->
+  <rect x="470" y="30" width="160" height="100" rx="6" fill="#1e2a1e" stroke="#4ade80"/>
+  <text x="550" y="60" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="600">Register</text>
+  <text x="550" y="80" fill="#e1e4ec" font-size="11" text-anchor="middle">tSrQK (FP16)</text>
+  <text x="550" y="98" fill="#8b90a0" font-size="10" text-anchor="middle">A-layout</text>
+  <text x="550" y="115" fill="#8b90a0" font-size="9" text-anchor="middle">MMA 可直接消费</text>
+
+  <line x1="635" y1="80" x2="680" y2="80" stroke="#e1e4ec" stroke-width="1.5" marker-end="url(#arr4)"/>
+
+  <rect x="685" y="50" width="70" height="40" rx="6" fill="#332a18" stroke="#fbbf24"/>
+  <text x="720" y="75" fill="#fbbf24" font-size="12" text-anchor="middle" font-weight="600">GEMM</text>
+
+  <defs>
+    <marker id="arr4" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#e1e4ec"/>
+    </marker>
+  </defs>
+</svg>
+<div class="diagram-caption">图 8：P 矩阵从 C-layout 经 SMEM 中转到 A-layout 的过程</div>
+</div>
+
+<!-- ================================================================== -->
+<!-- SECTION 11: 收尾 -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec11">
+  <span class="num" style="background:var(--accent-green);color:#000">11</span>
+  Partition 收尾：写出 max / sum / O
+</h2>
+
+<p>每个 partition kernel 结束时，将三组关键数据写入 global memory，供 reduce kernel 使用：</p>
+
+<div class="card">
+<table>
+  <tr><th>输出</th><th>数据</th><th>归约方式</th></tr>
+  <tr>
+    <td><code>params.maxs[p]</code></td>
+    <td>m<sub>p</sub> = scores_max &times; inv_sqrt_dh</td>
+    <td>scores_warp 跨 warp MaxOp 归约</td>
+  </tr>
+  <tr>
+    <td><code>params.sums[p]</code></td>
+    <td>d<sub>p</sub> = &Sigma; softmax_sum</td>
+    <td>warp 内 Allreduce&lt;4&gt; + 跨 warp SumOp 归约</td>
+  </tr>
+  <tr>
+    <td><code>params.partition_attn_out[p]</code></td>
+    <td>O<sub>p</sub> (未归一化)</td>
+    <td>acc_o &rarr; FP16 &rarr; sQ (smem) &rarr; global memory</td>
+  </tr>
+</table>
+</div>
+
+<div class="callout callout-orange">
+  <strong>为什么 acc_o 写出时复用 sQ？</strong>
+  此时 sQ 中的 Q 数据已经不需要了（所有 GEMM 都算完了），正好可以复用这块 shared memory 做 register &rarr; smem &rarr; gmem 的中转，节省 smem 用量。
+</div>
+
+<!-- ================================================================== -->
+<!-- SECTION 12: Reduce Kernel -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec12">
+  <span class="num" style="background:var(--accent-orange);color:#000">12</span>
+  Reduce Kernel：全局归一化
+</h2>
+
+<p>
+  Reduce kernel 分为两个阶段：<code>caluate_logit_scale</code> 计算全局归一化系数，主体做加权求和并输出。
+</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 900 520" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <rect width="900" height="520" fill="#181b24" rx="10"/>
+  <text x="450" y="30" fill="#e1e4ec" font-size="15" font-weight="700" text-anchor="middle">Reduce Kernel 详细流程</text>
+
+  <!-- Phase 1 -->
+  <rect x="30" y="50" width="840" height="200" rx="8" fill="#2a2218" stroke="#f59e42"/>
+  <text x="50" y="74" fill="#f59e42" font-size="13" font-weight="700">Phase 1: caluate_logit_scale</text>
+
+  <rect x="50" y="88" width="380" height="68" rx="6" fill="#332a18"/>
+  <text x="60" y="110" fill="#fbbf24" font-size="12" font-weight="600">Step 1: 找全局 Max</text>
+  <text x="60" y="130" fill="#e1e4ec" font-size="11">float4 向量化读取 params.maxs[0..P-1]</text>
+  <text x="60" y="146" fill="#8b90a0" font-size="10">BlockAllReduce&lt;MaxOp&gt; &rarr; m_global</text>
+
+  <rect x="450" y="88" width="400" height="68" rx="6" fill="#332a18"/>
+  <text x="460" y="110" fill="#fbbf24" font-size="12" font-weight="600">Step 2: 计算修正系数 &amp; 全局 Sum</text>
+  <text x="460" y="130" fill="#e1e4ec" font-size="11">&alpha;&#x209a; = exp(m&#x209a; - m_global)  &rarr; 存入 share_sum_scale[p]</text>
+  <text x="460" y="146" fill="#8b90a0" font-size="10">BlockAllReduce&lt;SumOp&gt;(&Sigma; &alpha;&#x209a; &times; d&#x209a;) &rarr; global_sum</text>
+
+  <rect x="50" y="168" width="800" height="36" rx="6" fill="#332a18"/>
+  <text x="450" y="192" fill="#4ade80" font-size="12" text-anchor="middle">return inv_global_exp_sum = 1.0 / (global_sum + 1e-6)</text>
+
+  <!-- Shared mem layout -->
+  <rect x="50" y="216" width="380" height="24" rx="4" fill="#1e222d" stroke="#2a2f3e"/>
+  <text x="240" y="233" fill="#8b90a0" font-size="10" text-anchor="middle">shared_mem: [max_logits[0..P] | sum_scale[0..P]]</text>
+
+  <!-- Phase 2 -->
+  <rect x="30" y="262" width="840" height="240" rx="8" fill="#1a2233" stroke="#5b9cf6"/>
+  <text x="50" y="286" fill="#5b9cf6" font-size="13" font-weight="700">Phase 2: Weighted Reduce + Normalize + Output</text>
+
+  <rect x="50" y="300" width="400" height="60" rx="6" fill="#22304a"/>
+  <text x="60" y="320" fill="#22d3ee" font-size="12" font-weight="600">加权累加</text>
+  <text x="60" y="340" fill="#e1e4ec" font-size="11">acc += partition_attn_out[i] &times; share_sum_scale[i]</text>
+  <text x="60" y="354" fill="#8b90a0" font-size="10">每个线程 stride 遍历自己负责的 partition</text>
+
+  <rect x="470" y="300" width="380" height="60" rx="6" fill="#22304a"/>
+  <text x="480" y="320" fill="#22d3ee" font-size="12" font-weight="600">跨线程归约 + 归一化</text>
+  <text x="480" y="340" fill="#e1e4ec" font-size="11">O_j = BlockAllReduce(acc_j) &times; inv_global_exp_sum</text>
+  <text x="480" y="354" fill="#8b90a0" font-size="10">对每个 headdim 元素独立做</text>
+
+  <!-- Output paths -->
+  <rect x="50" y="376" width="380" height="52" rx="6" fill="#1e2a1e" stroke="#4ade80"/>
+  <text x="60" y="396" fill="#4ade80" font-size="11" font-weight="600">FP16 输出路径：</text>
+  <text x="60" y="416" fill="#e1e4ec" font-size="10">out = (cuteType)(normalized_val)</text>
+
+  <rect x="470" y="376" width="380" height="52" rx="6" fill="#2a1e1e" stroke="#f87171"/>
+  <text x="480" y="396" fill="#f87171" font-size="11" font-weight="600">INT8 量化输出路径 (SmoothQuant)：</text>
+  <text x="480" y="416" fill="#e1e4ec" font-size="10">out = round((O + shift_bias) &times; smooth_weight &times; scale)</text>
+
+  <!-- Grid config -->
+  <rect x="50" y="444" width="800" height="46" rx="6" fill="#1e222d"/>
+  <text x="60" y="464" fill="#8b90a0" font-size="11" font-weight="600">Grid 配置:</text>
+  <text x="60" y="480" fill="#e1e4ec" font-size="10">blockIdx.x = headdim 段（每段 8 个 FP16 元素），blockIdx.y = head_idx，blockIdx.z = batch_idx</text>
+  <text x="550" y="480" fill="#8b90a0" font-size="10">每个 block 128 线程协作遍历所有 partition</text>
+</svg>
+<div class="diagram-caption">图 9：Reduce Kernel 的两个 Phase 详细流程</div>
+</div>
+
+<!-- ================================================================== -->
+<!-- SECTION 13: Allreduce -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="sec13">
+  <span class="num" style="background:var(--accent-yellow);color:#000">13</span>
+  Warp-Level Allreduce
+</h2>
+
+<p>
+  Kernel 中有两种归约机制，分别适用于不同规模。
+</p>
+
+<h3>Allreduce&lt;THREADS&gt;：Warp 内 Shuffle 归约</h3>
+
+<p>基于 <code>__shfl_xor_sync</code>，递归减半，不需要 shared memory。用于 warp 内 4 个线程的 scores_sum 归约。</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <rect width="700" height="200" fill="#181b24" rx="10"/>
+  <text x="350" y="25" fill="#e1e4ec" font-size="13" font-weight="600" text-anchor="middle">Allreduce&lt;8&gt; 示例 (8 lanes)</text>
+
+  <!-- Round 1: offset=4 -->
+  <text x="20" y="60" fill="#f59e42" font-size="11">OFFSET=4:</text>
+  <g transform="translate(100, 45)">
+    <rect x="0" y="0" width="40" height="22" rx="3" fill="#1e2a1e"/><text x="20" y="16" fill="#4ade80" font-size="10" text-anchor="middle">a</text>
+    <rect x="48" y="0" width="40" height="22" rx="3" fill="#1e2a1e"/><text x="68" y="16" fill="#4ade80" font-size="10" text-anchor="middle">b</text>
+    <rect x="96" y="0" width="40" height="22" rx="3" fill="#1e2a1e"/><text x="116" y="16" fill="#4ade80" font-size="10" text-anchor="middle">c</text>
+    <rect x="144" y="0" width="40" height="22" rx="3" fill="#1e2a1e"/><text x="164" y="16" fill="#4ade80" font-size="10" text-anchor="middle">d</text>
+
+    <rect x="220" y="0" width="40" height="22" rx="3" fill="#1a2233"/><text x="240" y="16" fill="#5b9cf6" font-size="10" text-anchor="middle">e</text>
+    <rect x="268" y="0" width="40" height="22" rx="3" fill="#1a2233"/><text x="288" y="16" fill="#5b9cf6" font-size="10" text-anchor="middle">f</text>
+    <rect x="316" y="0" width="40" height="22" rx="3" fill="#1a2233"/><text x="336" y="16" fill="#5b9cf6" font-size="10" text-anchor="middle">g</text>
+    <rect x="364" y="0" width="40" height="22" rx="3" fill="#1a2233"/><text x="384" y="16" fill="#5b9cf6" font-size="10" text-anchor="middle">h</text>
+
+    <!-- XOR arrows -->
+    <path d="M20,24 C20,38 240,38 240,24" fill="none" stroke="#f59e42" stroke-width="1" stroke-dasharray="3,2"/>
+    <path d="M68,24 C68,34 288,34 288,24" fill="none" stroke="#f59e42" stroke-width="1" stroke-dasharray="3,2"/>
+
+    <text x="450" y="16" fill="#8b90a0" font-size="10">&rarr; a+e, b+f, c+g, d+h, ...</text>
+  </g>
+
+  <!-- Round 2: offset=2 -->
+  <text x="20" y="110" fill="#f59e42" font-size="11">OFFSET=2:</text>
+  <g transform="translate(100, 95)">
+    <rect x="0" y="0" width="54" height="22" rx="3" fill="#1e2a1e"/><text x="27" y="16" fill="#4ade80" font-size="9" text-anchor="middle">a+e</text>
+    <rect x="60" y="0" width="54" height="22" rx="3" fill="#1e2a1e"/><text x="87" y="16" fill="#4ade80" font-size="9" text-anchor="middle">b+f</text>
+    <rect x="140" y="0" width="54" height="22" rx="3" fill="#1a2233"/><text x="167" y="16" fill="#5b9cf6" font-size="9" text-anchor="middle">c+g</text>
+    <rect x="200" y="0" width="54" height="22" rx="3" fill="#1a2233"/><text x="227" y="16" fill="#5b9cf6" font-size="9" text-anchor="middle">d+h</text>
+
+    <path d="M27,24 C27,36 167,36 167,24" fill="none" stroke="#f59e42" stroke-width="1" stroke-dasharray="3,2"/>
+    <text x="450" y="16" fill="#8b90a0" font-size="10">&rarr; a+b+e+f+c+d+g+h (partial)</text>
+  </g>
+
+  <!-- Round 3: offset=1 -->
+  <text x="20" y="160" fill="#f59e42" font-size="11">OFFSET=1:</text>
+  <g transform="translate(100, 145)">
+    <rect x="0" y="0" width="80" height="22" rx="3" fill="#1e2a1e"/><text x="40" y="16" fill="#4ade80" font-size="9" text-anchor="middle">aceg</text>
+    <rect x="90" y="0" width="80" height="22" rx="3" fill="#1a2233"/><text x="130" y="16" fill="#5b9cf6" font-size="9" text-anchor="middle">bdfh</text>
+
+    <path d="M40,24 C40,36 130,36 130,24" fill="none" stroke="#f59e42" stroke-width="1" stroke-dasharray="3,2"/>
+    <text x="450" y="16" fill="#4ade80" font-size="11" font-weight="700">&rarr; a+b+c+d+e+f+g+h (all lanes)</text>
+  </g>
+</svg>
+<div class="diagram-caption">图 10：Warp 内 Shuffle Allreduce（__shfl_xor_sync）</div>
+</div>
+
+<h3>BlockAllReduce：Block 级 CUB 归约</h3>
+
+<p>
+  基于 CUB 库的 <code>BlockReduce</code>，需要 shared memory。
+  CUB 的 Reduce 只保证 thread 0 拿到结果，所以额外通过一个 <code>result_broadcast</code> 变量 + <code>__syncthreads()</code> 广播给所有线程。
+  用于 reduce kernel 中跨所有 128 线程求全局 max / sum。
+</p>
+
+<pre><code>T result = BlockReduce(temp_storage).<span class="fn">Reduce</span>(val, ReductionOp());
+<span class="kw">if</span> (threadIdx.x == 0) { result_broadcast = result; }
+__syncthreads();
+<span class="kw">return</span> result_broadcast;  <span class="cm">// 所有线程都拿到结果</span>
+</code></pre>
+
+<!-- ================================================================== -->
+<!-- Summary -->
+<!-- ================================================================== -->
+<h2 class="section-title" id="summary">
+  <span class="num" style="background:var(--accent-cyan);color:#000">&sum;</span>
+  数据流总览
+</h2>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 920 340" xmlns="http://www.w3.org/2000/svg" font-family="SF Pro Text, -apple-system, sans-serif">
+  <rect width="920" height="340" fill="#181b24" rx="10"/>
+
+  <!-- Row 1: Inputs -->
+  <rect x="40" y="20" width="100" height="40" rx="6" fill="#22304a" stroke="#5b9cf6"/>
+  <text x="90" y="45" fill="#5b9cf6" font-size="11" text-anchor="middle">Q (GMEM)</text>
+
+  <rect x="160" y="20" width="130" height="40" rx="6" fill="#22304a" stroke="#4ade80"/>
+  <text x="225" y="45" fill="#4ade80" font-size="11" text-anchor="middle">KV Cache (Paged)</text>
+
+  <rect x="310" y="20" width="100" height="40" rx="6" fill="#22304a" stroke="#a78bfa"/>
+  <text x="360" y="45" fill="#a78bfa" font-size="11" text-anchor="middle">block_table</text>
+
+  <rect x="430" y="20" width="100" height="40" rx="6" fill="#22304a" stroke="#fbbf24"/>
+  <text x="480" y="45" fill="#fbbf24" font-size="11" text-anchor="middle">RoPE emb</text>
+
+  <rect x="550" y="20" width="120" height="40" rx="6" fill="#22304a" stroke="#f59e42"/>
+  <text x="610" y="45" fill="#f59e42" font-size="11" text-anchor="middle">Quant params</text>
+
+  <!-- Arrow down -->
+  <line x1="350" y1="65" x2="350" y2="90" stroke="#8b90a0" stroke-width="1" marker-end="url(#arr5)"/>
+
+  <!-- Row 2: Partition kernel -->
+  <rect x="40" y="95" width="830" height="80" rx="8" fill="#1c1528" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="455" y="120" fill="#a78bfa" font-size="14" font-weight="700" text-anchor="middle">Partition Kernel (per partition, per KV head, per batch)</text>
+  <text x="455" y="145" fill="#e1e4ec" font-size="11" text-anchor="middle">
+    RoPE(Q) &rarr; [S = Q&times;K | Mask | Softmax | P &rarr; SMEM | O += P&times;V | Rescale] &times; kTileN blocks
+  </text>
+  <text x="455" y="163" fill="#8b90a0" font-size="10" text-anchor="middle">
+    async prefetch K/V &laquo;overlap&raquo; compute  |  online softmax (no full seq needed)  |  paged pointer delta
+  </text>
+
+  <!-- Arrow down with labels -->
+  <line x1="200" y1="180" x2="200" y2="215" stroke="#4ade80" stroke-width="1.2" marker-end="url(#arr3)"/>
+  <line x1="450" y1="180" x2="450" y2="215" stroke="#4ade80" stroke-width="1.2" marker-end="url(#arr3)"/>
+  <line x1="700" y1="180" x2="700" y2="215" stroke="#4ade80" stroke-width="1.2" marker-end="url(#arr3)"/>
+
+  <!-- Row 3: Global memory -->
+  <rect x="110" y="220" width="180" height="30" rx="5" fill="#1e2a1e" stroke="#4ade80"/>
+  <text x="200" y="240" fill="#4ade80" font-size="10" text-anchor="middle">maxs[p] = m&#x209a; &times; scale</text>
+
+  <rect x="360" y="220" width="180" height="30" rx="5" fill="#1e2a1e" stroke="#4ade80"/>
+  <text x="450" y="240" fill="#4ade80" font-size="10" text-anchor="middle">sums[p] = d&#x209a;</text>
+
+  <rect x="610" y="220" width="180" height="30" rx="5" fill="#1e2a1e" stroke="#4ade80"/>
+  <text x="700" y="240" fill="#4ade80" font-size="10" text-anchor="middle">partition_out[p] = O&#x209a;</text>
+
+  <!-- Arrow down -->
+  <line x1="450" y1="255" x2="450" y2="275" stroke="#f59e42" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+  <!-- Row 4: Reduce kernel -->
+  <rect x="100" y="280" width="700" height="44" rx="8" fill="#2a2218" stroke="#f59e42" stroke-width="1.5"/>
+  <text x="450" y="307" fill="#f59e42" font-size="13" font-weight="700" text-anchor="middle">
+    Reduce Kernel: O = &Sigma;(&alpha;&#x209a; &times; O&#x209a;) / &Sigma;(&alpha;&#x209a; &times; d&#x209a;) &nbsp;&nbsp; [+ optional SmoothQuant INT8]
+  </text>
+
+  <defs>
+    <marker id="arr5" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#8b90a0"/>
+    </marker>
+  </defs>
+</svg>
+<div class="diagram-caption">图 11：端到端数据流总览</div>
+</div>
+
+</div><!-- container -->
+
+<div class="footer">
+  Block Attention Kernel 深度解析 &mdash; 基于 block_attn_kernel.h 源码分析
+</div>
+
+</body>
+</html>

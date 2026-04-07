@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeek MLA — Prefix Cache 与 Chunked Prefill 深度解析</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Noto Sans SC", sans-serif;
+    background: #f0f2f5; color: #333; line-height: 1.7;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px 24px; }
+  .header {
+    background: linear-gradient(135deg, #1a237e, #283593);
+    color: white; padding: 36px; border-radius: 12px; margin-bottom: 28px;
+    text-align: center;
+  }
+  .header h1 { font-size: 1.7em; }
+  .header p { opacity: 0.85; margin-top: 6px; font-size: 1.05em; }
+
+  .card {
+    background: white; border-radius: 12px; padding: 30px 34px;
+    margin-bottom: 26px; box-shadow: 0 1px 5px rgba(0,0,0,0.07);
+  }
+  .card h2 {
+    font-size: 1.3em; color: #1565c0; margin-bottom: 16px;
+    border-left: 4px solid #1565c0; padding-left: 12px;
+  }
+  .card h3 { font-size: 1.1em; margin: 18px 0 10px; color: #333; }
+  .card p { margin-bottom: 12px; font-size: 1em; }
+
+  .svg-wrap { text-align: center; margin: 16px 0; overflow-x: auto; }
+  .svg-wrap svg { max-width: 100%; height: auto; }
+
+  .callout {
+    border-radius: 8px; padding: 16px 18px; margin: 14px 0;
+    font-size: 0.95em;
+  }
+  .callout-green { background: #e8f5e9; border-left: 4px solid #2e7d32; }
+  .callout-red { background: #fce4ec; border-left: 4px solid #c62828; }
+  .callout-blue { background: #e3f2fd; border-left: 4px solid #1565c0; }
+  .callout-orange { background: #fff3e0; border-left: 4px solid #e65100; }
+  .callout-purple { background: #f3e5f5; border-left: 4px solid #6a1b9a; }
+
+  .step-tag {
+    display: inline-block; background: #1565c0; color: white;
+    padding: 2px 12px; border-radius: 10px; font-size: 0.88em;
+    font-weight: 700; margin-right: 6px;
+  }
+
+  table {
+    width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.95em;
+  }
+  th { background: #e3f2fd; color: #1565c0; padding: 10px 12px; text-align: left; border: 1px solid #bbdefb; }
+  td { padding: 10px 12px; border: 1px solid #e0e0e0; }
+  tr:nth-child(even) td { background: #fafafa; }
+
+  code {
+    background: #f5f5f5; padding: 2px 6px; border-radius: 3px;
+    font-family: "SF Mono", "Fira Code", monospace; font-size: 0.9em;
+  }
+  pre {
+    background: #263238; color: #eeffff; padding: 18px 20px;
+    border-radius: 8px; overflow-x: auto; font-size: 0.88em;
+    line-height: 1.6; margin: 12px 0;
+    font-family: "SF Mono", "Fira Code", monospace;
+  }
+  pre .comment { color: #546e7a; }
+  pre .keyword { color: #c792ea; }
+  pre .string { color: #c3e88d; }
+  pre .func { color: #82aaff; }
+  pre .var { color: #f78c6c; }
+  pre .type { color: #ffcb6b; }
+
+  .toc { padding: 20px 24px; }
+  .toc a { color: #1565c0; text-decoration: none; display: block; padding: 4px 0; }
+  .toc a:hover { text-decoration: underline; }
+
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 0.82em; font-weight: 600; margin-right: 4px;
+  }
+  .badge-vllm { background: #e8eaf6; color: #283593; }
+  .badge-sglang { background: #fce4ec; color: #880e4f; }
+  .badge-both { background: #e0f2f1; color: #00695c; }
+
+  .flow-arrow {
+    text-align: center; font-size: 1.6em; color: #1565c0;
+    margin: 8px 0; line-height: 1;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ============ HEADER ============ -->
+<div class="header">
+  <h1>DeepSeek MLA — Prefix Cache 与 Chunked Prefill 深度解析</h1>
+  <p>Cache 存压缩 latent，Prefill 要全量 KV —— vLLM / SGLang 如何桥接这一鸿沟？</p>
+</div>
+
+<!-- ============ TOC ============ -->
+<div class="card toc">
+  <h2>目录</h2>
+  <a href="#s1">1. 核心矛盾：Cache 格式 vs Prefill 格式</a>
+  <a href="#s2">2. MLA KV Cache 的存储结构</a>
+  <a href="#s3">3. 两条注意力路径：Non-Absorbed (Prefill) vs Absorbed (Decode)</a>
+  <a href="#s4">4. vLLM 的实现方案</a>
+  <a href="#s5">5. SGLang 的实现方案</a>
+  <a href="#s6">6. 核心数据流全景图：Prefix Cache → Chunked Prefill → Attention Output</a>
+  <a href="#s7">7. 性能对比与工程取舍</a>
+  <a href="#s8">8. 总结</a>
+</div>
+
+<!-- ============ SECTION 1 ============ -->
+<div class="card" id="s1">
+  <h2>1. 核心矛盾：Cache 格式 vs Prefill 格式</h2>
+  <p>DeepSeek MLA 的独特之处在于：<strong>存储在 KV Cache 中的数据格式</strong>和<strong>Prefill 阶段注意力计算需要的数据格式</strong>是不一样的。这是 MLA 区别于 MHA/GQA/MQA 的根本工程挑战。</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg">
+      <!-- Cache Format Box -->
+      <rect x="30" y="30" width="380" height="260" rx="12" fill="#e8eaf6" stroke="#3949ab" stroke-width="2"/>
+      <text x="220" y="60" text-anchor="middle" font-size="15" font-weight="bold" fill="#283593">KV Cache 存储格式</text>
+      <text x="220" y="85" text-anchor="middle" font-size="12" fill="#5c6bc0">(每 token 仅存压缩表示)</text>
+
+      <!-- c_t block -->
+      <rect x="60" y="105" width="320" height="42" rx="6" fill="#c5cae9" stroke="#3949ab" stroke-width="1.5"/>
+      <text x="220" y="131" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a237e">c_t (压缩 latent)</text>
+      <text x="370" y="131" text-anchor="end" font-size="11" fill="#5c6bc0">[512 dims]</text>
+
+      <!-- k_rope block -->
+      <rect x="60" y="160" width="320" height="42" rx="6" fill="#bbdefb" stroke="#1565c0" stroke-width="1.5"/>
+      <text x="220" y="186" text-anchor="middle" font-size="13" font-weight="bold" fill="#0d47a1">k_rope (RoPE Key)</text>
+      <text x="370" y="186" text-anchor="end" font-size="11" fill="#1565c0">[64 dims]</text>
+
+      <!-- Total -->
+      <rect x="60" y="218" width="320" height="36" rx="6" fill="#fff9c4" stroke="#f9a825" stroke-width="1.5"/>
+      <text x="220" y="241" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">合计: 576 dims/token (所有 128 heads 共享)</text>
+
+      <!-- Arrow -->
+      <text x="450" y="170" text-anchor="middle" font-size="40" fill="#c62828">&#x2260;</text>
+
+      <!-- Prefill Format Box -->
+      <rect x="490" y="30" width="380" height="260" rx="12" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+      <text x="680" y="60" text-anchor="middle" font-size="15" font-weight="bold" fill="#b71c1c">Prefill 注意力需要的格式</text>
+      <text x="680" y="85" text-anchor="middle" font-size="12" fill="#e57373">(Non-Absorbed / MHA 模式)</text>
+
+      <!-- K full -->
+      <rect x="520" y="105" width="320" height="42" rx="6" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+      <text x="680" y="125" text-anchor="middle" font-size="13" font-weight="bold" fill="#b71c1c">K = [K_nope; K_rope]</text>
+      <text x="680" y="141" text-anchor="middle" font-size="11" fill="#c62828">128 heads × (128+64) = 128 × 192 dims</text>
+
+      <!-- V full -->
+      <rect x="520" y="160" width="320" height="42" rx="6" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+      <text x="680" y="180" text-anchor="middle" font-size="13" font-weight="bold" fill="#b71c1c">V = c_t × W_UV</text>
+      <text x="680" y="196" text-anchor="middle" font-size="11" fill="#c62828">128 heads × 128 dims</text>
+
+      <!-- Total -->
+      <rect x="520" y="218" width="320" height="36" rx="6" fill="#fff9c4" stroke="#f9a825" stroke-width="1.5"/>
+      <text x="680" y="241" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">合计: 128 × (192+128) = 40,960 dims/token</text>
+    </svg>
+  </div>
+
+  <div class="callout callout-red">
+    <strong>核心矛盾：</strong>Cache 存 576 维 (共享)，Prefill 需要 40,960 维 (per-head)。当使用 Prefix Cache 命中已有缓存时，这些 576 维压缩数据需要<strong>在线解压缩 (on-demand decompression)</strong> 为全量 KV 才能参与 Prefill 的 FlashAttention 计算。
+  </div>
+</div>
+
+<!-- ============ SECTION 2 ============ -->
+<div class="card" id="s2">
+  <h2>2. MLA KV Cache 的存储结构</h2>
+
+  <h3>2.1 每 token 的缓存内容</h3>
+  <p>MLA 的 KV Cache 不像传统 MHA 那样存储每个 head 的 K 和 V，而是只存储<strong>联合压缩的 latent 向量</strong>：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 850 180" xmlns="http://www.w3.org/2000/svg">
+      <text x="425" y="25" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">MLA KV Cache 每 token 存储布局</text>
+
+      <!-- c_t -->
+      <rect x="30" y="50" width="520" height="55" rx="6" fill="#c5cae9" stroke="#3949ab" stroke-width="2"/>
+      <text x="290" y="75" text-anchor="middle" font-size="14" font-weight="bold" fill="#1a237e">c_t = h_t × W_DKV</text>
+      <text x="290" y="95" text-anchor="middle" font-size="12" fill="#3949ab">压缩 latent 向量  [d_c = 512]</text>
+      <text x="40" y="75" font-size="11" fill="#5c6bc0">offset 0</text>
+
+      <!-- k_rope -->
+      <rect x="560" y="50" width="260" height="55" rx="6" fill="#bbdefb" stroke="#1565c0" stroke-width="2"/>
+      <text x="690" y="75" text-anchor="middle" font-size="14" font-weight="bold" fill="#0d47a1">k_rope</text>
+      <text x="690" y="95" text-anchor="middle" font-size="12" fill="#1565c0">RoPE Key [d_rope = 64]</text>
+      <text x="570" y="75" font-size="11" fill="#1565c0">offset 512</text>
+
+      <!-- Dimension labels -->
+      <line x1="30" y1="120" x2="550" y2="120" stroke="#3949ab" stroke-width="1.5"/>
+      <text x="290" y="138" text-anchor="middle" font-size="12" fill="#3949ab">512 维</text>
+      <line x1="560" y1="120" x2="820" y2="120" stroke="#1565c0" stroke-width="1.5"/>
+      <text x="690" y="138" text-anchor="middle" font-size="12" fill="#1565c0">64 维</text>
+
+      <!-- Total -->
+      <line x1="30" y1="150" x2="820" y2="150" stroke="#e65100" stroke-width="2"/>
+      <text x="425" y="170" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">总计 576 维/token — 所有 128 个 attention head 共享这一份缓存</text>
+    </svg>
+  </div>
+
+  <h3>2.2 FP8 量化存储 (vLLM)</h3>
+  <p>vLLM 中对 MLA KV Cache 进一步应用了 FP8 量化：</p>
+  <table>
+    <tr><th>字段</th><th>内容</th><th>字节数</th><th>精度</th></tr>
+    <tr><td>c_t</td><td>512 个 float8_e4m3 值</td><td>512 B</td><td>FP8</td></tr>
+    <tr><td>scale factors</td><td>4 个 float32 (per-group scale)</td><td>16 B</td><td>FP32</td></tr>
+    <tr><td>k_rope</td><td>64 个 bfloat16 值 (不量化)</td><td>128 B</td><td>BF16</td></tr>
+    <tr><td colspan="2"><strong>总计</strong></td><td><strong>656 B/token</strong></td><td>混合</td></tr>
+  </table>
+
+  <div class="callout callout-blue">
+    <strong>对比 MHA：</strong>标准 128-head MHA，每 token 存储 128 × (128+128) × 2 = 65,536 B (BF16)。MLA 仅需 656 B，<strong>约 100 倍压缩</strong>，这正是 MLA 的巨大优势。
+  </div>
+</div>
+
+<!-- ============ SECTION 3 ============ -->
+<div class="card" id="s3">
+  <h2>3. 两条注意力路径：Non-Absorbed (Prefill) vs Absorbed (Decode)</h2>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg">
+      <text x="450" y="25" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">两条路径对比</text>
+
+      <!-- Left: Non-Absorbed / Prefill -->
+      <rect x="20" y="45" width="410" height="440" rx="12" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+      <text x="225" y="72" text-anchor="middle" font-size="14" font-weight="bold" fill="#e65100">Non-Absorbed 路径 (Prefill/Extend)</text>
+      <text x="225" y="92" text-anchor="middle" font-size="11" fill="#bf360c">compute-bound, 适合长序列</text>
+
+      <!-- Steps -->
+      <rect x="40" y="110" width="370" height="38" rx="6" fill="#ffe0b2" stroke="#e65100" stroke-width="1"/>
+      <text x="225" y="134" text-anchor="middle" font-size="12" fill="#bf360c">1. K_nope = c_t × W_UK  [512 → 128 heads × 128]</text>
+
+      <rect x="40" y="158" width="370" height="38" rx="6" fill="#ffe0b2" stroke="#e65100" stroke-width="1"/>
+      <text x="225" y="182" text-anchor="middle" font-size="12" fill="#bf360c">2. K = [K_nope ; K_rope]  [128 heads × 192]</text>
+
+      <rect x="40" y="206" width="370" height="38" rx="6" fill="#ffe0b2" stroke="#e65100" stroke-width="1"/>
+      <text x="225" y="230" text-anchor="middle" font-size="12" fill="#bf360c">3. V = c_t × W_UV  [512 → 128 heads × 128]</text>
+
+      <rect x="40" y="254" width="370" height="38" rx="6" fill="#ffe0b2" stroke="#e65100" stroke-width="1"/>
+      <text x="225" y="278" text-anchor="middle" font-size="12" fill="#bf360c">4. Q = q_c × W_UQ + RoPE(q_rope)  [128 × 192]</text>
+
+      <rect x="40" y="302" width="370" height="38" rx="6" fill="#ffcc80" stroke="#e65100" stroke-width="1.5"/>
+      <text x="225" y="326" text-anchor="middle" font-size="13" font-weight="bold" fill="#bf360c">5. FlashAttention(Q, K, V)</text>
+
+      <rect x="40" y="360" width="370" height="50" rx="6" fill="#fff9c4" stroke="#f9a825" stroke-width="1"/>
+      <text x="225" y="382" text-anchor="middle" font-size="12" fill="#e65100">head_dim_k = 192, head_dim_v = 128</text>
+      <text x="225" y="400" text-anchor="middle" font-size="12" fill="#e65100">n_heads = 128 (真正的 MHA)</text>
+
+      <rect x="40" y="425" width="370" height="38" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="225" y="449" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d32">需要解压缩 c_t → 全量 K/V</text>
+
+      <!-- Right: Absorbed / Decode -->
+      <rect x="470" y="45" width="410" height="440" rx="12" fill="#e8eaf6" stroke="#283593" stroke-width="2"/>
+      <text x="675" y="72" text-anchor="middle" font-size="14" font-weight="bold" fill="#283593">Absorbed 路径 (Decode)</text>
+      <text x="675" y="92" text-anchor="middle" font-size="11" fill="#3949ab">memory-bound, 适合单 token 生成</text>
+
+      <rect x="490" y="110" width="370" height="38" rx="6" fill="#c5cae9" stroke="#283593" stroke-width="1"/>
+      <text x="675" y="134" text-anchor="middle" font-size="12" fill="#283593">1. Q' = q × (W_UQ^T × W_UK)  [→ 512]</text>
+
+      <rect x="490" y="158" width="370" height="38" rx="6" fill="#c5cae9" stroke="#283593" stroke-width="1"/>
+      <text x="675" y="182" text-anchor="middle" font-size="12" fill="#283593">2. Score_nope = Q' × c_t^T  (直接用 latent)</text>
+
+      <rect x="490" y="206" width="370" height="38" rx="6" fill="#c5cae9" stroke="#283593" stroke-width="1"/>
+      <text x="675" y="230" text-anchor="middle" font-size="12" fill="#283593">3. Score_rope = Q_rope × K_rope^T</text>
+
+      <rect x="490" y="254" width="370" height="38" rx="6" fill="#c5cae9" stroke="#283593" stroke-width="1"/>
+      <text x="675" y="278" text-anchor="middle" font-size="12" fill="#283593">4. Score = Score_nope + Score_rope</text>
+
+      <rect x="490" y="302" width="370" height="38" rx="6" fill="#9fa8da" stroke="#283593" stroke-width="1.5"/>
+      <text x="675" y="326" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a237e">5. FlashMLA / PagedAttention(Score, c_t)</text>
+
+      <rect x="490" y="360" width="370" height="50" rx="6" fill="#fff9c4" stroke="#f9a825" stroke-width="1"/>
+      <text x="675" y="382" text-anchor="middle" font-size="12" fill="#283593">head_dim_k = 576, head_dim_v = 512</text>
+      <text x="675" y="400" text-anchor="middle" font-size="12" fill="#283593">等效 MQA (1 shared KV head)</text>
+
+      <rect x="490" y="425" width="370" height="38" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="675" y="449" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d32">无需解压缩，直接用 c_t + k_rope</text>
+    </svg>
+  </div>
+
+  <div class="callout callout-orange">
+    <strong>关键洞察：</strong>Decode 走 Absorbed 路径时，直接以 c_t 参与计算（矩阵吸收让 W_UK 被吸进 Q 侧），无需解压缩。但 Prefill 走 Non-Absorbed 路径时，<strong>必须</strong>将 c_t 通过 W_UK/W_UV 解压回全量 K/V。Prefix Cache 命中的那些 token，其缓存里只有 c_t + k_rope，因此 prefill 阶段必须做<strong>在线解压缩</strong>。
+  </div>
+</div>
+
+<!-- ============ SECTION 4 ============ -->
+<div class="card" id="s4">
+  <h2>4. vLLM 的实现方案 <span class="badge badge-vllm">vLLM</span></h2>
+
+  <h3>4.1 核心代码架构</h3>
+  <p>vLLM 的 MLA 注意力后端位于 <code>vllm/v1/attention/backends/mla/common.py</code>，核心类为 <code>MLACommonBackend</code>。</p>
+
+  <h3>4.2 _forward_prefill 的两阶段设计</h3>
+  <p>当一个请求同时包含 prefix-cached tokens (context) 和 new tokens (extend) 时，vLLM 把 prefill 拆分为两个阶段：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 900 550" xmlns="http://www.w3.org/2000/svg">
+      <text x="450" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">vLLM _forward_prefill 两阶段流程</text>
+
+      <!-- Input -->
+      <rect x="250" y="45" width="400" height="45" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="450" y="73" text-anchor="middle" font-size="13" font-weight="bold" fill="#0d47a1">输入 Prompt: [prefix-cached tokens | new tokens]</text>
+
+      <!-- Split arrow -->
+      <line x1="350" y1="90" x2="200" y2="130" stroke="#666" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <line x1="550" y1="90" x2="700" y2="130" stroke="#666" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+      <!-- Stage 1: Context (Prefix Cache) -->
+      <rect x="20" y="130" width="400" height="380" rx="12" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+      <text x="220" y="158" text-anchor="middle" font-size="14" font-weight="bold" fill="#c62828">Stage 1: Context (Prefix Cache 命中部分)</text>
+      <text x="220" y="178" text-anchor="middle" font-size="11" fill="#e57373">_compute_prefill_context()</text>
+
+      <rect x="40" y="195" width="360" height="32" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+      <text x="220" y="216" text-anchor="middle" font-size="11" fill="#b71c1c">1. 从 Paged KV Cache 分块读取 (c_t, k_rope)</text>
+
+      <rect x="40" y="237" width="360" height="46" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+      <text x="220" y="256" text-anchor="middle" font-size="11" fill="#b71c1c">2. 在线解压缩: K = c_t × kv_b_proj[:, :nope]</text>
+      <text x="220" y="274" text-anchor="middle" font-size="11" fill="#b71c1c">   V = c_t × kv_b_proj[:, nope:]</text>
+
+      <rect x="40" y="293" width="360" height="32" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+      <text x="220" y="314" text-anchor="middle" font-size="11" fill="#b71c1c">3. 拼接 K = [K_nope ; k_rope]  → per-head K</text>
+
+      <rect x="40" y="335" width="360" height="32" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+      <text x="220" y="356" text-anchor="middle" font-size="11" fill="#b71c1c">4. 分 context_chunk 跑 FlashAttention</text>
+
+      <rect x="40" y="377" width="360" height="46" rx="4" fill="#ef9a9a" stroke="#c62828" stroke-width="1.5"/>
+      <text x="220" y="396" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">5. 得到 context_output + context_lse</text>
+      <text x="220" y="414" text-anchor="middle" font-size="11" fill="#b71c1c">(attention output 和 log-sum-exp)</text>
+
+      <rect x="40" y="440" width="360" height="52" rx="4" fill="#fff9c4" stroke="#f9a825" stroke-width="1"/>
+      <text x="220" y="459" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">分块原因: context 可能很长 (数万 token)</text>
+      <text x="220" y="477" text-anchor="middle" font-size="11" fill="#e65100">一次解压太多会 OOM, 所以分 chunk 处理</text>
+
+      <!-- Stage 2: Extend (New Tokens) -->
+      <rect x="480" y="130" width="400" height="380" rx="12" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="680" y="158" text-anchor="middle" font-size="14" font-weight="bold" fill="#2e7d32">Stage 2: Extend (新 token 部分)</text>
+      <text x="680" y="178" text-anchor="middle" font-size="11" fill="#66bb6a">标准 prefill 前向计算</text>
+
+      <rect x="500" y="195" width="360" height="32" rx="4" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+      <text x="680" y="216" text-anchor="middle" font-size="11" fill="#1b5e20">1. 新 token 通过模型得到 q, kv_c, k_rope</text>
+
+      <rect x="500" y="237" width="360" height="46" rx="4" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+      <text x="680" y="256" text-anchor="middle" font-size="11" fill="#1b5e20">2. 解压: K_new = kv_c × W_UK, V_new = kv_c × W_UV</text>
+      <text x="680" y="274" text-anchor="middle" font-size="11" fill="#1b5e20">   (新 token 本身也要解压, 但数量少)</text>
+
+      <rect x="500" y="293" width="360" height="32" rx="4" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+      <text x="680" y="314" text-anchor="middle" font-size="11" fill="#1b5e20">3. 写入 Paged KV Cache (存 c_t + k_rope)</text>
+
+      <rect x="500" y="335" width="360" height="32" rx="4" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+      <text x="680" y="356" text-anchor="middle" font-size="11" fill="#1b5e20">4. FlashAttention(Q_new, K_new, V_new)</text>
+
+      <rect x="500" y="377" width="360" height="46" rx="4" fill="#a5d6a7" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="680" y="396" text-anchor="middle" font-size="12" font-weight="bold" fill="#1b5e20">5. 得到 extend_output + extend_lse</text>
+      <text x="680" y="414" text-anchor="middle" font-size="11" fill="#1b5e20">(attention output 和 log-sum-exp)</text>
+
+      <!-- Arrow defs -->
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <h3>4.3 merge_attn_states: 合并两阶段结果</h3>
+  <p>两个阶段各自产出 (output, lse)，最后通过 <code>merge_attn_states</code> 进行<strong>数值稳定的加权合并</strong>：</p>
+
+  <pre><span class="comment"># 伪代码 — merge_attn_states 的核心逻辑</span>
+<span class="keyword">def</span> <span class="func">merge_attn_states</span>(output_a, lse_a, output_b, lse_b):
+    <span class="comment"># lse = log-sum-exp of attention scores</span>
+    <span class="comment"># 利用 log-sum-exp trick 做数值稳定的加权平均</span>
+    max_lse = <span class="func">torch.max</span>(lse_a, lse_b)
+    weight_a = <span class="func">torch.exp</span>(lse_a - max_lse)
+    weight_b = <span class="func">torch.exp</span>(lse_b - max_lse)
+
+    merged_output = (weight_a * output_a + weight_b * output_b) / (weight_a + weight_b)
+    <span class="keyword">return</span> merged_output</pre>
+
+  <div class="callout callout-green">
+    <strong>数学等价性：</strong>这个合并操作保证了最终结果与直接对全序列做 attention 完全等价。利用了 FlashAttention 计算过程中的 log-sum-exp 统计量，避免了需要重新计算全局 softmax。
+  </div>
+
+  <h3>4.4 _compute_prefill_context 的分块处理</h3>
+  <p>对于 prefix cached 的 context 部分，vLLM 使用 context chunk 机制来控制内存：</p>
+
+  <pre><span class="comment"># 伪代码 — context chunk 处理流程</span>
+<span class="keyword">for</span> chunk_idx <span class="keyword">in</span> range(num_context_chunks):
+    <span class="comment"># 1. 从 Paged KV Cache 读取一个 chunk 的 c_t 和 k_rope</span>
+    cache_kv_c, cache_k_pe = <span class="func">_gather_cache</span>(
+        kv_cache, block_table, chunk_start, chunk_len)
+
+    <span class="comment"># 2. 解压缩: 通过 kv_b_proj 将 c_t 投影回全量 K/V</span>
+    <span class="comment">#    kv_b_proj = [W_UK; W_UV] 拼接, shape: [d_c, n_heads*(d_nope+d_v)]</span>
+    kv_full = cache_kv_c @ kv_b_proj   <span class="comment"># [chunk_len, 512] × [512, n_heads*(128+128)]</span>
+    k_nope = kv_full[:, :n_heads*d_nope].reshape(chunk_len, n_heads, d_nope)
+    v = kv_full[:, n_heads*d_nope:].reshape(chunk_len, n_heads, d_v)
+
+    <span class="comment"># 3. 拼接 K = [K_nope; K_rope] </span>
+    k = <span class="func">torch.cat</span>([k_nope, cache_k_pe.expand(..., n_heads, ...)], dim=-1)
+
+    <span class="comment"># 4. 跑 FlashAttention, 得到 chunk_output 和 chunk_lse</span>
+    chunk_out, chunk_lse = <span class="func">flash_attention</span>(q_for_context, k, v)
+
+    <span class="comment"># 5. 将 chunk 结果累积合并</span>
+    ctx_output, ctx_lse = <span class="func">merge_attn_states</span>(
+        ctx_output, ctx_lse, chunk_out, chunk_lse)</pre>
+
+  <div class="callout callout-purple">
+    <strong>为什么要分块？</strong>假设 prefix cache 命中了 32K token，一次性解压缩的显存开销为 32K × 128 heads × 320 dims × 2B ≈ <strong>2.5 GB</strong>。分成 4K 的 chunk 则每次只需 ~320 MB，显存压力可控。
+  </div>
+
+  <h3>4.5 vLLM Paged KV Cache 对 MLA 的适配</h3>
+  <table>
+    <tr><th>特性</th><th>标准 MHA</th><th>MLA 模式</th></tr>
+    <tr><td>每 block 存储</td><td>K_head [n_heads, d_k] + V_head [n_heads, d_v]</td><td>c_t [d_c=512] + k_rope [d_rope=64]</td></tr>
+    <tr><td>block size</td><td>16 token/block</td><td>16 token/block</td></tr>
+    <tr><td>每 block 字节</td><td>16 × 128 × 256 × 2 = 1 MB (BF16)</td><td>16 × 656 = ~10 KB (FP8 mixed)</td></tr>
+    <tr><td>Hash 键</td><td>token IDs + layer + position</td><td>token IDs + layer + position (相同)</td></tr>
+    <tr><td>Prefix 匹配</td><td>直接使用匹配的 KV</td><td>匹配后需<strong>在线解压缩</strong>才能给 prefill 用</td></tr>
+  </table>
+</div>
+
+<!-- ============ SECTION 5 ============ -->
+<div class="card" id="s5">
+  <h2>5. SGLang 的实现方案 <span class="badge badge-sglang">SGLang</span></h2>
+
+  <h3>5.1 RadixAttention 与 MLA KV Cache</h3>
+  <p>SGLang 使用 <strong>RadixTree</strong> 数据结构来管理 prefix cache（称为 RadixAttention），比 vLLM 的 block hash 方案更高效地支持前缀共享：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 800 300" xmlns="http://www.w3.org/2000/svg">
+      <text x="400" y="25" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">SGLang RadixTree Prefix Cache (MLA)</text>
+
+      <!-- Root -->
+      <rect x="330" y="45" width="140" height="35" rx="6" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="2"/>
+      <text x="400" y="68" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a148c">Root</text>
+
+      <!-- System prompt branch -->
+      <line x1="370" y1="80" x2="200" y2="120" stroke="#6a1b9a" stroke-width="1.5"/>
+      <rect x="100" y="120" width="200" height="40" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="1.5"/>
+      <text x="200" y="136" text-anchor="middle" font-size="11" font-weight="bold" fill="#4a148c">System Prompt</text>
+      <text x="200" y="152" text-anchor="middle" font-size="10" fill="#7b1fa2">c_t[512]+k_rope[64] × N tokens</text>
+
+      <!-- User A -->
+      <line x1="170" y1="160" x2="100" y2="200" stroke="#6a1b9a" stroke-width="1.5"/>
+      <rect x="20" y="200" width="160" height="40" rx="6" fill="#ce93d8" stroke="#6a1b9a" stroke-width="1"/>
+      <text x="100" y="216" text-anchor="middle" font-size="11" fill="#4a148c">User A query</text>
+      <text x="100" y="232" text-anchor="middle" font-size="10" fill="#7b1fa2">c_t+k_rope</text>
+
+      <!-- User B -->
+      <line x1="230" y1="160" x2="300" y2="200" stroke="#6a1b9a" stroke-width="1.5"/>
+      <rect x="220" y="200" width="160" height="40" rx="6" fill="#ce93d8" stroke="#6a1b9a" stroke-width="1"/>
+      <text x="300" y="216" text-anchor="middle" font-size="11" fill="#4a148c">User B query</text>
+      <text x="300" y="232" text-anchor="middle" font-size="10" fill="#7b1fa2">c_t+k_rope</text>
+
+      <!-- Few-shot branch -->
+      <line x1="430" y1="80" x2="600" y2="120" stroke="#6a1b9a" stroke-width="1.5"/>
+      <rect x="500" y="120" width="200" height="40" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="1.5"/>
+      <text x="600" y="136" text-anchor="middle" font-size="11" font-weight="bold" fill="#4a148c">Few-shot Examples</text>
+      <text x="600" y="152" text-anchor="middle" font-size="10" fill="#7b1fa2">c_t[512]+k_rope[64] × M tokens</text>
+
+      <!-- User C -->
+      <line x1="600" y1="160" x2="600" y2="200" stroke="#6a1b9a" stroke-width="1.5"/>
+      <rect x="520" y="200" width="160" height="40" rx="6" fill="#ce93d8" stroke="#6a1b9a" stroke-width="1"/>
+      <text x="600" y="216" text-anchor="middle" font-size="11" fill="#4a148c">User C query</text>
+      <text x="600" y="232" text-anchor="middle" font-size="10" fill="#7b1fa2">c_t+k_rope</text>
+
+      <!-- Legend -->
+      <rect x="220" y="260" width="360" height="30" rx="6" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="1"/>
+      <text x="400" y="280" text-anchor="middle" font-size="11" fill="#4a148c">每个节点存储: kv_buffer[layer] = Tensor[n_tokens, kv_lora_rank + qk_rope_head_dim]</text>
+    </svg>
+  </div>
+
+  <h3>5.2 MLA KV Buffer 格式</h3>
+  <p>SGLang 中 MLA 的 KV 缓存以单一 buffer 存储：</p>
+  <pre><span class="comment"># SGLang MLA KV Buffer 结构</span>
+kv_buffer: List[Tensor]   <span class="comment"># [num_layers]</span>
+<span class="comment"># 每层 shape: [max_total_tokens, kv_lora_rank + qk_rope_head_dim]</span>
+<span class="comment">#           = [max_total_tokens, 512 + 64]</span>
+<span class="comment">#           = [max_total_tokens, 576]</span>
+<span class="comment"># 单一 buffer, interleaved: [c_t_0..c_t_511 | k_rope_0..k_rope_63]</span></pre>
+
+  <h3>5.3 Chunked Prefix Cache 优化 (FlashAttention3)</h3>
+  <p>SGLang 的核心创新是 <strong>Chunked Prefix Cache</strong> 优化，目前仅在 <strong>FlashAttention3</strong> 后端可用：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg">
+      <text x="450" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">SGLang Chunked Prefix Cache 数据流</text>
+
+      <!-- Input sequence -->
+      <rect x="50" y="50" width="800" height="40" rx="6" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <rect x="50" y="50" width="480" height="40" rx="0" fill="#bbdefb" stroke="#1565c0" stroke-width="1"/>
+      <text x="290" y="75" text-anchor="middle" font-size="12" font-weight="bold" fill="#0d47a1">Prefix (Cache 命中) — 12K tokens</text>
+      <rect x="530" y="50" width="320" height="40" rx="0" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+      <text x="690" y="75" text-anchor="middle" font-size="12" font-weight="bold" fill="#1b5e20">Extend (新 token) — 2K tokens</text>
+
+      <!-- Split into chunks -->
+      <text x="290" y="115" text-anchor="middle" font-size="12" fill="#1565c0">切分为 chunks (e.g., 4K/chunk)</text>
+      <line x1="290" y1="90" x2="290" y2="125" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="4"/>
+
+      <!-- Chunk boxes -->
+      <rect x="50" y="130" width="230" height="75" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="1.5"/>
+      <text x="165" y="152" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a148c">Chunk 1: [0, 4K)</text>
+      <text x="165" y="170" text-anchor="middle" font-size="10" fill="#6a1b9a">读取 c_t + k_rope</text>
+      <text x="165" y="186" text-anchor="middle" font-size="10" fill="#6a1b9a">解压 → K, V → MHA Attn</text>
+
+      <rect x="295" y="130" width="230" height="75" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="1.5"/>
+      <text x="410" y="152" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a148c">Chunk 2: [4K, 8K)</text>
+      <text x="410" y="170" text-anchor="middle" font-size="10" fill="#6a1b9a">读取 c_t + k_rope</text>
+      <text x="410" y="186" text-anchor="middle" font-size="10" fill="#6a1b9a">解压 → K, V → MHA Attn</text>
+
+      <rect x="540" y="130" width="230" height="75" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="1.5"/>
+      <text x="655" y="152" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a148c">Chunk 3: [8K, 12K)</text>
+      <text x="655" y="170" text-anchor="middle" font-size="10" fill="#6a1b9a">读取 c_t + k_rope</text>
+      <text x="655" y="186" text-anchor="middle" font-size="10" fill="#6a1b9a">解压 → K, V → MHA Attn</text>
+
+      <!-- Arrows down -->
+      <line x1="165" y1="205" x2="165" y2="240" stroke="#6a1b9a" stroke-width="1.5" marker-end="url(#arrowhead2)"/>
+      <line x1="410" y1="205" x2="410" y2="240" stroke="#6a1b9a" stroke-width="1.5" marker-end="url(#arrowhead2)"/>
+      <line x1="655" y1="205" x2="655" y2="240" stroke="#6a1b9a" stroke-width="1.5" marker-end="url(#arrowhead2)"/>
+
+      <!-- Partial outputs -->
+      <rect x="80" y="240" width="170" height="30" rx="4" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="1"/>
+      <text x="165" y="260" text-anchor="middle" font-size="11" fill="#4a148c">(out_1, lse_1)</text>
+
+      <rect x="325" y="240" width="170" height="30" rx="4" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="1"/>
+      <text x="410" y="260" text-anchor="middle" font-size="11" fill="#4a148c">(out_2, lse_2)</text>
+
+      <rect x="570" y="240" width="170" height="30" rx="4" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="1"/>
+      <text x="655" y="260" text-anchor="middle" font-size="11" fill="#4a148c">(out_3, lse_3)</text>
+
+      <!-- Merge arrows -->
+      <line x1="165" y1="270" x2="400" y2="310" stroke="#c62828" stroke-width="2" marker-end="url(#arrowhead2)"/>
+      <line x1="410" y1="270" x2="400" y2="310" stroke="#c62828" stroke-width="2"/>
+      <line x1="655" y1="270" x2="500" y2="310" stroke="#c62828" stroke-width="2" marker-end="url(#arrowhead2)"/>
+
+      <!-- Merge box -->
+      <rect x="300" y="310" width="300" height="40" rx="8" fill="#ffcc80" stroke="#e65100" stroke-width="2"/>
+      <text x="450" y="335" text-anchor="middle" font-size="13" font-weight="bold" fill="#bf360c">merge_attn_states()</text>
+
+      <!-- Final merge with extend -->
+      <line x1="450" y1="350" x2="450" y2="380" stroke="#e65100" stroke-width="2" marker-end="url(#arrowhead2)"/>
+      <line x1="690" y1="90" x2="690" y2="350" stroke="#2e7d32" stroke-width="1.5" stroke-dasharray="4"/>
+      <line x1="690" y1="350" x2="550" y2="380" stroke="#2e7d32" stroke-width="2" marker-end="url(#arrowhead2)"/>
+
+      <rect x="300" y="380" width="300" height="35" rx="8" fill="#a5d6a7" stroke="#2e7d32" stroke-width="2"/>
+      <text x="450" y="403" text-anchor="middle" font-size="13" font-weight="bold" fill="#1b5e20">最终 Attention Output</text>
+
+      <defs>
+        <marker id="arrowhead2" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <h3>5.4 SGLang 支持的 MLA Attention 后端</h3>
+  <table>
+    <tr><th>后端</th><th>Prefill</th><th>Decode</th><th>Chunked Prefix Cache</th><th>适用 GPU</th></tr>
+    <tr><td>FlashAttention3</td><td>Non-Absorbed</td><td>Absorbed</td><td><strong>支持</strong></td><td>Hopper+</td></tr>
+    <tr><td>FlashInfer</td><td>Non-Absorbed</td><td>Absorbed</td><td>不支持</td><td>Ampere+</td></tr>
+    <tr><td>FlashMLA</td><td>-</td><td>Absorbed</td><td>-</td><td>Hopper</td></tr>
+    <tr><td>CutlassMLA</td><td>-</td><td>Absorbed</td><td>-</td><td>Hopper+</td></tr>
+    <tr><td>TRTLLM MLA</td><td>Non-Absorbed</td><td>Absorbed</td><td>不支持</td><td>Blackwell</td></tr>
+    <tr><td>Triton</td><td>Non-Absorbed</td><td>Absorbed</td><td>不支持</td><td>通用</td></tr>
+  </table>
+
+  <div class="callout callout-purple">
+    <strong>重要限制：</strong>Chunked Prefix Cache 优化目前<strong>仅在 FlashAttention3 后端</strong>可用。使用其他后端时，prefix cache 命中的 token 仍会走完整的重新计算路径而非缓存复用路径，或者采用更基础的处理方式。FA3 的 <code>merge_states</code> API 是实现此优化的关键。
+  </div>
+</div>
+
+<!-- ============ SECTION 6 ============ -->
+<div class="card" id="s6">
+  <h2>6. 核心数据流全景图：Prefix Cache → Chunked Prefill → Attention Output</h2>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 950 750" xmlns="http://www.w3.org/2000/svg">
+      <text x="475" y="25" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">端到端数据流 (以 vLLM 为例)</text>
+
+      <!-- Step 0: Request arrives -->
+      <rect x="250" y="45" width="450" height="40" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <text x="475" y="70" text-anchor="middle" font-size="13" font-weight="bold" fill="#0d47a1">请求到达: "System prompt + User query" (10K tokens)</text>
+
+      <line x1="475" y1="85" x2="475" y2="110" stroke="#666" stroke-width="2" marker-end="url(#ah3)"/>
+
+      <!-- Step 1: Prefix match -->
+      <rect x="250" y="110" width="450" height="50" rx="8" fill="#fff9c4" stroke="#f9a825" stroke-width="2"/>
+      <text x="475" y="132" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">Step 1: Prefix Hash/Radix 匹配</text>
+      <text x="475" y="150" text-anchor="middle" font-size="11" fill="#f57f17">命中 8K prefix token → 需要 extend 2K 新 token</text>
+
+      <line x1="475" y1="160" x2="475" y2="185" stroke="#666" stroke-width="2" marker-end="url(#ah3)"/>
+
+      <!-- Step 2: Scheduler splits -->
+      <rect x="200" y="185" width="550" height="50" rx="8" fill="#e0f2f1" stroke="#00695c" stroke-width="2"/>
+      <text x="475" y="207" text-anchor="middle" font-size="13" font-weight="bold" fill="#00695c">Step 2: Scheduler 分配 — 只对 2K 新 token 做模型前向</text>
+      <text x="475" y="225" text-anchor="middle" font-size="11" fill="#00897b">新 token 通过 Embedding → RMSNorm → ... → Attention Layer 输入</text>
+
+      <line x1="475" y1="235" x2="475" y2="260" stroke="#666" stroke-width="2" marker-end="url(#ah3)"/>
+
+      <!-- Step 3: Attention Layer -->
+      <rect x="50" y="260" width="850" height="440" rx="12" fill="#fafafa" stroke="#9e9e9e" stroke-width="2"/>
+      <text x="475" y="285" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">Step 3: Attention Layer 内部处理</text>
+
+      <!-- Step 3a: Q computation -->
+      <rect x="80" y="300" width="380" height="55" rx="6" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+      <text x="270" y="320" text-anchor="middle" font-size="12" font-weight="bold" fill="#0d47a1">3a. Q 计算 (新 2K token)</text>
+      <text x="270" y="340" text-anchor="middle" font-size="11" fill="#1565c0">q = h × W_Q → q_nope, q_rope → apply RoPE</text>
+
+      <!-- Step 3b: New KV -->
+      <rect x="490" y="300" width="380" height="55" rx="6" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="680" y="320" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d32">3b. 新 token KV (2K token)</text>
+      <text x="680" y="340" text-anchor="middle" font-size="11" fill="#2e7d32">kv_c = h × W_DKV, k_rope = ... → 存入 Cache</text>
+
+      <!-- Step 3c: Context decompress -->
+      <rect x="80" y="370" width="790" height="100" rx="8" fill="#fce4ec" stroke="#c62828" stroke-width="2"/>
+      <text x="475" y="393" text-anchor="middle" font-size="13" font-weight="bold" fill="#c62828">3c. Context 解压缩 (prefix-cached 8K tokens) — 分 chunk 处理</text>
+
+      <!-- Chunk loop -->
+      <rect x="100" y="405" width="230" height="50" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+      <text x="215" y="425" text-anchor="middle" font-size="11" fill="#b71c1c">Chunk [0, 4K):</text>
+      <text x="215" y="443" text-anchor="middle" font-size="10" fill="#b71c1c">c_t×W_UK→K, c_t×W_UV→V, FA</text>
+
+      <rect x="345" y="405" width="230" height="50" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+      <text x="460" y="425" text-anchor="middle" font-size="11" fill="#b71c1c">Chunk [4K, 8K):</text>
+      <text x="460" y="443" text-anchor="middle" font-size="10" fill="#b71c1c">c_t×W_UK→K, c_t×W_UV→V, FA</text>
+
+      <rect x="590" y="405" width="260" height="50" rx="4" fill="#fff9c4" stroke="#f9a825" stroke-width="1"/>
+      <text x="720" y="425" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">每 chunk 解压显存:</text>
+      <text x="720" y="443" text-anchor="middle" font-size="10" fill="#e65100">4K×128h×320d×2B ≈ 320 MB</text>
+
+      <!-- Step 3d: Extend attention -->
+      <rect x="80" y="485" width="380" height="45" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="270" y="505" text-anchor="middle" font-size="12" font-weight="bold" fill="#1b5e20">3d. Extend FlashAttention (2K new tokens)</text>
+      <text x="270" y="520" text-anchor="middle" font-size="11" fill="#2e7d32">Q_new × K_new, V_new → (extend_out, extend_lse)</text>
+
+      <!-- Step 3e: Merge -->
+      <rect x="490" y="485" width="380" height="45" rx="6" fill="#ffcc80" stroke="#e65100" stroke-width="2"/>
+      <text x="680" y="505" text-anchor="middle" font-size="12" font-weight="bold" fill="#bf360c">3e. merge_attn_states()</text>
+      <text x="680" y="520" text-anchor="middle" font-size="11" fill="#e65100">context_out + extend_out → final_out</text>
+
+      <!-- Arrows -->
+      <line x1="270" y1="530" x2="475" y2="560" stroke="#666" stroke-width="1.5" marker-end="url(#ah3)"/>
+      <line x1="680" y1="530" x2="475" y2="560" stroke="#666" stroke-width="1.5" marker-end="url(#ah3)"/>
+
+      <!-- Step 3f: Output -->
+      <rect x="300" y="560" width="350" height="40" rx="8" fill="#a5d6a7" stroke="#2e7d32" stroke-width="2"/>
+      <text x="475" y="585" text-anchor="middle" font-size="13" font-weight="bold" fill="#1b5e20">3f. Attention Output → O × W_O</text>
+
+      <!-- Step 4: Cache write -->
+      <rect x="300" y="620" width="350" height="55" rx="8" fill="#e8eaf6" stroke="#283593" stroke-width="2"/>
+      <text x="475" y="643" text-anchor="middle" font-size="12" font-weight="bold" fill="#283593">Step 4: 新 token 写入 Cache</text>
+      <text x="475" y="663" text-anchor="middle" font-size="11" fill="#3949ab">只存 c_t[512] + k_rope[64] = 576 dims</text>
+
+      <line x1="475" y1="600" x2="475" y2="620" stroke="#666" stroke-width="1.5" marker-end="url(#ah3)"/>
+
+      <!-- Final -->
+      <rect x="300" y="695" width="350" height="40" rx="8" fill="#c5cae9" stroke="#283593" stroke-width="2"/>
+      <text x="475" y="720" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a237e">Step 5: 后续 Decode 走 Absorbed 路径 (无需解压)</text>
+
+      <line x1="475" y1="675" x2="475" y2="695" stroke="#666" stroke-width="1.5" marker-end="url(#ah3)"/>
+
+      <defs>
+        <marker id="ah3" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <div class="callout callout-green">
+    <strong>关键公式：</strong>解压缩的 GEMM 计算量 = prefix_len × d_c × n_heads × (d_nope + d_v) = 8K × 512 × 128 × 256 ≈ <strong>135 GFLOP</strong>。虽然这是额外开销，但相比完全重新计算 8K token 的全部 Transformer 层（约 8K × 隐藏层宽度 × 参数量 的量级），prefix cache + 在线解压的方案仍然是巨大的节省。
+  </div>
+</div>
+
+<!-- ============ SECTION 7 ============ -->
+<div class="card" id="s7">
+  <h2>7. 性能对比与工程取舍</h2>
+
+  <h3>7.1 Prefix Cache 收益分析</h3>
+  <table>
+    <tr><th>场景</th><th>无 Prefix Cache</th><th>有 Prefix Cache</th><th>加速比</th></tr>
+    <tr><td>8K system prompt + 2K query</td><td>全部 10K token 做 prefill</td><td>仅 2K prefill + 8K 解压</td><td>~3-5x</td></tr>
+    <tr><td>32K 长文档 + 512 query</td><td>全部 32.5K token 做 prefill</td><td>仅 512 prefill + 32K 解压</td><td>~5-10x</td></tr>
+    <tr><td>重复 system prompt (多用户)</td><td>每个用户都重算</td><td>所有用户共享 cache</td><td>线性增长</td></tr>
+  </table>
+
+  <h3>7.2 解压缩的额外开销</h3>
+  <p>与标准 MHA 的 prefix cache "零开销命中" 不同，MLA 的 prefix cache 命中后仍有解压缩开销：</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg">
+      <text x="400" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">Prefix Cache 命中后的开销对比</text>
+
+      <!-- MHA bar -->
+      <rect x="100" y="50" width="30" height="100" rx="4" fill="#a5d6a7" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="115" y="170" text-anchor="middle" font-size="11" fill="#2e7d32">MHA</text>
+      <text x="115" y="45" text-anchor="middle" font-size="10" fill="#2e7d32">~0</text>
+
+      <!-- GQA bar -->
+      <rect x="200" y="50" width="30" height="100" rx="4" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+      <text x="215" y="170" text-anchor="middle" font-size="11" fill="#2e7d32">GQA</text>
+      <text x="215" y="45" text-anchor="middle" font-size="10" fill="#2e7d32">~0</text>
+
+      <!-- MLA bar (decompress cost) -->
+      <rect x="300" y="80" width="30" height="70" rx="4" fill="#ffcc80" stroke="#e65100" stroke-width="1.5"/>
+      <text x="315" y="170" text-anchor="middle" font-size="11" fill="#e65100">MLA</text>
+      <text x="315" y="75" text-anchor="middle" font-size="10" fill="#e65100">解压 GEMM</text>
+
+      <!-- No cache bar -->
+      <rect x="440" y="20" width="30" height="130" rx="4" fill="#ef9a9a" stroke="#c62828" stroke-width="1.5"/>
+      <text x="455" y="170" text-anchor="middle" font-size="11" fill="#c62828">无 Cache</text>
+      <text x="455" y="15" text-anchor="middle" font-size="10" fill="#c62828">全量计算</text>
+
+      <!-- Labels -->
+      <text x="600" y="55" font-size="11" fill="#666">MHA/GQA: cache 命中 → 直接使用 K/V → 0 额外计算</text>
+      <text x="600" y="85" font-size="11" fill="#e65100">MLA: cache 命中 → 解压 c_t → GEMM → K/V</text>
+      <text x="600" y="115" font-size="11" fill="#e65100">       额外开销 ≈ prefix_len × d_c × n_heads × d_head</text>
+      <text x="600" y="145" font-size="11" fill="#c62828">无 Cache: 全部 token 过完整 Transformer</text>
+    </svg>
+  </div>
+
+  <h3>7.3 vLLM vs SGLang 实现对比</h3>
+  <table>
+    <tr><th>特性</th><th class="badge-vllm">vLLM</th><th class="badge-sglang">SGLang</th></tr>
+    <tr><td>Prefix Cache 结构</td><td>Paged Block + Hash Table</td><td>RadixTree (RadixAttention)</td></tr>
+    <tr><td>KV Cache 格式</td><td>FP8 c_t [512] + BF16 k_rope [64] = 656B</td><td>混合精度 buffer [576 dims]</td></tr>
+    <tr><td>Prefill 解压方式</td><td>context chunk loop + kv_b_proj GEMM</td><td>chunk 切分 + MHA attn + merge</td></tr>
+    <tr><td>Attention 合并</td><td>merge_attn_states (lse-based)</td><td>merge_attn_states (lse-based)</td></tr>
+    <tr><td>最佳后端</td><td>FlashInfer / FA4 for MLA</td><td>FlashAttention3 (chunked prefix cache)</td></tr>
+    <tr><td>Decode 路径</td><td>Absorbed (FlashMLA / PagedAttn)</td><td>Absorbed (FlashMLA / CutlassMLA / FlashInfer)</td></tr>
+    <tr><td>吞吐提升</td><td>~3-5x (prefix cache 场景)</td><td>~7x (综合优化后)</td></tr>
+  </table>
+</div>
+
+<!-- ============ SECTION 8 ============ -->
+<div class="card" id="s8">
+  <h2>8. 总结</h2>
+
+  <div class="callout callout-blue">
+    <strong>一句话总结：</strong>MLA 的 Prefix Cache 存的是压缩 latent (c_t + k_rope = 576 dims)，但 Prefill 需要全量 KV (40,960 dims)。解决方案是<strong>在线解压缩 + 分块处理 + attention state 合并</strong>。
+  </div>
+
+  <h3>关键技术要点</h3>
+  <table>
+    <tr><th>#</th><th>要点</th><th>说明</th></tr>
+    <tr><td>1</td><td>Cache 只存压缩表示</td><td>c_t [512] + k_rope [64] = 576 dims，所有 128 heads 共享</td></tr>
+    <tr><td>2</td><td>Prefill 必须解压</td><td>通过 kv_b_proj (= [W_UK; W_UV]) 将 c_t 投影回 per-head K/V</td></tr>
+    <tr><td>3</td><td>分块处理控制显存</td><td>长 prefix 分成 chunk（如 4K token/chunk），每次只解压一个 chunk</td></tr>
+    <tr><td>4</td><td>LSE-based 合并</td><td>各 chunk 结果通过 log-sum-exp 加权合并，保证数学等价性</td></tr>
+    <tr><td>5</td><td>Decode 无此问题</td><td>Absorbed 路径直接用 c_t，矩阵吸收消除了解压需求</td></tr>
+    <tr><td>6</td><td>总体仍然值得</td><td>解压 GEMM 的开销远小于完整 Transformer 重算的开销</td></tr>
+  </table>
+
+  <div class="callout callout-green">
+    <strong>工程启示：</strong>MLA 的 prefix cache 不是"免费"的——它以额外的解压 GEMM 为代价换取了 ~100x 的缓存空间节省和高效的前缀共享。这个 trade-off 在实际生产中（多用户共享 system prompt、长文档问答等场景）收益非常显著。
+  </div>
+</div>
+
+<!-- ============ FOOTER ============ -->
+<div style="text-align: center; padding: 20px; color: #999; font-size: 0.85em;">
+  MLA Prefix Cache & Chunked Prefill 深度解析 | 基于 vLLM / SGLang 源码分析 | 2025
+</div>
+
+</div>
+</body>
+</html>

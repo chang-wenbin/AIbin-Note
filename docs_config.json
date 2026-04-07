@@ -1,0 +1,6 @@
+{
+  "_comment": "可选配置文件：为新增文档指定 emoji、标题和描述。key 为文件名（含 .html 后缀）",
+  "MLA_DSA": {},
+  "De_Attn": {},
+  "De_Attn_sm80": {}
+}
