@@ -42,14 +42,11 @@ ibin-notes/
 │   └── RoPE_Variants_Comparison.html
 │
 ├── De_Attn/                # Decode Attention 优化（4 篇）
-│   ├── flash_decoding_guide.html
-│   ├── cute_divide_ops_v1.html
-│   ├── cute_divide_ops_v2.html
-│   └── rope_comparison_guide.html
-│
-└── De_Attn_sm80/           # SM80 架构专项（2 篇）
-    ├── block_attn_kernel_guide.html
-    └── block_attn_matrix_flow.html
+    ├── flash_decoding_guide.html
+    ├── cute_divide_ops_v1.html
+    ├── cute_divide_ops_v2.html
+    └── rope_comparison_guide.html
+
 ```
 
 ---
