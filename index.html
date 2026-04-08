@@ -428,7 +428,7 @@
   </p>
   <div class="hero-stats">
     <div class="stat-item">
-      <span class="stat-num" id="totalDocs">13</span>
+      <span class="stat-num" id="totalDocs">14</span>
       <span class="stat-label">技术文档</span>
     </div>
     <div class="stat-item">
@@ -449,7 +449,7 @@
   <div class="update-banner">
     <div class="update-dot"></div>
     <span>
-      📅 最近更新：<strong style="color: var(--text-primary)">2026-04-07</strong>
+      📅 最近更新：<strong style="color: var(--text-primary)">2026-04-08</strong>
       &nbsp;—&nbsp; 本仓库不定期更新，持续记录 AI 推理与 GPU 优化领域的技术探索。
     </span>
   </div>
@@ -497,7 +497,7 @@
       <div>
         <div class="section-title">MLA_DSA — 多头潜在注意力与 DSA</div>
       </div>
-      <span class="section-subtitle section-tag">7 篇文档</span>
+      <span class="section-subtitle section-tag">8 篇文档</span>
     </div>
     <div class="cards-grid">
 
@@ -525,6 +525,15 @@
         <div class="card-desc">通过交互式可视化展示 MLA 中 GEMM 操作的矩阵变换过程，直观理解计算流程。</div>
         <div class="card-footer">
           <span class="card-tag">MLA · GEMM</span>
+          <span class="card-arrow">→</span>
+        </div>
+      </a>
+      <a class="card" href="MLA_DSA/MLA_Math_GQA_Equivalence.html" target="_blank">
+        <div class="card-emoji">📄</div>
+        <div class="card-title">MLA 数学公式推导 — 从 MHA 到 Absorbed MQA 的等价变换</div>
+        <div class="card-desc"></div>
+        <div class="card-footer">
+          <span class="card-tag">MLA</span>
           <span class="card-arrow">→</span>
         </div>
       </a>
@@ -680,7 +689,7 @@
     });
 
     document.getElementById('noResults').style.display = totalVisible === 0 && query ? 'block' : 'none';
-    document.getElementById('totalDocs').textContent = query ? totalVisible : 13;
+    document.getElementById('totalDocs').textContent = query ? totalVisible : 14;
   }
 </script>
 
