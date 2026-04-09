@@ -371,17 +371,42 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.3; }
     }
+    @keyframes countUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    #busuanzi_value_site_pv,
+    #busuanzi_value_site_uv {
+      animation: countUp 0.6s ease-out;
+    }
 
     /* ── Footer ── */
     footer {
       border-top: 1px solid var(--border);
       padding: 24px;
-      text-align: center;
       font-size: 13px;
       color: var(--text-muted);
     }
+    .footer-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
     footer a { color: var(--accent-blue); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
+    .footer-visitor {
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .footer-visitor strong {
+      color: var(--accent-cyan);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
 
     /* ── No results ── */
     .no-results {
@@ -686,13 +711,16 @@
 
 <!-- ─────────────────────── FOOTER ─────────────────────── -->
 <footer>
-  <p>
-    Built with ❤️ by <strong>Ibin!</strong> &nbsp;·&nbsp;
+  <div class="footer-inner">
+    <span>Built with ❤️ by <strong>Ibin!</strong></span>
+    <span>&nbsp;·&nbsp;</span>
     <a href="https://github.com/chang-wenbin/AIbin-Note" target="_blank">GitHub</a>
-    &nbsp;·&nbsp;
+    <span>&nbsp;·&nbsp;</span>
     <span id="footerDate">2026</span>
-  </p>
-  <p style="margin-top: 6px; font-size: 11px;">
+    <span>&nbsp;·&nbsp;</span>
+    <span class="footer-visitor">👀 访问 <strong id="busuanzi_value_site_pv">--</strong> 次 · 访客 <strong id="busuanzi_value_site_uv">--</strong> 人</span>
+  </div>
+  <p style="margin-top: 6px; font-size: 11px; text-align: center;">
     本站所有内容均为个人工作笔记，持续更新中。如需引用请注明出处。
   </p>
 </footer>
@@ -724,6 +752,9 @@
     document.getElementById('totalDocs').textContent = query ? totalVisible : 16;
   }
 </script>
+
+<!-- 不蒜子访问统计 -->
+<script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
 
 </body>
 </html>
