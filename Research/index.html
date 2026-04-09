@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ibin! 研究笔记索引</title>
+  <style>
+  :root {
+    --bg:#0d1117; --bg2:#161b22; --bg3:#1c2128; --border:#30363d;
+    --text:#e6edf3; --text2:#8b949e; --text3:#656d76;
+    --cyan:#39d0d8; --blue:#58a6ff; --green:#3fb950; --yellow:#e3b341;
+    --purple:#bc8cff; --orange:#f78166;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;
+       background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh;}
+  header{background:var(--bg2);border-bottom:1px solid var(--border);
+         padding:0 24px;position:sticky;top:0;z-index:100;}
+  .header-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;
+                justify-content:space-between;height:56px;gap:16px;}
+  .logo{font-size:16px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;}
+  .logo-icon{background:linear-gradient(135deg,var(--cyan),var(--purple));
+             border-radius:8px;width:28px;height:28px;display:flex;
+             align-items:center;justify-content:center;font-size:14px;}
+  .search{flex:1;max-width:400px;position:relative;}
+  .search input{width:100%;background:var(--bg3);border:1px solid var(--border);
+                border-radius:8px;padding:7px 12px 7px 34px;color:var(--text);
+                font-size:14px;outline:none;transition:border-color .2s;}
+  .search input:focus{border-color:var(--cyan);}
+  .search input::placeholder{color:var(--text3);}
+  .search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);
+               color:var(--text3);font-size:13px;}
+  .hero{padding:48px 24px 32px;text-align:center;background:radial-gradient(ellipse 80% 50% at 50% 0%,rgba(57,208,216,.07),transparent 70%);}
+  .hero h1{font-size:clamp(24px,4vw,40px);font-weight:800;
+           background:linear-gradient(135deg,#e6edf3 30%,var(--cyan));
+           -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+           margin-bottom:10px;}
+  .hero p{color:var(--text2);font-size:15px;}
+  .stats{display:flex;gap:24px;justify-content:center;margin-top:20px;flex-wrap:wrap;}
+  .stat{text-align:center;}
+  .stat-n{font-size:26px;font-weight:800;color:var(--cyan);display:block;}
+  .stat-l{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;}
+  main{max-width:1100px;margin:0 auto;padding:32px 24px 80px;}
+  /* Tags filter */
+  .tag-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;align-items:center;}
+  .tag-btn{background:var(--bg2);border:1px solid var(--border);border-radius:20px;
+           padding:4px 14px;font-size:12px;color:var(--text2);cursor:pointer;
+           transition:all .15s;white-space:nowrap;}
+  .tag-btn:hover,.tag-btn.active{background:rgba(57,208,216,.15);
+                                  border-color:rgba(57,208,216,.4);color:var(--cyan);}
+  .tag-label{font-size:12px;color:var(--text3);margin-right:4px;}
+  /* Cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;
+        padding:20px;text-decoration:none;color:inherit;display:flex;flex-direction:column;
+        gap:10px;transition:all .2s;position:relative;overflow:hidden;}
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+                background:linear-gradient(90deg,var(--cyan),var(--purple));
+                opacity:0;transition:opacity .2s;}
+  .card:hover{border-color:#6e7681;background:var(--bg3);transform:translateY(-2px);
+              box-shadow:0 8px 24px rgba(0,0,0,.3);}
+  .card:hover::before{opacity:1;}
+  .card-date{font-size:11px;color:var(--text3);}
+  .card-title{font-size:15px;font-weight:700;color:var(--text);line-height:1.35;}
+  .card-summary{font-size:13px;color:var(--text2);line-height:1.6;flex:1;}
+  .card-footer{display:flex;align-items:center;justify-content:space-between;margin-top:4px;}
+  .card-tags{display:flex;gap:6px;flex-wrap:wrap;}
+  .tag{font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500;
+       background:rgba(57,208,216,.12);color:var(--cyan);}
+  .card-arrow{color:var(--text3);font-size:16px;transition:transform .2s;}
+  .card:hover .card-arrow{transform:translateX(4px);color:var(--cyan);}
+  .no-results{text-align:center;padding:64px;color:var(--text3);display:none;font-size:15px;}
+  footer{border-top:1px solid var(--border);padding:20px;text-align:center;
+         font-size:12px;color:var(--text3);}
+  footer a{color:var(--blue);text-decoration:none;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo"><div class="logo-icon">🔬</div>Research Notes</div>
+    <div class="search">
+      <span class="search-icon">🔍</span>
+      <input id="search" type="text" placeholder="搜索报告…" />
+    </div>
+  </div>
+</header>
+
+<div class="hero">
+  <h1>📚 Ibin! 研究笔记库</h1>
+  <p>AI 推理、GPU 优化、大模型加速领域的深度调研报告合集</p>
+  <div class="stats">
+    <div class="stat"><span class="stat-n">1</span><span class="stat-l">篇报告</span></div>
+    <div class="stat"><span class="stat-n">6</span><span class="stat-l">技术标签</span></div>
+    <div class="stat"><span class="stat-n">2026-04-09</span><span class="stat-l">最近更新</span></div>
+  </div>
+</div>
+
+<main>
+  <div class="tag-bar">
+    <span class="tag-label">筛选：</span>
+    <button class="tag-btn active" data-tag="all">全部</button>
+    <button class="tag-btn" data-tag="DeepSeek">DeepSeek</button>
+    <button class="tag-btn" data-tag="GLM-5">GLM-5</button>
+    <button class="tag-btn" data-tag="LLM">LLM</button>
+    <button class="tag-btn" data-tag="SGLang">SGLang</button>
+    <button class="tag-btn" data-tag="vLLM">vLLM</button>
+    <button class="tag-btn" data-tag="推理优化">推理优化</button>
+
+  </div>
+  <div class="cards">
+
+    <a class="card" href="2026-04-09_sglang-vllm-deepseek-glm5-optimization.html" target="_blank" data-tags="llm 推理优化 deepseek glm-5 sglang vllm" data-title="sglang 与 vllm 对 deepseek 和 glm-5 模型的最新优化研究">
+      <div class="card-date">📅 2026-04-09</div>
+      <div class="card-title">SGLang 与 vLLM 对 DeepSeek 和 GLM-5 模型的最新优化研究</div>
+      <div class="card-summary">深入分析 SGLang 和 vLLM 两大推理框架对 DeepSeek 和 GLM-5 模型的支持情况及最新优化技术。</div>
+      <div class="card-footer">
+        <div class="card-tags"><span class="tag">LLM</span><span class="tag">推理优化</span><span class="tag">DeepSeek</span><span class="tag">GLM-5</span><span class="tag">SGLang</span><span class="tag">vLLM</span></div>
+        <span class="card-arrow">→</span>
+      </div>
+    </a>
+  </div>
+  <div class="no-results" id="noResults">🔍 没有找到匹配的报告</div>
+</main>
+
+<footer>
+  <p>Built by <strong>Ibin!</strong> · 最后生成时间：2026-04-09 16:48 CST</p>
+</footer>
+
+<script>
+  const cards = document.querySelectorAll('.card');
+  let activeTag = 'all';
+  function render() {
+    const q = document.getElementById('search').value.toLowerCase();
+    let vis = 0;
+    cards.forEach(c => {
+      const tagMatch = activeTag === 'all' || c.dataset.tags.includes(activeTag);
+      const textMatch = !q || c.dataset.title.includes(q) || c.dataset.tags.includes(q);
+      const show = tagMatch && textMatch;
+      c.style.display = show ? '' : 'none';
+      if (show) vis++;
+    });
+    document.getElementById('noResults').style.display = vis === 0 ? 'block' : 'none';
+  }
+  document.getElementById('search').addEventListener('input', render);
+  document.querySelectorAll('.tag-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tag-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeTag = btn.dataset.tag;
+      render();
+    });
+  });
+</script>
+</body>
+</html>

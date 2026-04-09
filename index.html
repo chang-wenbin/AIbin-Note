@@ -413,7 +413,7 @@
       <span class="search-icon">🔍</span>
       <input type="text" id="searchInput" placeholder="搜索笔记文档..." oninput="filterCards()" />
     </div>
-    <a class="nav-link" href="https://github.com/adux-user-0316" target="_blank">GitHub ↗</a>
+    <a class="nav-link" href="https://github.com/chang-wenbin/AIbin-Note" target="_blank">GitHub ↗</a>
   </div>
 </header>
 
@@ -428,11 +428,11 @@
   </p>
   <div class="hero-stats">
     <div class="stat-item">
-      <span class="stat-num" id="totalDocs">14</span>
+      <span class="stat-num" id="totalDocs">16</span>
       <span class="stat-label">技术文档</span>
     </div>
     <div class="stat-item">
-      <span class="stat-num">2</span>
+      <span class="stat-num">3</span>
       <span class="stat-label">技术领域</span>
     </div>
     <div class="stat-item">
@@ -449,7 +449,7 @@
   <div class="update-banner">
     <div class="update-dot"></div>
     <span>
-      📅 最近更新：<strong style="color: var(--text-primary)">2026-04-08</strong>
+      📅 最近更新：<strong style="color: var(--text-primary)">2026-04-09</strong>
       &nbsp;—&nbsp; 本仓库不定期更新，持续记录 AI 推理与 GPU 优化领域的技术探索。
     </span>
   </div>
@@ -583,7 +583,7 @@
       <div>
         <div class="section-title">De_Attn — Decode Attention 优化</div>
       </div>
-      <span class="section-subtitle section-tag">6 篇文档</span>
+      <span class="section-subtitle section-tag">7 篇文档</span>
     </div>
     <div class="cards-grid">
 
@@ -641,9 +641,41 @@
           <span class="card-arrow">→</span>
         </div>
       </a>
+      <a class="card" href="De_Attn/sample_flash_attention_report.html" target="_blank">
+        <div class="card-emoji">📄</div>
+        <div class="card-title">Flash Attention v2 的核心优化原理与工程实现</div>
+        <div class="card-desc"></div>
+        <div class="card-footer">
+          <span class="card-tag">Attn</span>
+          <span class="card-arrow">→</span>
+        </div>
+      </a>
     </div>
   </div>
   <!-- AUTO-SECTION:De_Attn:END -->
+  <!-- AUTO-SECTION:Research:START -->
+  <div class="section mla-section" data-section="research">
+    <div class="section-header">
+      <div class="section-icon">📁</div>
+      <div>
+        <div class="section-title">Research</div>
+      </div>
+      <span class="section-subtitle section-tag">1 篇文档</span>
+    </div>
+    <div class="cards-grid">
+
+      <a class="card" href="Research/2026-04-09_sglang-vllm-deepseek-glm5-optimization.html" target="_blank">
+        <div class="card-emoji">📄</div>
+        <div class="card-title">SGLang 与 vLLM 对 DeepSeek 和 GLM-5 模型的最新优化研究</div>
+        <div class="card-desc"></div>
+        <div class="card-footer">
+          <span class="card-tag">Notes</span>
+          <span class="card-arrow">→</span>
+        </div>
+      </a>
+    </div>
+  </div>
+  <!-- AUTO-SECTION:Research:END -->
 
   <!-- No results -->
   <div class="no-results" id="noResults">
@@ -656,7 +688,7 @@
 <footer>
   <p>
     Built with ❤️ by <strong>Ibin!</strong> &nbsp;·&nbsp;
-    <a href="https://github.com/adux-user-0316" target="_blank">GitHub</a>
+    <a href="https://github.com/chang-wenbin/AIbin-Note" target="_blank">GitHub</a>
     &nbsp;·&nbsp;
     <span id="footerDate">2026</span>
   </p>
@@ -689,7 +721,7 @@
     });
 
     document.getElementById('noResults').style.display = totalVisible === 0 && query ? 'block' : 'none';
-    document.getElementById('totalDocs').textContent = query ? totalVisible : 14;
+    document.getElementById('totalDocs').textContent = query ? totalVisible : 16;
   }
 </script>
 
