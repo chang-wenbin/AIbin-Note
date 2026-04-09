@@ -285,6 +285,57 @@
     }
     .card:hover .card-arrow { transform: translateX(4px); color: var(--accent-cyan); }
 
+    /* ── Card stats (views + likes) ── */
+    .card-stats {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-left: auto;
+    }
+    .card-views {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .card-like-btn {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border: none;
+      background: none;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: all 0.2s;
+      line-height: 1;
+    }
+    .card-like-btn:hover {
+      background: rgba(255, 80, 80, 0.1);
+    }
+    .card-like-btn .heart {
+      font-size: 15px;
+      transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      display: inline-block;
+    }
+    .card-like-btn.liked .heart {
+      transform: scale(1.2);
+    }
+    .card-like-btn.liked {
+      color: #f43f5e;
+    }
+    @keyframes heartPop {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.4); }
+      100% { transform: scale(1.2); }
+    }
+    .card-like-btn.pop .heart {
+      animation: heartPop 0.35s ease;
+    }
+
     /* Color schemes per section */
     .mla-section .section-icon { background: var(--tag-mla); }
     .mla-section .section-tag { background: var(--tag-mla); color: var(--accent-cyan); }
@@ -725,6 +776,13 @@
   </p>
 </footer>
 
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<!-- 不蒜子访问统计 -->
+<script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
 <script>
   // Update footer year
   document.getElementById('footerDate').textContent = new Date().getFullYear();
@@ -732,7 +790,6 @@
   // Search / filter functionality
   function filterCards() {
     const query = document.getElementById('searchInput').value.toLowerCase().trim();
-    const cards = document.querySelectorAll('.card');
     const sections = document.querySelectorAll('.section');
     let totalVisible = 0;
 
@@ -751,10 +808,171 @@
     document.getElementById('noResults').style.display = totalVisible === 0 && query ? 'block' : 'none';
     document.getElementById('totalDocs').textContent = query ? totalVisible : 16;
   }
-</script>
 
-<!-- 不蒜子访问统计 -->
-<script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+  // ══════════════════════════════════════════════════════════
+  //  Firebase 共享点赞 & 访问统计
+  // ══════════════════════════════════════════════════════════
+  (function() {
+
+    // ┌─────────────────────────────────────────────────────┐
+    // │  ⚠️  请替换为你自己的 Firebase 项目配置              │
+    // │  创建方法见仓库 README 或下方注释                     │
+    // └─────────────────────────────────────────────────────┘
+    var firebaseConfig = {
+      apiKey: "AIzaSyA3mhn9icHZyIUIxl54VBtWREUl1Zhp_1U",
+      authDomain: "aibinnote.firebaseapp.com",
+      databaseURL: "https://aibinnote-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "aibinnote"
+    };
+
+    // ── 初始化 Firebase ──
+    var app, db;
+    var firebaseReady = false;
+    try {
+      if (firebaseConfig.apiKey !== "AIzaSyA3mhn9icHZyIUIxl54VBtWREUl1Zhp_1U") {
+        app = firebase.initializeApp(firebaseConfig);
+        db  = firebase.database();
+        firebaseReady = true;
+      }
+    } catch(e) {
+      console.warn('Firebase init failed, falling back to localStorage', e);
+    }
+
+    // ── 访客唯一 ID（存 localStorage，用于防重复点赞）──
+    function getVisitorId() {
+      var id = localStorage.getItem('aibin_visitor_id');
+      if (!id) {
+        id = 'v_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+        localStorage.setItem('aibin_visitor_id', id);
+      }
+      return id;
+    }
+    var visitorId = getVisitorId();
+
+    // ── 卡片 key 生成 ──
+    function cardKey(href) {
+      // Firebase key 不能含 . # $ [ ] /
+      return href.replace(/[^a-zA-Z0-9_-]/g, '_');
+    }
+
+    // ── localStorage 降级方案 ──
+    function getLocalData() {
+      try { return JSON.parse(localStorage.getItem('aibin_card_data') || '{}'); }
+      catch(e) { return {}; }
+    }
+    function saveLocalData(d) {
+      localStorage.setItem('aibin_card_data', JSON.stringify(d));
+    }
+    var localData = getLocalData();
+
+    // ── 遍历所有卡片，注入 UI + 绑定逻辑 ──
+    document.querySelectorAll('.card').forEach(function(card) {
+      var href = card.getAttribute('href') || '';
+      if (!href) return;
+      var key = cardKey(href);
+
+      var footer = card.querySelector('.card-footer');
+      if (!footer) return;
+
+      // 移除箭头
+      var arrow = footer.querySelector('.card-arrow');
+      if (arrow) arrow.remove();
+
+      // 创建统计容器
+      var stats = document.createElement('div');
+      stats.className = 'card-stats';
+
+      var viewsEl = document.createElement('span');
+      viewsEl.className = 'card-views';
+      viewsEl.innerHTML = '👁 <span class="view-count">--</span>';
+      stats.appendChild(viewsEl);
+
+      var likeBtn = document.createElement('span');
+      likeBtn.className = 'card-like-btn';
+      likeBtn.innerHTML = '<span class="heart">🤍</span><span class="like-count">--</span>';
+      stats.appendChild(likeBtn);
+
+      footer.appendChild(stats);
+
+      // ─────────── Firebase 模式 ───────────
+      if (firebaseReady) {
+        var cardRef = db.ref('cards/' + key);
+
+        // 实时监听数据变化（单个监听器）
+        cardRef.on('value', function(snap) {
+          var d = snap.val() || {};
+          viewsEl.querySelector('.view-count').textContent = d.views || 0;
+          likeBtn.querySelector('.like-count').textContent  = d.likes || 0;
+
+          var liked = d.likedBy && d.likedBy[visitorId];
+          likeBtn.className = 'card-like-btn' + (liked ? ' liked' : '');
+          likeBtn.querySelector('.heart').textContent = liked ? '❤️' : '🤍';
+        });
+
+        // 点击卡片 → 访问 +1
+        card.addEventListener('click', function(e) {
+          if (e.target.closest('.card-like-btn')) return;
+          cardRef.child('views').transaction(function(c) { return (c || 0) + 1; });
+        });
+
+        // 点赞切换
+        likeBtn.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+
+          var likedByRef = cardRef.child('likedBy/' + visitorId);
+          likedByRef.once('value', function(snap) {
+            if (snap.val()) {
+              // 取消点赞
+              likedByRef.remove();
+              cardRef.child('likes').transaction(function(c) { return Math.max((c || 0) - 1, 0); });
+            } else {
+              // 点赞
+              likedByRef.set(true);
+              cardRef.child('likes').transaction(function(c) { return (c || 0) + 1; });
+            }
+          });
+
+          likeBtn.classList.add('pop');
+          setTimeout(function() { likeBtn.classList.remove('pop'); }, 350);
+        });
+
+      // ─────────── localStorage 降级模式 ───────────
+      } else {
+        if (!localData[key]) localData[key] = { views: 0, likes: 0, liked: false };
+        var ld = localData[key];
+
+        viewsEl.querySelector('.view-count').textContent = ld.views;
+        likeBtn.querySelector('.like-count').textContent  = ld.likes;
+        likeBtn.className = 'card-like-btn' + (ld.liked ? ' liked' : '');
+        likeBtn.querySelector('.heart').textContent = ld.liked ? '❤️' : '🤍';
+
+        card.addEventListener('click', function(e) {
+          if (e.target.closest('.card-like-btn')) return;
+          ld.views++;
+          viewsEl.querySelector('.view-count').textContent = ld.views;
+          saveLocalData(localData);
+        });
+
+        likeBtn.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          ld.liked = !ld.liked;
+          ld.likes += ld.liked ? 1 : -1;
+          if (ld.likes < 0) ld.likes = 0;
+          likeBtn.className = 'card-like-btn' + (ld.liked ? ' liked' : '');
+          likeBtn.querySelector('.heart').textContent = ld.liked ? '❤️' : '🤍';
+          likeBtn.querySelector('.like-count').textContent = ld.likes;
+          likeBtn.classList.add('pop');
+          setTimeout(function() { likeBtn.classList.remove('pop'); }, 350);
+          saveLocalData(localData);
+        });
+      }
+    });
+
+    if (!firebaseReady) saveLocalData(localData);
+  })();
+</script>
 
 </body>
 </html>
