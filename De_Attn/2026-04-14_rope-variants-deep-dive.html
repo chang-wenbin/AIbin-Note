@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fused Rotary Position Encoding 全方位解析</title>
+  <!-- RESEARCH_META
+  title: Fused Rotary Position Encoding 全方位解析
+  date: 2026-04-14
+  tags: CUDA, RoPE, LLM, GPU Kernel, Position Embedding
+  summary: 基于真实 PaddlePaddle Kernel 源码，深度对比 GPT-J、NeoX、Partial Rotary、3D RoPE 等多种 RoPE 实现方式，涵盖数学原理、内存布局、CUDA 实现细节与性能分析。
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:         #0d1117;
+      --bg2:        #161b22;
+      --bg3:        #1c2128;
+      --border:     #30363d;
+      --text:       #e6edf3;
+      --text2:      #8b949e;
+      --text3:      #656d76;
+      --cyan:       #39d0d8;
+      --blue:       #58a6ff;
+      --green:      #3fb950;
+      --yellow:     #e3b341;
+      --orange:     #f78166;
+      --purple:     #bc8cff;
+      --red:        #f85149;
+      --font-mono:  'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.75;
+      font-size: 16px;
+    }
+    .page-wrap { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+    @media (max-width: 900px) { .page-wrap { grid-template-columns: 1fr; } .sidebar { display: none; } }
+    .sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--bg2); border-right: 1px solid var(--border); padding: 24px 16px; }
+    .sidebar-brand { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text3); margin-bottom: 16px; }
+    .toc-list { list-style: none; }
+    .toc-item a { display: block; padding: 5px 8px; font-size: 13px; color: var(--text2); text-decoration: none; border-radius: 6px; transition: all .15s; border-left: 2px solid transparent; }
+    .toc-item a:hover { color: var(--text); background: var(--bg3); border-left-color: var(--cyan); }
+    .toc-item.h3 a { padding-left: 20px; font-size: 12px; }
+    .content { max-width: 900px; margin: 0 auto; padding: 48px 32px 80px; }
+    @media (max-width: 640px) { .content { padding: 24px 16px 60px; } }
+    .cover { padding: 40px 0 32px; border-bottom: 1px solid var(--border); margin-bottom: 40px; }
+    .cover-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .badge { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; letter-spacing: 0.4px; }
+    .badge-cyan   { background: rgba(57,208,216,.15); color: var(--cyan); }
+    .badge-blue   { background: rgba(88,166,255,.15); color: var(--blue); }
+    .badge-green  { background: rgba(63,185,80,.15);  color: var(--green); }
+    .badge-yellow { background: rgba(227,179,65,.15); color: var(--yellow); }
+    .badge-purple { background: rgba(188,140,255,.15);color: var(--purple); }
+    .badge-orange { background: rgba(247,129,102,.15);color: var(--orange); }
+    .cover h1 { font-size: clamp(24px, 4vw, 38px); font-weight: 800; line-height: 1.2; margin-bottom: 12px; background: linear-gradient(135deg, #e6edf3 20%, var(--cyan) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .cover-summary { font-size: 16px; color: var(--text2); max-width: 700px; line-height: 1.6; }
+    .cover-date { font-size: 12px; color: var(--text3); margin-top: 12px; }
+    h2 { font-size: 22px; font-weight: 700; color: var(--text); margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); scroll-margin-top: 24px; }
+    h3 { font-size: 17px; font-weight: 600; color: var(--text); margin: 28px 0 12px; scroll-margin-top: 24px; }
+    h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--text2); }
+    p { margin-bottom: 14px; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    strong { color: var(--text); font-weight: 600; }
+    em { color: var(--yellow); font-style: italic; }
+    .tldr { background: linear-gradient(135deg, rgba(57,208,216,.08), rgba(188,140,255,.08)); border: 1px solid rgba(57,208,216,.25); border-radius: 12px; padding: 24px 28px; margin: 0 0 40px; }
+    .tldr-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--cyan); margin-bottom: 12px; }
+    .tldr ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .tldr li { display: flex; align-items: flex-start; gap: 8px; font-size: 15px; color: var(--text); }
+    .tldr li::before { content: "\2192"; color: var(--cyan); flex-shrink: 0; font-weight: 700; }
+    .callout { display: flex; gap: 14px; padding: 16px 20px; border-radius: 10px; margin: 20px 0; border: 1px solid; }
+    .callout-icon { font-size: 20px; flex-shrink: 0; line-height: 1.4; }
+    .callout-body { flex: 1; }
+    .callout-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .callout-text { font-size: 14px; line-height: 1.65; }
+    .callout-insight { background: rgba(57,208,216,.07); border-color: rgba(57,208,216,.3); }
+    .callout-insight .callout-title { color: var(--cyan); }
+    .callout-warning { background: rgba(227,179,65,.07); border-color: rgba(227,179,65,.3); }
+    .callout-warning .callout-title { color: var(--yellow); }
+    .callout-danger  { background: rgba(248,81,73,.07);  border-color: rgba(248,81,73,.3); }
+    .callout-danger  .callout-title { color: var(--red); }
+    .callout-tip     { background: rgba(63,185,80,.07);  border-color: rgba(63,185,80,.3); }
+    .callout-tip     .callout-title { color: var(--green); }
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin: 20px 0; }
+    .metric-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+    .metric-num { font-size: 28px; font-weight: 800; display: block; line-height: 1.1; }
+    .metric-label { font-size: 12px; color: var(--text2); margin-top: 4px; }
+    .metric-card.cyan .metric-num  { color: var(--cyan); }
+    .metric-card.blue .metric-num  { color: var(--blue); }
+    .metric-card.green .metric-num { color: var(--green); }
+    .metric-card.yellow .metric-num{ color: var(--yellow); }
+    .metric-card.purple .metric-num{ color: var(--purple); }
+    .metric-card.orange .metric-num{ color: var(--orange); }
+    .table-wrap { overflow-x: auto; margin: 20px 0; border-radius: 10px; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    thead tr { background: var(--bg2); }
+    th { padding: 12px 16px; text-align: left; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text2); border-bottom: 1px solid var(--border); }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text); }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: var(--bg3); }
+    .cell-good  { color: var(--green); font-weight: 600; }
+    .cell-bad   { color: var(--red);   font-weight: 600; }
+    .cell-mid   { color: var(--yellow);font-weight: 600; }
+    .cell-mono  { font-family: var(--font-mono); font-size: 12px; }
+    pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 20px; overflow-x: auto; margin: 16px 0; position: relative; }
+    code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; color: var(--text); }
+    p code, li code, td code { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 13px; color: var(--cyan); }
+    .code-label { position: absolute; top: 10px; right: 14px; font-size: 11px; color: var(--text3); font-family: var(--font-mono); }
+    .kw  { color: var(--purple); }
+    .fn  { color: var(--blue); }
+    .str { color: var(--green); }
+    .num { color: var(--orange); }
+    .cm  { color: var(--text3); font-style: italic; }
+    .tp  { color: var(--yellow); }
+    .mermaid-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin: 20px 0; overflow-x: auto; }
+    .mermaid { text-align: center; }
+    ul, ol { padding-left: 24px; margin-bottom: 14px; }
+    li { margin-bottom: 6px; }
+    ul li::marker { color: var(--cyan); }
+    ol li::marker { color: var(--cyan); font-weight: 600; }
+    .bar-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+    .bar-label { width: 180px; font-size: 13px; color: var(--text2); flex-shrink: 0; }
+    .bar-track { flex: 1; background: var(--bg3); border-radius: 4px; height: 8px; }
+    .bar-fill  { height: 100%; border-radius: 4px; transition: width .4s; }
+    .bar-value { width: 48px; text-align: right; font-size: 12px; color: var(--text2); flex-shrink: 0; }
+    hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+    .ref-list { list-style: none; padding: 0; counter-reset: refs; }
+    .ref-item { counter-increment: refs; display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .ref-item::before { content: "[" counter(refs) "]"; color: var(--cyan); font-weight: 700; font-size: 12px; flex-shrink: 0; margin-top: 2px; }
+    .back-top { position: fixed; bottom: 24px; right: 24px; background: var(--bg2); border: 1px solid var(--border); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 18px; cursor: pointer; text-decoration: none; color: var(--text2); transition: all .2s; opacity: 0.7; }
+    .back-top:hover { opacity: 1; border-color: var(--cyan); color: var(--cyan); }
+
+    /* Custom: memory layout diagrams */
+    .mem-layout { display: flex; gap: 2px; margin: 12px 0; flex-wrap: wrap; align-items: center; }
+    .mem-cell { padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; font-family: var(--font-mono); text-align: center; min-width: 36px; }
+    .mem-cell.x { background: rgba(57,208,216,.15); color: var(--cyan); border: 1px solid rgba(57,208,216,.3); }
+    .mem-cell.y { background: rgba(244,114,182,.15); color: #f472b6; border: 1px solid rgba(244,114,182,.3); }
+    .mem-cell.pass { background: var(--bg3); color: var(--text3); border: 1px solid var(--border); }
+    .mem-cell.cos { background: rgba(63,185,80,.12); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+    .mem-cell.sin { background: rgba(247,129,102,.12); color: var(--orange); border: 1px solid rgba(247,129,102,.3); }
+    .mem-label { font-size: 11px; color: var(--text3); margin-right: 8px; min-width: 60px; }
+    .formula-box { background: #12141d; border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin: 16px 0; font-size: 15px; line-height: 2; font-family: var(--font-mono); overflow-x: auto; }
+    .pair-arrow { display: flex; justify-content: center; margin: 4px 0; }
+    .pair-arrow svg { width: 100%; max-width: 500px; }
+  </style>
+</head>
+<body>
+<script>mermaid.initialize({ theme: 'dark', startOnLoad: true });</script>
+
+<div class="page-wrap">
+
+  <nav class="sidebar">
+    <div class="sidebar-brand">目录</div>
+    <ul class="toc-list">
+      <li class="toc-item"><a href="#tldr">TL;DR</a></li>
+      <li class="toc-item"><a href="#background">背景</a></li>
+      <li class="toc-item h3"><a href="#rope-math">RoPE 数学原理</a></li>
+      <li class="toc-item h3"><a href="#why-variants">为什么有多种变体</a></li>
+      <li class="toc-item"><a href="#variants">四大 RoPE 配对方式</a></li>
+      <li class="toc-item h3"><a href="#gptj">GPT-J (Interleaved)</a></li>
+      <li class="toc-item h3"><a href="#neox">GPT-NeoX (Half-Split)</a></li>
+      <li class="toc-item h3"><a href="#partial">Partial Rotary</a></li>
+      <li class="toc-item h3"><a href="#rope3d">3D RoPE</a></li>
+      <li class="toc-item"><a href="#kernel-analysis">Kernel 实现深度分析</a></li>
+      <li class="toc-item h3"><a href="#kernel1">Kernel 1: 基础 NeoX RoPE</a></li>
+      <li class="toc-item h3"><a href="#kernel2">Kernel 2: Fused QKV Split + NeoX</a></li>
+      <li class="toc-item h3"><a href="#kernel3">Kernel 3: GQA Interleaved + RMSNorm</a></li>
+      <li class="toc-item h3"><a href="#kernel4">Kernel 4: Partial NeoX Rotary</a></li>
+      <li class="toc-item"><a href="#comparison">对比分析</a></li>
+      <li class="toc-item h3"><a href="#pairing-compare">配对方式对比</a></li>
+      <li class="toc-item h3"><a href="#kernel-compare">Kernel 实现对比</a></li>
+      <li class="toc-item h3"><a href="#perf-compare">性能特征对比</a></li>
+      <li class="toc-item"><a href="#scaling">频率缩放方法</a></li>
+      <li class="toc-item"><a href="#conclusions">结论与建议</a></li>
+      <li class="toc-item"><a href="#references">参考资料</a></li>
+    </ul>
+  </nav>
+
+  <main class="content">
+
+    <!-- ══════ Cover ══════ -->
+    <div class="cover">
+      <div class="cover-meta">
+        <span class="badge badge-cyan">CUDA Kernel</span>
+        <span class="badge badge-purple">RoPE</span>
+        <span class="badge badge-blue">LLM</span>
+        <span class="badge badge-orange">GPU</span>
+        <span class="badge badge-green">PaddlePaddle</span>
+      </div>
+      <h1>Fused Rotary Position Encoding (RoPE) 全方位解析</h1>
+      <p class="cover-summary">基于 4 个真实 PaddlePaddle/FastDeploy CUDA Kernel 源码，深度对比 GPT-J (Interleaved)、GPT-NeoX (Half-Split)、Partial Rotary、3D RoPE 等多种实现方式，涵盖数学原理、内存布局、CUDA 实现细节与性能特征。</p>
+      <div class="cover-date">2026-04-14 &nbsp;&middot;&nbsp; CUDA Kernel Research Notes</div>
+    </div>
+
+    <!-- ══════ TL;DR ══════ -->
+    <div class="tldr" id="tldr">
+      <div class="tldr-title">TL;DR &mdash; 核心要点</div>
+      <ul>
+        <li>RoPE 的核心运算是对 head 内的<strong>元素对</strong>施加 2D 旋转：<code>x' = x*cos - y*sin, y' = y*cos + x*sin</code>，不同变体的区别仅在于<strong>如何选取 (x, y) 对</strong></li>
+        <li><strong>GPT-J (Interleaved)</strong> 取相邻元素 <code>(arr[2i], arr[2i+1])</code> 配对；<strong>GPT-NeoX (Half-Split)</strong> 取前半后半 <code>(arr[i], arr[i+d/2])</code> 配对 &mdash; 数学等价，内存布局不同</li>
+        <li><strong>Partial Rotary</strong> 只旋转 head 的前 <code>rotary_dim</code> 个元素，其余保持不动（Phi-3, GLM-4 使用此策略）</li>
+        <li>所有频率缩放变体（PI / NTK / YaRN / LongRoPE）只改变预计算的 cos/sin cache，<strong>kernel 旋转逻辑完全不变</strong></li>
+        <li>Fused Kernel 通常将 QKV split + RoPE + RMSNorm 合并为一个 kernel，减少 global memory 读写次数，提升 memory-bound 场景下的性能</li>
+      </ul>
+    </div>
+
+    <!-- ══════ Background ══════ -->
+    <h2 id="background">背景 / Background</h2>
+
+    <p>Rotary Position Embedding (RoPE) 由 Su et al. 在 2021 年的 RoFormer 论文中提出，已成为现代 LLM 的事实标准位置编码方案。LLaMA、Qwen、Baichuan、Mistral、Gemma、Phi、GLM 等主流模型均采用 RoPE 的某种变体。</p>
+
+    <p>与绝对位置编码 (APE) 直接加到 token embedding 不同，RoPE 在 attention 计算前对 Query 和 Key 向量施加<strong>位置相关的旋转变换</strong>。这种设计使得两个 token 的 attention score 只依赖它们的<strong>相对位置</strong>，天然支持位置外推。</p>
+
+    <h3 id="rope-math">RoPE 数学原理</h3>
+
+    <p>对于 head 维度 d 中的第 i 对元素，RoPE 定义旋转角度为：</p>
+
+    <div class="formula-box">
+<span class="cm">// 频率基于维度递减（低维高频，高维低频）</span>
+&theta;<sub>i</sub> = base<sup>-2i/d</sup> &nbsp;&nbsp; <span class="cm">// base 通常为 10000</span>
+
+<span class="cm">// 位置 m 处的旋转角</span>
+angle(m, i) = m &times; &theta;<sub>i</sub>
+
+<span class="cm">// 对第 i 对元素施加 2D 旋转</span>
+<span style="color:var(--cyan)">x'</span> = <span style="color:var(--cyan)">x</span> &times; <span style="color:var(--green)">cos(angle)</span> - <span style="color:#f472b6">y</span> &times; <span style="color:var(--orange)">sin(angle)</span>
+<span style="color:#f472b6">y'</span> = <span style="color:#f472b6">y</span> &times; <span style="color:var(--green)">cos(angle)</span> + <span style="color:var(--cyan)">x</span> &times; <span style="color:var(--orange)">sin(angle)</span>
+    </div>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">💡</div>
+      <div class="callout-body">
+        <div class="callout-title">Key Insight</div>
+        <div class="callout-text">旋转公式等价于一个 2&times;2 旋转矩阵乘法。每一对 (x, y) 独立旋转，互不干扰。整个 head 的旋转可以理解为 d/2 个独立的 2D 旋转同时施加。</div>
+      </div>
+    </div>
+
+    <h3 id="why-variants">为什么有多种变体</h3>
+
+    <p>RoPE 的数学原理只定义了"对 d/2 对元素各施加一个旋转"，但<strong>没有规定这些"对"如何从 d 维向量中选取</strong>。这就是不同 RoPE 变体的根本分歧点：</p>
+
+    <div class="metric-grid">
+      <div class="metric-card cyan">
+        <span class="metric-num">2</span>
+        <div class="metric-label">配对方式<br>(Interleaved / Half-Split)</div>
+      </div>
+      <div class="metric-card purple">
+        <span class="metric-num">Partial</span>
+        <div class="metric-label">部分旋转<br>(rotary_dim &lt; head_dim)</div>
+      </div>
+      <div class="metric-card orange">
+        <span class="metric-num">3D</span>
+        <div class="metric-label">多维 RoPE<br>(时空位置编码)</div>
+      </div>
+      <div class="metric-card green">
+        <span class="metric-num">6+</span>
+        <div class="metric-label">频率缩放方法<br>(PI/NTK/YaRN/...)</div>
+      </div>
+    </div>
+
+    <!-- ══════ Variants ══════ -->
+    <h2 id="variants">四大 RoPE 配对方式详解</h2>
+
+    <!-- ── GPT-J ── -->
+    <h3 id="gptj">1. GPT-J 模式 (Interleaved / 交错配对)</h3>
+
+    <p>GPT-J 风格将相邻的两个元素视为一对：<code>(arr[2i], arr[2i+1])</code> 构成第 i 个旋转对。这是 RoPE 原始论文中最自然的实现方式。</p>
+
+    <h4>内存布局 (head_dim=8, rot_dim=8)</h4>
+    <div class="mem-layout">
+      <span class="mem-label">arr[] =</span>
+      <span class="mem-cell x">x<sub>0</sub></span>
+      <span class="mem-cell y">y<sub>0</sub></span>
+      <span class="mem-cell x">x<sub>1</sub></span>
+      <span class="mem-cell y">y<sub>1</sub></span>
+      <span class="mem-cell x">x<sub>2</sub></span>
+      <span class="mem-cell y">y<sub>2</sub></span>
+      <span class="mem-cell x">x<sub>3</sub></span>
+      <span class="mem-cell y">y<sub>3</sub></span>
+    </div>
+    <p style="font-size:13px; color:var(--text3); margin-top:4px;">配对关系：(x<sub>0</sub>,y<sub>0</sub>), (x<sub>1</sub>,y<sub>1</sub>), (x<sub>2</sub>,y<sub>2</sub>), (x<sub>3</sub>,y<sub>3</sub>) &mdash; 每对共享同一个 &theta;</p>
+
+    <h4>索引公式</h4>
+    <div class="formula-box">
+x_index = 2 * rot_offset        <span class="cm">// 偶数位</span>
+y_index = 2 * rot_offset + 1    <span class="cm">// 奇数位</span>
+cos = cos_ptr[rot_offset]       <span class="cm">// 一个 cos 值服务一对</span>
+sin = sin_ptr[rot_offset]
+    </div>
+
+    <h4>对应 Kernel 代码 (apply_token_rotary_embedding_kernel, IS_NEOX=false)</h4>
+    <pre><code><span class="cm">// GPT-J: 相邻元素配对</span>
+x_index = <span class="num">2</span> * rot_offset;
+y_index = <span class="num">2</span> * rot_offset + <span class="num">1</span>;
+cos = cos_ptr[x_index / <span class="num">2</span>];
+sin = sin_ptr[x_index / <span class="num">2</span>];
+
+<span class="kw">const</span> <span class="tp">T</span> x = arr[x_index];
+<span class="kw">const</span> <span class="tp">T</span> y = arr[y_index];
+arr[x_index] = x * cos - y * sin;
+arr[y_index] = y * cos + x * sin;<span class="code-label">CUDA</span></code></pre>
+
+    <h4>代表模型</h4>
+    <p>GPT-J, CodeGen, GPT-NeoX (early), 部分 Falcon 变体</p>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">💡</div>
+      <div class="callout-body">
+        <div class="callout-title">Interleaved 的 CUDA 特点</div>
+        <div class="callout-text">
+          <code>GQAVariableLengthRotarySplitKernel</code> 中，VecSize=4 的向量化 load 一次取 4 个元素 = 2 个旋转对。用 <code>HalfVecSize = VecSize/2</code> 加载 cos/sin，每个 cos/sin 值对应 <code>src_vec[2*i]</code> 和 <code>src_vec[2*i+1]</code>。这意味着一次向量化 load 可以完成 2 个旋转，非常高效。
+        </div>
+      </div>
+    </div>
+
+    <!-- ── NeoX ── -->
+    <h3 id="neox">2. GPT-NeoX 模式 (Half-Split / 前后半配对)</h3>
+
+    <p>GPT-NeoX 风格将 head 维度切成前半和后半，前半的第 i 个元素与后半的第 i 个元素配对：<code>(arr[i], arr[i + d/2])</code>。</p>
+
+    <h4>内存布局 (head_dim=8, rot_dim=8)</h4>
+    <div class="mem-layout">
+      <span class="mem-label">arr[] =</span>
+      <span class="mem-cell x">x<sub>0</sub></span>
+      <span class="mem-cell x">x<sub>1</sub></span>
+      <span class="mem-cell x">x<sub>2</sub></span>
+      <span class="mem-cell x">x<sub>3</sub></span>
+      <span class="mem-cell y">y<sub>0</sub></span>
+      <span class="mem-cell y">y<sub>1</sub></span>
+      <span class="mem-cell y">y<sub>2</sub></span>
+      <span class="mem-cell y">y<sub>3</sub></span>
+    </div>
+    <p style="font-size:13px; color:var(--text3); margin-top:4px;">前半 [0, d/2) 是所有 x，后半 [d/2, d) 是所有 y &mdash; 配对关系跨越半个 head</p>
+
+    <h4>索引公式</h4>
+    <div class="formula-box">
+x_index = rot_offset             <span class="cm">// 前半区</span>
+y_index = embed_dim + rot_offset <span class="cm">// 后半区 (embed_dim = d/2)</span>
+cos = cos_ptr[x_index]
+sin = sin_ptr[x_index]
+    </div>
+
+    <h4>对应 Kernel 代码 (apply_token_rotary_embedding_kernel, IS_NEOX=true)</h4>
+    <pre><code><span class="cm">// NeoX: 前半后半配对</span>
+x_index = rot_offset;
+y_index = embed_dim + rot_offset;
+cos = cos_ptr[x_index];
+sin = sin_ptr[x_index];
+
+<span class="kw">const</span> <span class="tp">T</span> x = arr[x_index];
+<span class="kw">const</span> <span class="tp">T</span> y = arr[y_index];
+arr[x_index] = x * cos - y * sin;
+arr[y_index] = y * cos + x * sin;<span class="code-label">CUDA</span></code></pre>
+
+    <h4>对应 Kernel 代码 (FusedNeoxRopeEmbeddingKernel)</h4>
+    <pre><code><span class="cm">// Fused 版本：从 packed QKV 中拆分并旋转</span>
+<span class="kw">const int</span> base_idx_left  = ... + h_bias;            <span class="cm">// 前半</span>
+<span class="kw">const int</span> base_idx_right = base_idx_left + half_lastdim; <span class="cm">// 后半</span>
+
+Load&lt;T, VecSize&gt;(&amp;qkv[base_idx_left],  &amp;left_vec);
+Load&lt;T, VecSize&gt;(&amp;qkv[base_idx_right], &amp;right_vec);
+
+<span class="cm">// 旋转：left=x, right=y</span>
+left_vec[i]  = input_left * cos_tmp - input_right * sin_tmp;
+right_vec[i] = input_right * cos_tmp + input_left * sin_tmp;<span class="code-label">CUDA</span></code></pre>
+
+    <h4>代表模型</h4>
+    <p>LLaMA 1/2/3, Qwen, Baichuan, Mistral, Gemma, Yi, DeepSeek</p>
+
+    <div class="callout callout-warning">
+      <div class="callout-icon">⚠️</div>
+      <div class="callout-body">
+        <div class="callout-title">NeoX 的 CUDA 代价</div>
+        <div class="callout-text">
+          NeoX 模式下，配对的 x 和 y 在内存中相距 <code>d/2</code> 个元素。一次向量化 load 只能取到 x 或 y 的连续块，需要<strong>两次 load</strong> 才能凑齐一个旋转对。相比 Interleaved 模式的一次 load 处理两对，NeoX 多了一次全局内存读取。
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Partial Rotary ── -->
+    <h3 id="partial">3. Partial Rotary (部分旋转)</h3>
+
+    <p>某些模型只旋转 head 维度的前一部分（<code>rotary_dim &lt; head_dim</code>），后面的维度保持不变。这给模型保留了一部分"不受位置影响"的表示空间。</p>
+
+    <h4>内存布局 (head_dim=8, rotary_dim=4, NeoX 配对)</h4>
+    <div class="mem-layout">
+      <span class="mem-label">arr[] =</span>
+      <span class="mem-cell x">x<sub>0</sub></span>
+      <span class="mem-cell x">x<sub>1</sub></span>
+      <span class="mem-cell y">y<sub>0</sub></span>
+      <span class="mem-cell y">y<sub>1</sub></span>
+      <span class="mem-cell pass">p<sub>0</sub></span>
+      <span class="mem-cell pass">p<sub>1</sub></span>
+      <span class="mem-cell pass">p<sub>2</sub></span>
+      <span class="mem-cell pass">p<sub>3</sub></span>
+    </div>
+    <p style="font-size:13px; color:var(--text3); margin-top:4px;">前 rotary_dim 个元素参与旋转（NeoX 前后半配对），后 head_dim-rotary_dim 个元素 pass-through</p>
+
+    <h4>对应 Kernel 代码 (GQAVariableLengthNeoxPartialRotarySplitKernel)</h4>
+    <pre><code><span class="kw">if</span> (hi &lt; q_num_head + kv_num_head) {       <span class="cm">// 只有 Q 和 K 需要旋转</span>
+  <span class="kw">if</span> (h_bias &lt; rotary_dim) {                <span class="cm">// 在旋转区域内</span>
+    <span class="kw">if</span> (h_bias &lt; half_rotary_dim) {
+      <span class="cm">// 前半：加载后半作为配对</span>
+      Load(&amp;qkv[base_idx + half_rotary_dim], &amp;src_vec_right);
+      <span class="cm">// x' = x*cos - y*sin</span>
+      src_vec[i] = input_left * cos - input_right * sin;
+    } <span class="kw">else</span> {
+      <span class="cm">// 后半：加载前半作为配对</span>
+      Load(&amp;qkv[base_idx - half_rotary_dim], &amp;src_vec_right);
+      <span class="cm">// y' = y*cos + x*sin</span>
+      src_vec[i] = input_left * cos + input_right * sin;
+    }
+  }
+  <span class="cm">// else: h_bias >= rotary_dim, 不旋转，保持原值</span>
+}<span class="code-label">CUDA</span></code></pre>
+
+    <h4>代表模型</h4>
+    <p>Phi-2/3 (<code>partial_rotary_factor=0.5</code>), GLM-4/4.1V, ChatGLM 系列, Gemma (部分层)</p>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">💡</div>
+      <div class="callout-body">
+        <div class="callout-title">Partial Rotary 的设计意图</div>
+        <div class="callout-text">
+          保留部分维度不受位置编码干扰，让模型有空间学习纯粹基于内容的 attention pattern（而不是位置依赖的）。Phi-3 的做法是只旋转前一半维度（<code>rotary_dim = head_dim/2</code>），GLM 系列则使用不同的 rotary_dim 比例。
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 3D RoPE ── -->
+    <h3 id="rope3d">4. 3D RoPE (多维旋转位置编码)</h3>
+
+    <p>3D RoPE 将位置从标量扩展到多维坐标 (t, h, w)，用于多模态和视频场景。在 <code>GQAVariableLengthRotarySplitKernel</code> 中通过 <code>rope_3d</code> 参数支持：</p>
+
+    <pre><code><span class="cm">// 3D RoPE: 每个 batch 有独立的 emb 偏移</span>
+int64_t new_emb_idx = rope_3d
+    ? emb_idx + ori_bi * head_dim * max_model_len  <span class="cm">// 按 batch 偏移</span>
+    : emb_idx;                                       <span class="cm">// 标准 1D</span><span class="code-label">CUDA</span></code></pre>
+
+    <p>3D RoPE 的核心思想是将 head 维度再细分为若干组，分别编码时间、高度、宽度三个维度的位置。旋转公式不变，只是 cos/sin cache 的组织方式变为 <code>[batch, temporal_pos * spatial_pos, dim_group]</code>。</p>
+
+    <h4>代表模型</h4>
+    <p>Qwen-VL, LLaVA-Video, VideoRoPE (ICML 2025), VRoPE</p>
+
+
+    <!-- ══════ Kernel Analysis ══════ -->
+    <h2 id="kernel-analysis">Kernel 实现深度分析</h2>
+
+    <p>下面对用户提供的 4 个 CUDA Kernel 进行逐一拆解。</p>
+
+    <!-- Kernel 1 -->
+    <h3 id="kernel1">Kernel 1: apply_rotary_embedding_kernel (基础版)</h3>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+    A["Query<br>[N, H, D]"] --> K["GPU Kernel<br>1 block = 1 token"]
+    B["Key<br>[N, KVH, D]"] --> K
+    C["position_ids<br>[N]"] --> K
+    D["cos_sin_cache<br>[max_pos, rot_dim]"] --> K
+    K --> E["Query (in-place)<br>已旋转"]
+    K --> F["Key (in-place)<br>已旋转"]
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>特征</th><th>描述</th></tr></thead>
+        <tbody>
+          <tr><td><strong>并行策略</strong></td><td>grid.x = num_tokens; 每 block 处理 1 个 token 的所有 head</td></tr>
+          <tr><td><strong>block 内循环</strong></td><td>stride-loop 遍历 <code>num_heads * embed_dim</code> 个旋转对</td></tr>
+          <tr><td><strong>配对模式</strong></td><td>通过模板参数 <code>IS_NEOX</code> 编译期选择 NeoX/GPT-J</td></tr>
+          <tr><td><strong>Q/K 处理</strong></td><td>先循环处理 Q 的所有 head，再循环处理 K &mdash; 串行两轮</td></tr>
+          <tr><td><strong>cos/sin 来源</strong></td><td><code>cos_sin_cache[pos * rot_dim]</code> 直接查表</td></tr>
+          <tr><td><strong>输出方式</strong></td><td>in-place 修改 Query 和 Key</td></tr>
+          <tr><td><strong>向量化</strong></td><td>无（逐元素标量访问）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Kernel 2 -->
+    <h3 id="kernel2">Kernel 2: FusedNeoxRopeEmbeddingKernel (Fused QKV Split + NeoX)</h3>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+    A["Packed QKV<br>[N, 3*H*D/2]"] --> K["Fused Kernel<br>VecSize=4"]
+    B["cos_emb (float)"] --> K
+    C["sin_emb (float)"] --> K
+    K --> Q["Q [N,H,D]"]
+    K --> Kout["K [N,H,D]"]
+    K --> V["V [N,H,D]"]
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>特征</th><th>描述</th></tr></thead>
+        <tbody>
+          <tr><td><strong>核心创新</strong></td><td>QKV Split + RoPE 融合为一个 kernel，减少一次全局内存读写</td></tr>
+          <tr><td><strong>配对模式</strong></td><td>NeoX (Half-Split)；分别加载 left（前半）和 right（后半）</td></tr>
+          <tr><td><strong>向量化</strong></td><td><code>VecSize=4</code>，使用 <code>AlignedVector</code> 做 <code>LDG.128</code></td></tr>
+          <tr><td><strong>精度</strong></td><td>cos/sin 使用 <code>float</code>，数据使用 bf16 &rarr; 内部 cast 到 float 计算再 cast 回来</td></tr>
+          <tr><td><strong>V 处理</strong></td><td>V 不需要旋转，但也被 split 出来（<code>qkv_id == 2</code> 跳过旋转，直接拷贝）</td></tr>
+          <tr><td><strong>线性映射</strong></td><td>全局 linear_index &rarr; <code>(token, qkv_id, head, h_bias)</code> 的索引分解</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout callout-warning">
+      <div class="callout-icon">⚠️</div>
+      <div class="callout-body">
+        <div class="callout-title">输入布局的关键差异</div>
+        <div class="callout-text">
+          这个 kernel 的 QKV 是 packed 在一起的 <code>[token, 3, H, D/2]</code>（注意是 D/2 不是 D），且 QKV 拼在 half_lastdim 维度上。这与常见的 <code>[token, 3, H, D]</code> 布局不同。kernel 通过 <code>base_idx_left</code> 和 <code>base_idx_right = left + half_lastdim</code> 来寻址前后半，而输出到独立的 Q/K/V tensor 时使用完整的 head_dim。
+        </div>
+      </div>
+    </div>
+
+    <!-- Kernel 3 -->
+    <h3 id="kernel3">Kernel 3: GQAVariableLengthRotarySplitKernel (Interleaved + RMSNorm)</h3>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+    A["Packed QKV"] --> K["Fused Kernel"]
+    B["cos/sin emb"] --> K
+    C["batch_id, cu_seqlens<br>seq_lens_enc/dec"] --> K
+    D["q_norm / k_norm<br>weights"] --> K
+    K -->|"RoPE"| R["旋转 Q,K"]
+    R -->|"RMSNorm"| N["归一化 Q,K"]
+    N --> Q["Q split"]
+    N --> Ko["K split (写入 KV cache 位置)"]
+    K --> V["V split (写入 KV cache 位置)"]
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>特征</th><th>描述</th></tr></thead>
+        <tbody>
+          <tr><td><strong>核心创新</strong></td><td>QKV Split + RoPE + <strong>RMSNorm</strong> 三合一 fused kernel</td></tr>
+          <tr><td><strong>配对模式</strong></td><td>GPT-J (Interleaved)：<code>src_vec[2*i]</code> 和 <code>src_vec[2*i+1]</code></td></tr>
+          <tr><td><strong>GQA 支持</strong></td><td><code>q_num_head != kv_num_head</code>，Q head 数多于 KV head 数</td></tr>
+          <tr><td><strong>变长序列</strong></td><td>通过 <code>batch_id_per_token</code>、<code>cu_seqlens_q/k</code>、<code>seq_lens_encoder/decoder</code> 支持变长 batch</td></tr>
+          <tr><td><strong>RMSNorm 融合</strong></td><td>对旋转后的结果做 per-head RMSNorm（<code>WelfordWarpAllReduce</code> 计算方差），然后乘 norm weight</td></tr>
+          <tr><td><strong>3D RoPE</strong></td><td>通过 <code>rope_3d</code> 标志支持多模态位置编码</td></tr>
+          <tr><td><strong>线程组织</strong></td><td><code>dim3 block(32, 4)</code>：每 warp 处理一个 head，4 个 warp 并行处理 4 个 head</td></tr>
+          <tr><td><strong>KV Cache 写入</strong></td><td>K/V 直接写入 <code>cu_seqlens_k</code> 指定的 cache 位置</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">💡</div>
+      <div class="callout-body">
+        <div class="callout-title">Warp-level RMSNorm 实现细节</div>
+        <div class="callout-text">
+          每个 warp（32 线程）处理一个完整的 head（128 维 = 32 线程 &times; VecSize=4）。旋转后，每个线程计算局部平方和 <code>thread_m2</code>，然后通过 <code>WelfordWarpAllReduce</code>（warp shuffle）归约得到整个 head 的方差 <code>warp_m2</code>。整个过程不需要 shared memory，纯寄存器 + shuffle 实现。
+        </div>
+      </div>
+    </div>
+
+    <!-- Kernel 4 -->
+    <h3 id="kernel4">Kernel 4: GQAVariableLengthNeoxPartialRotarySplitKernel (Partial NeoX)</h3>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+    A["Packed QKV"] --> K["Fused Kernel"]
+    B["cos/sin emb"] --> K
+    C["batch_id, cu_seqlens<br>seq_lens_enc/dec"] --> K
+    K -->|"h_bias < rotary_dim"| R["NeoX 旋转"]
+    K -->|"h_bias >= rotary_dim"| P["Pass-through"]
+    R --> Q["Q split"]
+    R --> Ko["K split → KV cache"]
+    P --> Q
+    P --> Ko
+    K --> V["V split → KV cache"]
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>特征</th><th>描述</th></tr></thead>
+        <tbody>
+          <tr><td><strong>核心创新</strong></td><td>NeoX 配对 + Partial Rotary：只旋转前 <code>rotary_dim</code> 个维度</td></tr>
+          <tr><td><strong>配对模式</strong></td><td>NeoX (Half-Split)，但只在 <code>[0, rotary_dim)</code> 范围内</td></tr>
+          <tr><td><strong>前后半判断</strong></td><td><code>h_bias &lt; half_rotary_dim</code> 时算 <code>x*cos - y*sin</code>；<code>h_bias &ge; half_rotary_dim</code> 时算 <code>y*cos + x*sin</code></td></tr>
+          <tr><td><strong>SM90 特性</strong></td><td>使用 <code>cudaGridDependencySynchronize()</code> 和 <code>cudaTriggerProgrammaticLaunchCompletion()</code> 支持 PDL (Programmatic Dependent Launch)</td></tr>
+          <tr><td><strong>适用模型</strong></td><td>GLM-4, Phi 系列，以及任何 <code>rotary_dim &lt; head_dim</code> 的架构</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout callout-tip">
+      <div class="callout-icon">🚀</div>
+      <div class="callout-body">
+        <div class="callout-title">SM90 PDL 优化</div>
+        <div class="callout-text">
+          <code>cudaGridDependencySynchronize()</code> 和 <code>cudaTriggerProgrammaticLaunchCompletion()</code> 是 Hopper (SM90) 引入的 Programmatic Dependent Launch API，允许依赖 kernel 在前驱 kernel 部分 block 完成后就开始执行，而不用等前驱 kernel 全部结束。这对于 LLM 推理中的 kernel chain（如 QKV projection &rarr; RoPE &rarr; Attention）有显著的 latency 优化效果。
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════ Comparison ══════ -->
+    <h2 id="comparison">对比分析 / Comparison</h2>
+
+    <h3 id="pairing-compare">配对方式对比</h3>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>维度</th>
+            <th>GPT-J (Interleaved)</th>
+            <th>GPT-NeoX (Half-Split)</th>
+            <th>Partial Rotary</th>
+            <th>3D RoPE</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>配对方式</strong></td>
+            <td class="cell-mono">(arr[2i], arr[2i+1])</td>
+            <td class="cell-mono">(arr[i], arr[i+d/2])</td>
+            <td>NeoX 或 GPT-J，但限于 rotary_dim</td>
+            <td>按维度组分段编码</td>
+          </tr>
+          <tr>
+            <td><strong>数学等价性</strong></td>
+            <td colspan="2" style="text-align:center;color:var(--green)">两者数学上等价（存在置换矩阵将一种转换为另一种）</td>
+            <td>子集旋转</td>
+            <td>扩展到多维坐标</td>
+          </tr>
+          <tr>
+            <td><strong>1 次 Load 覆盖</strong></td>
+            <td class="cell-good">2 个旋转对</td>
+            <td class="cell-mid">1 个半区（需 2 次 Load）</td>
+            <td class="cell-mid">同 NeoX</td>
+            <td class="cell-mid">同 NeoX</td>
+          </tr>
+          <tr>
+            <td><strong>cos/sin cache 大小</strong></td>
+            <td class="cell-mono">[max_pos, d/2]</td>
+            <td class="cell-mono">[max_pos, d] (拼接)</td>
+            <td class="cell-mono">[max_pos, rot_dim/2]</td>
+            <td class="cell-mono">[batch, max_pos, d/2]</td>
+          </tr>
+          <tr>
+            <td><strong>代表模型</strong></td>
+            <td>GPT-J, CodeGen</td>
+            <td>LLaMA, Qwen, Mistral</td>
+            <td>Phi-3, GLM-4</td>
+            <td>Qwen-VL, VideoRoPE</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="kernel-compare">Kernel 实现对比</h3>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Kernel</th>
+            <th>配对</th>
+            <th>Fused 操作</th>
+            <th>向量化</th>
+            <th>GQA</th>
+            <th>变长</th>
+            <th>特殊特性</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>apply_rotary<br>_embedding</strong></td>
+            <td>NeoX / GPT-J<br>(模板切换)</td>
+            <td>仅 RoPE</td>
+            <td class="cell-bad">无</td>
+            <td class="cell-bad">否</td>
+            <td class="cell-bad">否</td>
+            <td>最简实现，适合教学</td>
+          </tr>
+          <tr>
+            <td><strong>FusedNeox<br>RopeEmbedding</strong></td>
+            <td>NeoX</td>
+            <td>QKV Split + RoPE</td>
+            <td class="cell-good">VecSize=4</td>
+            <td class="cell-bad">否</td>
+            <td class="cell-bad">否</td>
+            <td>bf16&rarr;float 精度提升</td>
+          </tr>
+          <tr>
+            <td><strong>GQAVariable<br>RotarySplit</strong></td>
+            <td>Interleaved</td>
+            <td>QKV Split + RoPE<br>+ RMSNorm</td>
+            <td class="cell-good">VecSize=4</td>
+            <td class="cell-good">是</td>
+            <td class="cell-good">是</td>
+            <td>3D RoPE, Warp RMSNorm,<br>KV Cache 直写</td>
+          </tr>
+          <tr>
+            <td><strong>GQANeox<br>PartialRotary</strong></td>
+            <td>NeoX (Partial)</td>
+            <td>QKV Split + RoPE</td>
+            <td class="cell-good">VecSize=4</td>
+            <td class="cell-good">是</td>
+            <td class="cell-good">是</td>
+            <td>SM90 PDL,<br>rotary_dim &lt; head_dim</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="perf-compare">性能特征对比</h3>
+
+    <h4>Fused 程度 (越高越好)</h4>
+    <div class="bar-row">
+      <div class="bar-label">GQA + RMSNorm (K3)</div>
+      <div class="bar-track"><div class="bar-fill" style="width:95%; background:var(--cyan)"></div></div>
+      <div class="bar-value">3-in-1</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">GQA Partial NeoX (K4)</div>
+      <div class="bar-track"><div class="bar-fill" style="width:75%; background:var(--blue)"></div></div>
+      <div class="bar-value">2-in-1</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Fused NeoX (K2)</div>
+      <div class="bar-track"><div class="bar-fill" style="width:65%; background:var(--green)"></div></div>
+      <div class="bar-value">2-in-1</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Basic apply (K1)</div>
+      <div class="bar-track"><div class="bar-fill" style="width:30%; background:var(--text3)"></div></div>
+      <div class="bar-value">RoPE only</div>
+    </div>
+
+    <h4>内存效率 (减少 Global Memory 读写)</h4>
+    <div class="bar-row">
+      <div class="bar-label">K1: 基础版</div>
+      <div class="bar-track"><div class="bar-fill" style="width:40%; background:var(--text3)"></div></div>
+      <div class="bar-value">逐元素</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">K2: Fused NeoX</div>
+      <div class="bar-track"><div class="bar-fill" style="width:70%; background:var(--green)"></div></div>
+      <div class="bar-value">LDG.128</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">K3: GQA+RMSNorm</div>
+      <div class="bar-track"><div class="bar-fill" style="width:90%; background:var(--cyan)"></div></div>
+      <div class="bar-value">LDG.128</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">K4: Partial NeoX</div>
+      <div class="bar-track"><div class="bar-fill" style="width:80%; background:var(--blue)"></div></div>
+      <div class="bar-value">LDG.128</div>
+    </div>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">💡</div>
+      <div class="callout-body">
+        <div class="callout-title">为什么 Fused Kernel 更快</div>
+        <div class="callout-text">
+          RoPE 是一个 memory-bound 操作（计算量极低，主要开销在读写 global memory）。将 QKV split、RoPE、RMSNorm 融合后，QKV 数据只需从 HBM 读一次、写一次，避免了多个独立 kernel 之间的中间 tensor 存取。对于 LLM 推理场景，decode 阶段的 token 数很少（通常 1），此时 kernel launch overhead 也成为瓶颈，fused kernel 一次 launch 完成所有操作更为高效。
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════ Scaling Methods ══════ -->
+    <h2 id="scaling">频率缩放方法 (影响 cos/sin cache，不影响 kernel)</h2>
+
+    <p>以下方法只改变 <code>cos_sin_cache</code> 的预计算方式，<strong>不需要修改旋转 kernel 本身</strong>：</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>方法</th>
+            <th>原理</th>
+            <th>代表模型</th>
+            <th>支持长度</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>调大 &theta;<sub>base</sub></strong></td>
+            <td>直接增大 RoPE 基频，如 10000 &rarr; 500000</td>
+            <td>LLaMA 3 (&theta;=500K)</td>
+            <td class="cell-good">8K &rarr; 128K+</td>
+          </tr>
+          <tr>
+            <td><strong>Position Interpolation (PI)</strong></td>
+            <td>线性压缩 position：<code>pos' = pos / scale</code></td>
+            <td>CodeLlama-16K</td>
+            <td class="cell-mid">4K &rarr; 16K</td>
+          </tr>
+          <tr>
+            <td><strong>NTK-Aware</strong></td>
+            <td>非均匀缩放频率：高频少缩，低频多缩</td>
+            <td>社区推理框架</td>
+            <td class="cell-good">4K &rarr; 32K+</td>
+          </tr>
+          <tr>
+            <td><strong>Dynamic NTK</strong></td>
+            <td>根据实际推理长度动态调整 &theta;<sub>base</sub></td>
+            <td>即插即用</td>
+            <td class="cell-good">自适应</td>
+          </tr>
+          <tr>
+            <td><strong>YaRN</strong></td>
+            <td>分三段处理（高频不动、中频 NTK、低频线性）+ attention 温度缩放</td>
+            <td>Nous 系列</td>
+            <td class="cell-good">4K &rarr; 128K+</td>
+          </tr>
+          <tr>
+            <td><strong>LongRoPE / LongRoPE2</strong></td>
+            <td>搜索每个维度的最优缩放因子（非均匀）</td>
+            <td>Phi-3-128K</td>
+            <td class="cell-good">4K &rarr; 2048K</td>
+          </tr>
+          <tr>
+            <td><strong>Llama 3.1 分段策略</strong></td>
+            <td>按频率分高/中/低三段，高频不缩、低频线性、中间平滑过渡</td>
+            <td>Llama 3.1</td>
+            <td class="cell-good">8K &rarr; 128K</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout callout-tip">
+      <div class="callout-icon">🚀</div>
+      <div class="callout-body">
+        <div class="callout-title">对 Kernel 开发者的意义</div>
+        <div class="callout-text">
+          频率缩放方法是 Host 端的 Python/C++ 预计算逻辑，对 GPU kernel 完全透明。只要 kernel 能正确索引 <code>cos_sin_cache[pos * rot_dim + dim_offset]</code>，就能无修改地支持所有缩放方法。kernel 开发者不需要关心 &theta; 是怎么算出来的。
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════ Conclusions ══════ -->
+    <h2 id="conclusions">结论与建议 / Conclusions</h2>
+
+    <p>从 4 个真实 kernel 的分析中，可以总结出以下工程建议：</p>
+
+    <p><strong>1. 配对方式选择跟随模型架构。</strong> NeoX (Half-Split) 是当前主流（LLaMA 系列），Interleaved 在部分模型中使用。两者数学等价，但内存访问模式不同。不要混用。</p>
+
+    <p><strong>2. Fused Kernel 是 LLM 推理优化的标准做法。</strong> 将 QKV Split + RoPE + RMSNorm 等操作融合为一个 kernel，可以将 global memory 读写次数从 N 次降为 1 次读 + 1 次写，这对 memory-bound 的 RoPE 操作收益显著。</p>
+
+    <p><strong>3. 向量化 Load/Store 必不可少。</strong> 基础版 kernel（逐元素访问）与 VecSize=4 版本相比，带宽利用率差距巨大。<code>LDG.128</code>（float4 / 4&times;bf16）是标准配置。</p>
+
+    <p><strong>4. Warp-level 编程是 Fused Kernel 的关键技巧。</strong> 如 Kernel 3 中用 <code>WelfordWarpAllReduce</code> 做 warp 内归约计算 RMSNorm，不需要 shared memory 同步，性能和代码复杂度都优于 block-level 方案。</p>
+
+    <p><strong>5. 关注 SM90+ 新特性。</strong> Kernel 4 使用的 PDL (Programmatic Dependent Launch) 可以减少 kernel chain 的 pipeline bubble，对 decode latency 敏感的场景值得采用。</p>
+
+    <p><strong>6. 频率缩放方法不影响 kernel。</strong> 所有 PI / NTK / YaRN / LongRoPE 等长度外推方法只改变 cos/sin cache 的预计算，kernel 本身无需任何修改即可支持。</p>
+
+    <hr />
+
+    <!-- ══════ References ══════ -->
+    <h2 id="references">参考资料 / References</h2>
+    <ol class="ref-list">
+      <li class="ref-item"><a href="https://arxiv.org/abs/2104.09864" target="_blank">RoFormer: Enhanced Transformer with Rotary Position Embedding (Su et al., 2021)</a> &mdash; RoPE 原始论文</li>
+      <li class="ref-item"><a href="https://blog.eleuther.ai/rotary-embeddings/" target="_blank">Rotary Embeddings: A Relative Revolution (EleutherAI Blog)</a> &mdash; GPT-NeoX/GPT-J RoPE 实现差异</li>
+      <li class="ref-item"><a href="https://blog.eleuther.ai/yarn/" target="_blank">Extending the RoPE (EleutherAI Blog, YaRN)</a> &mdash; YaRN 与频率缩放方法综述</li>
+      <li class="ref-item"><a href="https://arxiv.org/abs/2309.00071" target="_blank">YaRN: Efficient Context Window Extension (Peng et al., 2023)</a> &mdash; YaRN 论文</li>
+      <li class="ref-item"><a href="https://github.com/microsoft/LongRoPE" target="_blank">LongRoPE: Extending LLM Context to 2048K (Microsoft, ICML 2024)</a> &mdash; 非均匀维度缩放</li>
+      <li class="ref-item"><a href="https://arxiv.org/abs/2502.20082" target="_blank">LongRoPE2: Near-Lossless LLM Context Window Scaling (2025)</a> &mdash; LongRoPE 改进版</li>
+      <li class="ref-item"><a href="https://github.com/huggingface/transformers/issues/25199" target="_blank">HuggingFace Transformers Issue #25199</a> &mdash; LLaMA RoPE 实现差异讨论</li>
+      <li class="ref-item"><a href="https://github.com/vllm-project/vllm/issues/747" target="_blank">vLLM Issue #747</a> &mdash; GPT-J vs GPT-NeoX RoPE 实现对比</li>
+      <li class="ref-item"><a href="https://github.com/vllm-project/vllm/pull/22593" target="_blank">vLLM PR #22593</a> &mdash; Partial Rotary Embedding MRoPE Triton 支持</li>
+      <li class="ref-item"><a href="https://arxiv.org/abs/2502.05173" target="_blank">VideoRoPE: What Makes for Good Video Rotary Position Embedding? (2025)</a> &mdash; 3D RoPE 在视频 LLM 中的应用</li>
+      <li class="ref-item"><a href="https://learnopencv.com/rope-position-embeddings/" target="_blank">Inside RoPE: Rotary Magic into Position Embeddings</a> &mdash; 图解 RoPE 原理</li>
+      <li class="ref-item"><a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/" target="_blank">CUDA C++ Programming Guide (NVIDIA)</a> &mdash; grid 维度上限与 SM90 PDL 参考</li>
+    </ol>
+
+  </main>
+</div>
+
+<a class="back-top" href="#" title="回到顶部">&uarr;</a>
+
+</body>
+</html>

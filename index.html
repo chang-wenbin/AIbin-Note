@@ -504,7 +504,7 @@
   </p>
   <div class="hero-stats">
     <div class="stat-item">
-      <span class="stat-num" id="totalDocs">16</span>
+      <span class="stat-num" id="totalDocs">19</span>
       <span class="stat-label">技术文档</span>
     </div>
     <div class="stat-item">
@@ -525,7 +525,7 @@
   <div class="update-banner">
     <div class="update-dot"></div>
     <span>
-      📅 最近更新：<strong style="color: var(--text-primary)">2026-04-09</strong>
+      📅 最近更新：<strong style="color: var(--text-primary)">2026-04-15</strong>
       &nbsp;—&nbsp; 本仓库不定期更新，持续记录 AI 推理与 GPU 优化领域的技术探索。
     </span>
   </div>
@@ -659,10 +659,28 @@
       <div>
         <div class="section-title">De_Attn — Decode Attention 优化</div>
       </div>
-      <span class="section-subtitle section-tag">7 篇文档</span>
+      <span class="section-subtitle section-tag">10 篇文档</span>
     </div>
     <div class="cards-grid">
 
+      <a class="card" href="De_Attn/2026-04-14_rope-variants-deep-dive.html" target="_blank">
+        <div class="card-emoji">📄</div>
+        <div class="card-title">Fused Rotary Position Encoding 全方位解析</div>
+        <div class="card-desc"></div>
+        <div class="card-footer">
+          <span class="card-tag">Attn</span>
+          <span class="card-arrow">→</span>
+        </div>
+      </a>
+      <a class="card" href="De_Attn/MLA_YaRN_RoPE_Variants.html" target="_blank">
+        <div class="card-emoji">📄</div>
+        <div class="card-title">RoPE 全景详解：标准 RoPE × YaRN × MLA 解耦 RoPE × 主流模型对比</div>
+        <div class="card-desc"></div>
+        <div class="card-footer">
+          <span class="card-tag">Attn</span>
+          <span class="card-arrow">→</span>
+        </div>
+      </a>
       <a class="card" href="De_Attn/cute_divide_ops_v1.html" target="_blank">
         <div class="card-emoji">🔨</div>
         <div class="card-title">CuTe 分块操作详解（v1）</div>
@@ -714,6 +732,15 @@
         <div class="card-desc">对比不同 RoPE 实现方案在解码场景下的精度、性能与工程可用性。</div>
         <div class="card-footer">
           <span class="card-tag">RoPE · Decode</span>
+          <span class="card-arrow">→</span>
+        </div>
+      </a>
+      <a class="card" href="De_Attn/rope_kernel_explained.html" target="_blank">
+        <div class="card-emoji">📄</div>
+        <div class="card-title">RoPE Kernel 可视化解析</div>
+        <div class="card-desc"></div>
+        <div class="card-footer">
+          <span class="card-tag">Attn</span>
           <span class="card-arrow">→</span>
         </div>
       </a>
@@ -806,7 +833,7 @@
     });
 
     document.getElementById('noResults').style.display = totalVisible === 0 && query ? 'block' : 'none';
-    document.getElementById('totalDocs').textContent = query ? totalVisible : 16;
+    document.getElementById('totalDocs').textContent = query ? totalVisible : 19;
   }
 
   // ══════════════════════════════════════════════════════════

@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RoPE 全景详解：标准 RoPE × YaRN × MLA 解耦 RoPE × 主流模型对比</title>
+  <!-- RESEARCH_META
+  title: RoPE 全景详解：标准 RoPE × YaRN × MLA 解耦 RoPE × 主流模型对比
+  date: 2026-04-13
+  tags: RoPE, YaRN, MLA, DeepSeek, Qwen, GLM, ERNIE, LongContext
+  summary: 从 GEMM 矩阵视角深度剖析 RoPE 的数学本质，对比标准 RoPE 与 YaRN 的三段式频率策略，并梳理 DeepSeek/Qwen/GLM/ERNIE 四家主流模型 RoPE 的差异。
+  -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128;
+      --border: #30363d; --text: #e6edf3; --text2: #8b949e; --text3: #656d76;
+      --cyan: #39d0d8; --blue: #58a6ff; --green: #3fb950;
+      --yellow: #e3b341; --orange: #f78166; --purple: #bc8cff; --red: #f85149;
+      --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+      background: var(--bg); color: var(--text);
+      line-height: 1.75; font-size: 16px;
+    }
+    .page-wrap { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+    @media (max-width: 900px) { .page-wrap { grid-template-columns: 1fr; } .sidebar { display: none; } }
+    .sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      background: var(--bg2); border-right: 1px solid var(--border); padding: 24px 16px; }
+    .sidebar-brand { font-size: 12px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1px; color: var(--text3); margin-bottom: 16px; }
+    .toc-list { list-style: none; }
+    .toc-item a { display: block; padding: 5px 8px; font-size: 13px;
+      color: var(--text2); text-decoration: none; border-radius: 6px;
+      transition: all .15s; border-left: 2px solid transparent; }
+    .toc-item a:hover { color: var(--text); background: var(--bg3); border-left-color: var(--cyan); }
+    .toc-item.h3 a { padding-left: 20px; font-size: 12px; }
+    .content { max-width: 980px; margin: 0 auto; padding: 48px 32px 80px; }
+    @media (max-width: 640px) { .content { padding: 24px 16px 60px; } }
+    .cover { padding: 40px 0 32px; border-bottom: 1px solid var(--border); margin-bottom: 40px; }
+    .cover-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .badge { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; letter-spacing: 0.4px; }
+    .badge-cyan { background: rgba(57,208,216,.15); color: var(--cyan); }
+    .badge-blue { background: rgba(88,166,255,.15); color: var(--blue); }
+    .badge-green { background: rgba(63,185,80,.15); color: var(--green); }
+    .badge-yellow { background: rgba(227,179,65,.15); color: var(--yellow); }
+    .badge-purple { background: rgba(188,140,255,.15); color: var(--purple); }
+    .badge-orange { background: rgba(247,129,102,.15); color: var(--orange); }
+    .cover h1 { font-size: clamp(24px, 4vw, 40px); font-weight: 800; line-height: 1.2;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #e6edf3 20%, var(--cyan) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .cover-summary { font-size: 16px; color: var(--text2); max-width: 720px; line-height: 1.6; }
+    .cover-date { font-size: 12px; color: var(--text3); margin-top: 12px; }
+    h2 { font-size: 22px; font-weight: 700; color: var(--text); margin: 48px 0 16px;
+      padding-bottom: 8px; border-bottom: 1px solid var(--border); scroll-margin-top: 24px; }
+    h3 { font-size: 17px; font-weight: 600; color: var(--text); margin: 28px 0 12px; scroll-margin-top: 24px; }
+    h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--text2); }
+    p { margin-bottom: 14px; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    strong { color: var(--text); font-weight: 600; }
+    em { color: var(--yellow); font-style: italic; }
+
+    .tldr { background: linear-gradient(135deg, rgba(57,208,216,.08), rgba(188,140,255,.08));
+      border: 1px solid rgba(57,208,216,.25); border-radius: 12px; padding: 24px 28px; margin: 0 0 40px; }
+    .tldr-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--cyan); margin-bottom: 12px; }
+    .tldr ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .tldr li { display: flex; align-items: flex-start; gap: 8px; font-size: 15px; color: var(--text); }
+    .tldr li::before { content: "→"; color: var(--cyan); flex-shrink: 0; font-weight: 700; }
+
+    .callout { display: flex; gap: 14px; padding: 16px 20px; border-radius: 10px;
+      margin: 20px 0; border: 1px solid; }
+    .callout-icon { font-size: 20px; flex-shrink: 0; line-height: 1.4; }
+    .callout-body { flex: 1; }
+    .callout-title { font-size: 13px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 6px; }
+    .callout-text { font-size: 14px; line-height: 1.65; }
+    .callout-insight { background: rgba(57,208,216,.07); border-color: rgba(57,208,216,.3); }
+    .callout-insight .callout-title { color: var(--cyan); }
+    .callout-warning { background: rgba(227,179,65,.07); border-color: rgba(227,179,65,.3); }
+    .callout-warning .callout-title { color: var(--yellow); }
+    .callout-tip { background: rgba(63,185,80,.07); border-color: rgba(63,185,80,.3); }
+    .callout-tip .callout-title { color: var(--green); }
+
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px; margin: 20px 0; }
+    .metric-card { background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px; text-align: center; }
+    .metric-num { font-size: 24px; font-weight: 800; display: block; line-height: 1.1; }
+    .metric-label { font-size: 12px; color: var(--text2); margin-top: 4px; }
+    .metric-card.cyan .metric-num { color: var(--cyan); }
+    .metric-card.blue .metric-num { color: var(--blue); }
+    .metric-card.green .metric-num { color: var(--green); }
+    .metric-card.yellow .metric-num { color: var(--yellow); }
+    .metric-card.purple .metric-num { color: var(--purple); }
+
+    .table-wrap { overflow-x: auto; margin: 20px 0; border-radius: 10px; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    thead tr { background: var(--bg2); }
+    th { padding: 12px 16px; text-align: left; font-weight: 600; font-size: 12px;
+      text-transform: uppercase; letter-spacing: 0.5px; color: var(--text2);
+      border-bottom: 1px solid var(--border); }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: var(--bg3); }
+    .cell-good { color: var(--green); font-weight: 600; }
+    .cell-bad { color: var(--red); font-weight: 600; }
+    .cell-mid { color: var(--yellow); font-weight: 600; }
+    .cell-mono { font-family: var(--font-mono); font-size: 12px; }
+
+    pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 20px; overflow-x: auto; margin: 16px 0; position: relative; }
+    code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; color: var(--text); }
+    p code, li code { background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 4px; padding: 1px 6px; font-size: 13px; color: var(--cyan); }
+    .code-label { position: absolute; top: 10px; right: 14px; font-size: 11px;
+      color: var(--text3); font-family: var(--font-mono); }
+    .kw { color: var(--purple); } .fn { color: var(--blue); }
+    .str { color: var(--green); } .num { color: var(--orange); }
+    .cm { color: var(--text3); font-style: italic; } .tp { color: var(--yellow); }
+
+    .diagram-wrap { background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 28px; margin: 24px 0; overflow-x: auto; text-align: center; }
+    .diagram-caption { font-size: 12px; color: var(--text3); margin-top: 12px; font-style: italic; }
+
+    ul, ol { padding-left: 24px; margin-bottom: 14px; }
+    li { margin-bottom: 6px; }
+    ul li::marker { color: var(--cyan); }
+    ol li::marker { color: var(--cyan); font-weight: 600; }
+
+    hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+    .ref-list { list-style: none; padding: 0; counter-reset: refs; }
+    .ref-item { counter-increment: refs; display: flex; gap: 10px; padding: 10px 0;
+      border-bottom: 1px solid var(--border); font-size: 14px; }
+    .ref-item::before { content: "[" counter(refs) "]"; color: var(--cyan);
+      font-weight: 700; font-size: 12px; flex-shrink: 0; margin-top: 2px; }
+
+    .back-top { position: fixed; bottom: 24px; right: 24px; background: var(--bg2);
+      border: 1px solid var(--border); border-radius: 50%; width: 40px; height: 40px;
+      display: flex; align-items: center; justify-content: center; font-size: 18px;
+      cursor: pointer; text-decoration: none; color: var(--text2);
+      transition: all .2s; opacity: 0.7; }
+    .back-top:hover { opacity: 1; border-color: var(--cyan); color: var(--cyan); }
+
+    .formula { background: var(--bg3); border-left: 3px solid var(--cyan);
+      padding: 14px 18px; margin: 14px 0; font-family: var(--font-mono);
+      font-size: 14px; overflow-x: auto; border-radius: 0 6px 6px 0; }
+    .formula .label { color: var(--text3); font-size: 11px; float: right; }
+  </style>
+</head>
+<body>
+
+<div class="page-wrap">
+  <nav class="sidebar">
+    <div class="sidebar-brand">📋 目录</div>
+    <ul class="toc-list">
+      <li class="toc-item"><a href="#tldr">TL;DR</a></li>
+      <li class="toc-item"><a href="#background">1. 背景：RoPE 是什么</a></li>
+      <li class="toc-item"><a href="#standard-rope">2. 标准 RoPE 数学</a></li>
+      <li class="toc-item h3"><a href="#rope-gemm">2.1 GEMM 矩阵视角</a></li>
+      <li class="toc-item h3"><a href="#rope-impl">2.2 工程实现</a></li>
+      <li class="toc-item"><a href="#yarn">3. YaRN 详解</a></li>
+      <li class="toc-item h3"><a href="#yarn-why">3.1 为什么 RoPE 外推会烂</a></li>
+      <li class="toc-item h3"><a href="#yarn-three-zones">3.2 三段频率策略</a></li>
+      <li class="toc-item h3"><a href="#yarn-mscale">3.3 注意力温度 mscale</a></li>
+      <li class="toc-item"><a href="#mla-yarn">4. MLA 中的 YaRN</a></li>
+      <li class="toc-item"><a href="#compare">5. 四家主流模型对比</a></li>
+      <li class="toc-item h3"><a href="#deepseek-rope">5.1 DeepSeek</a></li>
+      <li class="toc-item h3"><a href="#qwen-rope">5.2 Qwen</a></li>
+      <li class="toc-item h3"><a href="#glm-rope">5.3 GLM / ChatGLM</a></li>
+      <li class="toc-item h3"><a href="#ernie-rope">5.4 ERNIE 4.5</a></li>
+      <li class="toc-item"><a href="#visual-compare">5.5 QK 流程可视化</a></li>
+      <li class="toc-item h3"><a href="#vis-deepseek">🅐 DeepSeek</a></li>
+      <li class="toc-item h3"><a href="#vis-qwen">🅑 Qwen3</a></li>
+      <li class="toc-item h3"><a href="#vis-glm">🅒 GLM-4</a></li>
+      <li class="toc-item h3"><a href="#vis-ernie">🅓 ERNIE 4.5</a></li>
+      <li class="toc-item"><a href="#summary-table">6. 横向对比总表</a></li>
+      <li class="toc-item"><a href="#conclusions">7. 结论与建议</a></li>
+      <li class="toc-item"><a href="#references">参考资料</a></li>
+    </ul>
+  </nav>
+
+  <main class="content">
+
+    <div class="cover">
+      <div class="cover-meta">
+        <span class="badge badge-cyan">RoPE</span>
+        <span class="badge badge-blue">YaRN</span>
+        <span class="badge badge-purple">MLA</span>
+        <span class="badge badge-green">Long-Context</span>
+        <span class="badge badge-orange">Model Survey</span>
+      </div>
+      <h1>RoPE 全景详解：标准 RoPE × YaRN × MLA 解耦 RoPE × 主流模型对比</h1>
+      <p class="cover-summary">
+        从 GEMM 矩阵视角剖析 RoPE 的数学本质，深入讲解 DeepSeek MLA 使用的 YaRN 与常规 RoPE 的计算差异（三段式频率策略 + mscale 温度缩放），
+        并横向对比 DeepSeek、Qwen、GLM、ERNIE 四家主流模型的 RoPE 实现差异。
+      </p>
+      <div class="cover-date">📅 2026-04-13 &nbsp;·&nbsp; Ibin! Research Notes</div>
+    </div>
+
+    <style>
+      .tldr-card { background: var(--bg2); border: 1px solid var(--border);
+        border-radius: 10px; padding: 18px 22px; margin: 10px 0; }
+      .tldr-card h4 { color: var(--cyan); font-size: 14px; font-weight: 700;
+        margin: 0 0 10px; text-transform: none; letter-spacing: 0; }
+      .tldr-card h4 .tag { display: inline-block; background: rgba(57,208,216,0.15);
+        color: var(--cyan); font-size: 11px; padding: 2px 8px; border-radius: 10px;
+        margin-right: 8px; font-weight: 600; vertical-align: middle; }
+      .tldr-card p { font-size: 14px; color: var(--text); margin: 4px 0; line-height: 1.7; }
+      .tldr-card .sub { color: var(--text2); font-size: 13px; padding-left: 10px;
+        border-left: 2px solid var(--border); margin-top: 6px; }
+      .tldr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+      @media (max-width: 700px) { .tldr-grid { grid-template-columns: 1fr; } }
+      .tldr-grid .item { background: var(--bg3); padding: 10px 12px; border-radius: 6px;
+        font-size: 13px; color: var(--text); border-left: 3px solid var(--cyan); }
+      .tldr-grid .item b { color: var(--cyan); }
+      .kbd { font-family: var(--font-mono); background: var(--bg3); color: var(--orange);
+        padding: 1px 6px; border-radius: 4px; font-size: 12px; border: 1px solid var(--border); }
+    </style>
+
+    <div class="tldr" id="tldr">
+      <div class="tldr-title">⚡ TL;DR — 核心要点</div>
+
+      <div class="tldr-card">
+        <h4><span class="tag">① 标准 RoPE</span>本质是位置相关的块对角旋转</h4>
+        <p>每个 head 的 d 维 Q/K 按每 2 维分组，第 <i>i</i> 组频率 <span class="kbd">θᵢ = base<sup>−2i/d</sup></span>，位置 <i>m</i> 的旋转角 = <i>m</i>·θᵢ。</p>
+        <p class="sub">⚙️ 工程实现不走 GEMM（99% 元素为 0），而用 <span class="kbd">q ⊙ cos + rotate_half(q) ⊙ sin</span> 两次 Hadamard。</p>
+      </div>
+
+      <div class="tldr-card">
+        <h4><span class="tag">② YaRN</span>三段频率 + 温度缩放</h4>
+        <p>按 "波长 λ vs 训练长度 L" 把频率分成三段：</p>
+        <p class="sub">
+          🟢 <b>高频</b>（λ ≪ L）：原样外推不动 &nbsp;|&nbsp;
+          🔴 <b>低频</b>（λ ≫ L）：除以 factor 压缩 &nbsp;|&nbsp;
+          🟡 <b>中频</b>：ramp 平滑过渡
+        </p>
+        <p>再乘一个注意力温度 <span class="kbd">mscale = 0.1·ln(s) + 1</span>，等价对 logits 缩放，把长序列分布"拉回"训练分布。</p>
+      </div>
+
+      <div class="tldr-card">
+        <h4><span class="tag">③ MLA + YaRN</span>只作用 64 维，不碰 latent</h4>
+        <p>DeepSeek MLA 把 K 拆成 <b>c<sub>t</sub> (512, latent)</b> + <b>k_rope (64)</b>。YaRN 只施加在 64 维 k_rope / q_rope 上。</p>
+        <p class="sub">⚠️ 不能对 c<sub>t</sub> 施加 RoPE — 否则 W<sub>UK</sub> 矩阵吸收失效。mscale 直接乘进 Q/K，省一次 logits 缩放。</p>
+      </div>
+
+      <div class="tldr-card">
+        <h4><span class="tag">④ 四家差异</span>一张卡看懂</h4>
+        <div class="tldr-grid">
+          <div class="item"><b>DeepSeek V3</b><br>解耦 RoPE（64 维）+ YaRN (s=40)<br>→ 163K</div>
+          <div class="item"><b>Qwen3</b><br>全维 RoPE + base=1e6 + 可选 YaRN<br>→ 131K~1M</div>
+          <div class="item"><b>GLM-4</b><br>Partial RoPE (rotary_pct=0.5)<br>base=1e4 → 128K</div>
+          <div class="item"><b>ERNIE 4.5</b><br>标准 RoPE + base=5e5<br>可配置多种 scaling → 128K</div>
+        </div>
+      </div>
+
+      <div class="tldr-card">
+        <h4><span class="tag">⑤ 选型建议</span>按场景对号入座</h4>
+        <p>🎯 <b>超长上下文</b> → 首选 YaRN（s≥32，配合 mscale）</p>
+        <p>🎯 <b>已用 MLA 架构</b> → 必须走解耦 RoPE，不能偷懒</p>
+        <p>🎯 <b>最小改动扩上下文</b> → 直接调大 base（Qwen 路线），≤4× 够用</p>
+        <p class="sub">❌ 超过 4× 单靠调 base 会导致困惑度爆炸，必须上 YaRN / NTK。</p>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ 1. Background ══════════════════════════════ -->
+    <h2 id="background">📖 1. 背景：RoPE 是什么</h2>
+    <p><strong>Rotary Position Embedding (RoPE)</strong> 由 Su et al. 在 RoFormer (2021) 提出，核心思想是：
+      <em>通过对 Q 和 K 施加位置相关的旋转，使注意力 score 自然编码相对位置</em>。
+      它不加到 embedding 上（像 sinusoidal 那样），也不是可学习的 bias（像 ALiBi 那样），而是嵌入到 Q/K 的线性变换阶段。
+    </p>
+
+    <p>相比绝对位置编码，RoPE 有三个决定性优势：</p>
+    <ul>
+      <li><strong>相对性自动成立</strong>：⟨R<sub>m</sub>q, R<sub>n</sub>k⟩ = ⟨q, R<sub>n-m</sub>k⟩，score 只依赖相对位置 n-m</li>
+      <li><strong>长度可扩展</strong>：训练时未见过的位置也能算出旋转矩阵（只是效果会退化，这也是 YaRN 要解决的问题）</li>
+      <li><strong>与 MHA/GQA/MLA 架构正交</strong>：只在 Q/K 上动手脚，不改变 attention 的 softmax 结构</li>
+    </ul>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">💡</div>
+      <div class="callout-body">
+        <div class="callout-title">为什么能自动编码相对位置？</div>
+        <div class="callout-text">
+          二维旋转矩阵的关键性质：<code>R(a)<sup>T</sup> R(b) = R(b-a)</code>。
+          所以 Q<sub>m</sub><sup>T</sup>K<sub>n</sub> = (R<sub>m</sub>q)<sup>T</sup>(R<sub>n</sub>k) = q<sup>T</sup> R<sub>n-m</sub> k，
+          score 中自然出现 <em>n-m</em> 的相对位置差。
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ 2. Standard RoPE ══════════════════════════════ -->
+    <h2 id="standard-rope">🧮 2. 标准 RoPE 数学</h2>
+
+    <p>设 head_dim = d（通常 128），对每 head 的 Q/K 向量 q ∈ ℝ<sup>d</sup>，位置 m。RoPE 把 d 维按 2 维分组，一共 d/2 对，每对有自己的频率：</p>
+
+    <div class="formula">
+      θ<sub>i</sub> = base<sup>-2i/d</sup>,&nbsp; i = 0, 1, ..., d/2 - 1&nbsp;&nbsp;&nbsp;(base 通常 = 10000)
+      <span class="label">(1) 频率序列</span>
+    </div>
+
+    <p>第 i 对 (q<sub>2i</sub>, q<sub>2i+1</sub>) 在位置 m 的旋转角为 <code>m · θ<sub>i</sub></code>，旋转公式：</p>
+
+    <div class="formula">
+      q'<sub>2i</sub>&nbsp;&nbsp; = q<sub>2i</sub> · cos(m θ<sub>i</sub>) − q<sub>2i+1</sub> · sin(m θ<sub>i</sub>)<br>
+      q'<sub>2i+1</sub> = q<sub>2i</sub> · sin(m θ<sub>i</sub>) + q<sub>2i+1</sub> · cos(m θ<sub>i</sub>)
+      <span class="label">(2) 2 维旋转</span>
+    </div>
+
+    <!-- ─────── 2.1 GEMM-style diagram ─────── -->
+    <h3 id="rope-gemm">2.1 GEMM 矩阵视角：RoPE 的"伪 GEMM"图</h3>
+
+    <p>把整件事放到 GEMM 视角，<strong>RoPE 等价于 Q 矩阵 × 块对角位置旋转矩阵 R<sub>m</sub></strong>。下图展示单个 token 位置 m 下，head_dim = 8（4 对频率）的标准 RoPE 矩阵乘法：</p>
+
+    <div class="diagram-wrap">
+      <svg width="900" height="380" viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; height:auto;">
+        <defs>
+          <linearGradient id="gradQ" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#58a6ff" stop-opacity="0.4"/>
+            <stop offset="100%" stop-color="#58a6ff" stop-opacity="0.1"/>
+          </linearGradient>
+          <linearGradient id="gradR" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#39d0d8" stop-opacity="0.35"/>
+            <stop offset="100%" stop-color="#bc8cff" stop-opacity="0.3"/>
+          </linearGradient>
+          <linearGradient id="gradOut" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#3fb950" stop-opacity="0.4"/>
+            <stop offset="100%" stop-color="#3fb950" stop-opacity="0.1"/>
+          </linearGradient>
+        </defs>
+
+        <!-- Q row vector: 1 × 8 -->
+        <text x="20" y="35" fill="#e6edf3" font-size="14" font-weight="700">Q (1×d)</text>
+        <text x="20" y="52" fill="#8b949e" font-size="11">token at pos m</text>
+        <g transform="translate(20, 65)">
+          <rect width="320" height="40" fill="url(#gradQ)" stroke="#58a6ff" stroke-width="1.5"/>
+          <g font-family="monospace" font-size="12" fill="#e6edf3" text-anchor="middle">
+            <text x="20" y="25">q₀</text><text x="60" y="25">q₁</text>
+            <text x="100" y="25">q₂</text><text x="140" y="25">q₃</text>
+            <text x="180" y="25">q₄</text><text x="220" y="25">q₅</text>
+            <text x="260" y="25">q₆</text><text x="300" y="25">q₇</text>
+          </g>
+          <g stroke="#30363d" stroke-width="1">
+            <line x1="40" y1="0" x2="40" y2="40"/><line x1="80" y1="0" x2="80" y2="40"/>
+            <line x1="120" y1="0" x2="120" y2="40"/><line x1="160" y1="0" x2="160" y2="40"/>
+            <line x1="200" y1="0" x2="200" y2="40"/><line x1="240" y1="0" x2="240" y2="40"/>
+            <line x1="280" y1="0" x2="280" y2="40"/>
+          </g>
+        </g>
+
+        <!-- times sign -->
+        <text x="360" y="95" fill="#e3b341" font-size="28" font-weight="800">×</text>
+
+        <!-- R_m: 8 × 8 block-diagonal -->
+        <text x="395" y="35" fill="#e6edf3" font-size="14" font-weight="700">R_m (d×d)  块对角旋转矩阵</text>
+        <text x="395" y="52" fill="#8b949e" font-size="11">每个 2×2 块对应一个频率 θᵢ，旋转角 = m·θᵢ</text>
+
+        <g transform="translate(395, 65)">
+          <!-- Grid background -->
+          <rect width="320" height="280" fill="#0d1117" stroke="#30363d"/>
+          <!-- 4 diagonal blocks -->
+          <g>
+            <!-- Block 0 (θ₀, highest freq) -->
+            <rect x="0" y="0" width="80" height="70" fill="rgba(248,81,73,0.25)" stroke="#f85149" stroke-width="1.5"/>
+            <text x="40" y="30" font-family="monospace" font-size="11" fill="#e6edf3" text-anchor="middle">cos(mθ₀)</text>
+            <text x="40" y="55" font-family="monospace" font-size="11" fill="#e6edf3" text-anchor="middle">sin(mθ₀)</text>
+            <text x="20" y="45" font-family="monospace" font-size="11" fill="#f85149" text-anchor="middle">−s</text>
+            <text x="60" y="45" font-family="monospace" font-size="11" fill="#f85149" text-anchor="middle">c</text>
+
+            <!-- Block 1 -->
+            <rect x="80" y="70" width="80" height="70" fill="rgba(247,129,102,0.2)" stroke="#f78166" stroke-width="1.5"/>
+            <text x="120" y="100" font-family="monospace" font-size="11" fill="#e6edf3" text-anchor="middle">cos(mθ₁)</text>
+            <text x="120" y="125" font-family="monospace" font-size="11" fill="#e6edf3" text-anchor="middle">sin(mθ₁)</text>
+            <text x="100" y="115" font-family="monospace" font-size="11" fill="#f78166" text-anchor="middle">−s</text>
+            <text x="140" y="115" font-family="monospace" font-size="11" fill="#f78166" text-anchor="middle">c</text>
+
+            <!-- Block 2 -->
+            <rect x="160" y="140" width="80" height="70" fill="rgba(188,140,255,0.2)" stroke="#bc8cff" stroke-width="1.5"/>
+            <text x="200" y="170" font-family="monospace" font-size="11" fill="#e6edf3" text-anchor="middle">cos(mθ₂)</text>
+            <text x="200" y="195" font-family="monospace" font-size="11" fill="#e6edf3" text-anchor="middle">sin(mθ₂)</text>
+            <text x="180" y="185" font-family="monospace" font-size="11" fill="#bc8cff" text-anchor="middle">−s</text>
+            <text x="220" y="185" font-family="monospace" font-size="11" fill="#bc8cff" text-anchor="middle">c</text>
+
+            <!-- Block 3 (θ₃, lowest freq) -->
+            <rect x="240" y="210" width="80" height="70" fill="rgba(57,208,216,0.2)" stroke="#39d0d8" stroke-width="1.5"/>
+            <text x="280" y="240" font-family="monospace" font-size="11" fill="#e6edf3" text-anchor="middle">cos(mθ₃)</text>
+            <text x="280" y="265" font-family="monospace" font-size="11" fill="#e6edf3" text-anchor="middle">sin(mθ₃)</text>
+            <text x="260" y="255" font-family="monospace" font-size="11" fill="#39d0d8" text-anchor="middle">−s</text>
+            <text x="300" y="255" font-family="monospace" font-size="11" fill="#39d0d8" text-anchor="middle">c</text>
+          </g>
+          <!-- Zero regions hint -->
+          <text x="150" y="25" font-size="32" fill="#30363d" font-weight="900">0</text>
+          <text x="280" y="105" font-size="32" fill="#30363d" font-weight="900">0</text>
+          <text x="50" y="175" font-size="32" fill="#30363d" font-weight="900">0</text>
+          <text x="100" y="255" font-size="32" fill="#30363d" font-weight="900">0</text>
+          <text x="50" y="250" font-size="14" fill="#8b949e" text-anchor="middle">(稀疏零)</text>
+        </g>
+
+        <!-- equals sign -->
+        <text x="740" y="95" fill="#e3b341" font-size="28" font-weight="800">=</text>
+
+        <!-- Output -->
+        <text x="770" y="35" fill="#e6edf3" font-size="14" font-weight="700">Q' (1×d)</text>
+        <text x="770" y="52" fill="#3fb950" font-size="11">旋转后</text>
+        <g transform="translate(770, 65)">
+          <rect width="110" height="40" fill="url(#gradOut)" stroke="#3fb950" stroke-width="1.5"/>
+          <text x="55" y="25" font-family="monospace" font-size="11" fill="#e6edf3" text-anchor="middle">[q'₀...q'₇]</text>
+        </g>
+        <text x="770" y="130" fill="#8b949e" font-size="11">按块计算：</text>
+        <text x="770" y="150" fill="#8b949e" font-size="11" font-family="monospace">q'ᵢ 只依赖 qᵢ 和</text>
+        <text x="770" y="168" fill="#8b949e" font-size="11" font-family="monospace">同块的另一维</text>
+      </svg>
+      <div class="diagram-caption">图 1：RoPE 的 GEMM 矩阵视角 — Q 是 1×d 行向量，R<sub>m</sub> 是 d×d 块对角旋转矩阵，块外 99% 元素为 0，所以实际不用稠密 GEMM。</div>
+    </div>
+
+    <div class="callout callout-warning">
+      <div class="callout-icon">⚠️</div>
+      <div class="callout-body">
+        <div class="callout-title">为什么真实实现不写成 GEMM</div>
+        <div class="callout-text">
+          R<sub>m</sub> 有 d² 个元素但只有 2d 个非零，其余全 0。如果真的走 GEMM 会有 (d−2)/d ≈ 99% 的乘 0 浪费。
+          工程上用 <code>q * cos + rotate_half(q) * sin</code> 两次 element-wise 乘法 + 1 次加法，计算量从 O(d²) 降到 O(d)。
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────── 2.2 Engineering Implementation ─────── -->
+    <h3 id="rope-impl">2.2 工程实现：两次 Hadamard 而非 GEMM</h3>
+
+    <p>Hugging Face / vLLM / SGLang 通用实现（interleaved vs half-split 两种形态）：</p>
+
+<pre><code><span class="cm"># 预计算：生成 [seq_len, d/2] 的 cos 和 sin 表（一次性，整个推理复用）</span>
+<span class="kw">def</span> <span class="fn">build_cos_sin</span>(seq_len, d, base=<span class="num">10000</span>):
+    theta = <span class="num">1.0</span> / (base ** (torch.arange(<span class="num">0</span>, d, <span class="num">2</span>) / d))  <span class="cm"># [d/2]</span>
+    pos   = torch.arange(seq_len)                                  <span class="cm"># [L]</span>
+    freqs = pos[:, <span class="kw">None</span>] * theta[<span class="kw">None</span>, :]                       <span class="cm"># [L, d/2]</span>
+    <span class="kw">return</span> torch.cos(freqs), torch.sin(freqs)                     <span class="cm"># 复制成 [L, d]</span>
+
+<span class="cm"># RoPE 应用：two-Hadamard form（HuggingFace "half" 形态）</span>
+<span class="kw">def</span> <span class="fn">apply_rope</span>(x, cos, sin):
+    <span class="cm"># x: [B, L, H, d]; cos/sin: [L, d]</span>
+    x1, x2 = x[..., :d//<span class="num">2</span>], x[..., d//<span class="num">2</span>:]
+    rotated = torch.cat([-x2, x1], dim=-<span class="num">1</span>)   <span class="cm"># rotate_half 技巧</span>
+    <span class="kw">return</span> x * cos + rotated * sin         <span class="cm"># 两次 Hadamard + 一次加法</span>
+<span class="code-label">Python</span></code></pre>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">💡</div>
+      <div class="callout-body">
+        <div class="callout-title">"Half" vs "Interleaved" 两种排布</div>
+        <div class="callout-text">
+          原论文把配对写成 (x<sub>0</sub>, x<sub>1</sub>), (x<sub>2</sub>, x<sub>3</sub>), ... 叫 <em>interleaved</em>；HuggingFace 实际用 (x<sub>0</sub>, x<sub>d/2</sub>), (x<sub>1</sub>, x<sub>d/2+1</sub>), ... 叫 <em>half-split</em>。
+          两者数学等价但权重不能互换！从 megatron 迁到 HF 或反向移植时必须转换，否则位置编码会对不上。
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ 3. YaRN ══════════════════════════════ -->
+    <h2 id="yarn">🌐 3. YaRN 详解：长上下文救星</h2>
+
+    <h3 id="yarn-why">3.1 为什么朴素 RoPE 在训练长度外会烂</h3>
+
+    <p>训练长度 L<sub>train</sub> = 4K 的模型，在推理时直接塞 32K 会困惑度爆炸。原因：</p>
+    <ul>
+      <li><strong>频率波长 λ<sub>i</sub> = 2π/θ<sub>i</sub></strong>。高频部分波长远小于 L<sub>train</sub>，训练已经见过完整周期，外推没问题。</li>
+      <li><strong>低频部分波长 λ ≫ L<sub>train</sub></strong>，训练时只见过 sin/cos 的一小段弧，模型误以为这段弧是"常量偏置"。推理到 32K 时这部分突然进入新的弧段，attention 的 q·k 内积分布骤变，数值直接崩溃。</li>
+    </ul>
+
+    <h3 id="yarn-three-zones">3.2 三段频率策略（NTK-by-parts）</h3>
+
+    <p>YaRN 的核心洞察：<em>不同频率波段要不同对待</em>。按 <strong>每波长能装下多少个训练 token</strong> r<sub>i</sub> = L<sub>train</sub> / λ<sub>i</sub> 分三段：</p>
+
+    <div class="diagram-wrap">
+      <svg width="820" height="280" viewBox="0 0 820 280" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; height:auto;">
+        <!-- Axes -->
+        <line x1="60" y1="220" x2="780" y2="220" stroke="#8b949e" stroke-width="1.5"/>
+        <line x1="60" y1="220" x2="60" y2="30" stroke="#8b949e" stroke-width="1.5"/>
+        <text x="420" y="260" text-anchor="middle" fill="#e6edf3" font-size="13">频率维度 i （0 = 最高频，d/2 = 最低频）→</text>
+        <text x="20" y="130" text-anchor="middle" fill="#e6edf3" font-size="13" transform="rotate(-90 20 130)">频率调整</text>
+
+        <!-- Zone 1: high freq (extrapolate) -->
+        <rect x="60" y="30" width="220" height="190" fill="rgba(63,185,80,0.08)" stroke="rgba(63,185,80,0.4)" stroke-dasharray="4,3"/>
+        <text x="170" y="55" text-anchor="middle" fill="#3fb950" font-size="14" font-weight="700">Zone 1：高频</text>
+        <text x="170" y="75" text-anchor="middle" fill="#e6edf3" font-size="11">r_i ≥ β_fast (32)</text>
+        <text x="170" y="92" text-anchor="middle" fill="#8b949e" font-size="11">λ ≪ L_train，外推安全</text>
+        <text x="170" y="185" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">保持不变</text>
+        <text x="170" y="205" text-anchor="middle" fill="#8b949e" font-size="11" font-family="monospace">θ'ᵢ = θᵢ</text>
+        <!-- line at top (unchanged) -->
+        <line x1="70" y1="140" x2="270" y2="140" stroke="#3fb950" stroke-width="3"/>
+
+        <!-- Zone 2: middle (smooth ramp) -->
+        <rect x="280" y="30" width="220" height="190" fill="rgba(227,179,65,0.08)" stroke="rgba(227,179,65,0.4)" stroke-dasharray="4,3"/>
+        <text x="390" y="55" text-anchor="middle" fill="#e3b341" font-size="14" font-weight="700">Zone 2：中频</text>
+        <text x="390" y="75" text-anchor="middle" fill="#e6edf3" font-size="11">β_slow &lt; r_i &lt; β_fast</text>
+        <text x="390" y="92" text-anchor="middle" fill="#8b949e" font-size="11">平滑过渡</text>
+        <text x="390" y="185" text-anchor="middle" fill="#e3b341" font-size="12" font-weight="700">ramp 插值</text>
+        <text x="390" y="205" text-anchor="middle" fill="#8b949e" font-size="10" font-family="monospace">θ' = (1-α)·θ/s + α·θ</text>
+        <!-- line ramping down -->
+        <line x1="290" y1="140" x2="480" y2="175" stroke="#e3b341" stroke-width="3"/>
+
+        <!-- Zone 3: low freq (linear interp = scale down) -->
+        <rect x="500" y="30" width="280" height="190" fill="rgba(248,81,73,0.08)" stroke="rgba(248,81,73,0.4)" stroke-dasharray="4,3"/>
+        <text x="640" y="55" text-anchor="middle" fill="#f85149" font-size="14" font-weight="700">Zone 3：低频</text>
+        <text x="640" y="75" text-anchor="middle" fill="#e6edf3" font-size="11">r_i ≤ β_slow (1)</text>
+        <text x="640" y="92" text-anchor="middle" fill="#8b949e" font-size="11">λ ≫ L_train，必须压回</text>
+        <text x="640" y="185" text-anchor="middle" fill="#f85149" font-size="12" font-weight="700">线性插值（÷s）</text>
+        <text x="640" y="205" text-anchor="middle" fill="#8b949e" font-size="11" font-family="monospace">θ'ᵢ = θᵢ / factor_s</text>
+        <!-- line flat low -->
+        <line x1="510" y1="175" x2="770" y2="175" stroke="#f85149" stroke-width="3"/>
+
+        <!-- dashed reference line: original RoPE (unchanged everywhere) -->
+        <line x1="70" y1="140" x2="770" y2="140" stroke="#58a6ff" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+        <text x="735" y="135" fill="#58a6ff" font-size="10" opacity="0.7">原始 θ</text>
+      </svg>
+      <div class="diagram-caption">图 2：YaRN 三段式频率调整 — 横轴是频率维度 i，纵轴是调整后的频率 θ'。高频保持，低频压缩为 1/s，中间平滑过渡。</div>
+    </div>
+
+    <p>数学公式（DeepSeek-V3 中实际使用的 <code>yarn_get_mscale</code>、<code>find_correction_range</code>）：</p>
+
+    <div class="formula">
+      ramp(r, β<sub>slow</sub>, β<sub>fast</sub>) = clip((r − β<sub>slow</sub>) / (β<sub>fast</sub> − β<sub>slow</sub>), 0, 1)<br>
+      α<sub>i</sub> = ramp(r<sub>i</sub>, β<sub>slow</sub>, β<sub>fast</sub>)<br>
+      <strong>θ'<sub>i</sub> = (1 − α<sub>i</sub>) · (θ<sub>i</sub> / s) + α<sub>i</sub> · θ<sub>i</sub></strong>
+      <span class="label">(3) NTK-by-parts</span>
+    </div>
+
+    <p>其中 s = factor = L<sub>target</sub> / L<sub>train</sub>（DeepSeek V3 用 40：163840 / 4096 ≈ 40）；β<sub>fast</sub>=32, β<sub>slow</sub>=1 是 YaRN 论文推荐值。</p>
+
+    <h3 id="yarn-mscale">3.3 注意力温度 mscale：为什么光改频率不够</h3>
+
+    <p>即便频率调好了，长上下文下 q·k 的 <em>绝对值</em> 仍然偏大（序列越长，累加越多项）。YaRN 额外引入 <strong>注意力温度 t</strong>，等价于在 softmax 前把 logits 除以 √t：</p>
+
+    <div class="formula">
+      <strong>mscale = 0.1 · ln(s) + 1.0</strong>&nbsp;&nbsp;&nbsp;(DeepSeek 默认 mscale coefficient = 1.0)<br>
+      attention_score = (q · k) / √d × mscale<sup>2</sup>
+      <span class="label">(4) 温度缩放</span>
+    </div>
+
+    <p>DeepSeek-V3 把这个等价放到前面：<em>q_pe *= mscale; k_pe *= mscale</em>，这样 q·k 出来的 logits 自动带上 mscale²，不需要在 softmax 前再乘一次。</p>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">💡</div>
+      <div class="callout-body">
+        <div class="callout-title">mscale 背后的直觉</div>
+        <div class="callout-text">
+          把 logits 除以更大的 √t（即 attention 变"冷")，可以抵消长序列 softmax 被稀释的趋势，保持 attention 分布的熵与训练时接近。
+          DeepSeek 还暴露了 <code>mscale_all_dim</code> 分别作用于所有维度 vs 只作用于 rope 维度，V2-Chat-0628 和 V3 对两者的配置略有不同。
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ 4. MLA + YaRN ══════════════════════════════ -->
+    <h2 id="mla-yarn">🔀 4. MLA 中的 YaRN：只作用于 64 维 RoPE 子空间</h2>
+
+    <p>DeepSeek-V2/V3 的 MLA 架构对 RoPE 做了"解耦"：把 Q/K 拆成<strong>压缩 latent 部分</strong>（不加 RoPE）和<strong> RoPE 部分</strong>（加 RoPE）：</p>
+
+    <div class="diagram-wrap">
+      <svg width="820" height="340" viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; height:auto;">
+        <!-- Input hidden -->
+        <rect x="20" y="150" width="120" height="40" fill="rgba(88,166,255,0.2)" stroke="#58a6ff"/>
+        <text x="80" y="175" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="700">h_t (d_model)</text>
+
+        <!-- Two branches from h_t -->
+        <line x1="140" y1="170" x2="190" y2="100" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <line x1="140" y1="170" x2="190" y2="240" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill="#8b949e"/>
+          </marker>
+        </defs>
+
+        <!-- Q branch (top) -->
+        <rect x="190" y="80" width="120" height="40" fill="rgba(188,140,255,0.2)" stroke="#bc8cff"/>
+        <text x="250" y="105" text-anchor="middle" fill="#e6edf3" font-size="12">W_DQ·h → c_q</text>
+
+        <rect x="330" y="50" width="120" height="30" fill="rgba(188,140,255,0.15)" stroke="#bc8cff" stroke-dasharray="3,2"/>
+        <text x="390" y="70" text-anchor="middle" fill="#e6edf3" font-size="11">q_nope (128·n)</text>
+
+        <rect x="330" y="105" width="120" height="30" fill="rgba(227,179,65,0.2)" stroke="#e3b341"/>
+        <text x="390" y="125" text-anchor="middle" fill="#e6edf3" font-size="11">q_rope (64·n)</text>
+        <line x1="310" y1="100" x2="330" y2="65" stroke="#8b949e" stroke-width="1" marker-end="url(#arrow)"/>
+        <line x1="310" y1="100" x2="330" y2="120" stroke="#8b949e" stroke-width="1" marker-end="url(#arrow)"/>
+
+        <!-- YaRN on q_rope -->
+        <rect x="475" y="100" width="125" height="40" fill="rgba(248,81,73,0.15)" stroke="#f85149"/>
+        <text x="537" y="120" text-anchor="middle" fill="#f85149" font-size="11" font-weight="700">YaRN RoPE</text>
+        <text x="537" y="134" text-anchor="middle" fill="#8b949e" font-size="10">+ mscale</text>
+        <line x1="450" y1="120" x2="475" y2="120" stroke="#8b949e" stroke-width="1" marker-end="url(#arrow)"/>
+
+        <!-- No-op on q_nope -->
+        <line x1="450" y1="65" x2="620" y2="65" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="537" y="55" text-anchor="middle" fill="#3fb950" font-size="10">不做 RoPE</text>
+
+        <!-- Combined Q -->
+        <rect x="620" y="55" width="160" height="85" fill="rgba(57,208,216,0.15)" stroke="#39d0d8"/>
+        <text x="700" y="80" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">Q_final (192·n)</text>
+        <text x="700" y="102" text-anchor="middle" fill="#8b949e" font-size="10">[q_nope(128)  ||  q_rope(64)]</text>
+        <text x="700" y="122" text-anchor="middle" fill="#8b949e" font-size="10">每 head 拼接</text>
+        <line x1="450" y1="65" x2="620" y2="75" stroke="#8b949e" stroke-width="1"/>
+        <line x1="600" y1="120" x2="620" y2="110" stroke="#8b949e" stroke-width="1"/>
+
+        <!-- K/V branch (bottom) -->
+        <rect x="190" y="240" width="120" height="40" fill="rgba(88,166,255,0.2)" stroke="#58a6ff"/>
+        <text x="250" y="265" text-anchor="middle" fill="#e6edf3" font-size="11">W_DKV·h → c_t（共享）</text>
+
+        <rect x="330" y="210" width="120" height="30" fill="rgba(88,166,255,0.15)" stroke="#58a6ff" stroke-dasharray="3,2"/>
+        <text x="390" y="230" text-anchor="middle" fill="#e6edf3" font-size="11">c_t (512) — latent</text>
+        <rect x="330" y="275" width="120" height="30" fill="rgba(227,179,65,0.2)" stroke="#e3b341"/>
+        <text x="390" y="295" text-anchor="middle" fill="#e6edf3" font-size="11">k_rope (64) — 共享</text>
+        <line x1="310" y1="260" x2="330" y2="225" stroke="#8b949e" stroke-width="1" marker-end="url(#arrow)"/>
+        <line x1="310" y1="260" x2="330" y2="290" stroke="#8b949e" stroke-width="1" marker-end="url(#arrow)"/>
+
+        <!-- YaRN on k_rope -->
+        <rect x="475" y="270" width="125" height="40" fill="rgba(248,81,73,0.15)" stroke="#f85149"/>
+        <text x="537" y="290" text-anchor="middle" fill="#f85149" font-size="11" font-weight="700">YaRN RoPE</text>
+        <text x="537" y="304" text-anchor="middle" fill="#8b949e" font-size="10">+ mscale</text>
+        <line x1="450" y1="290" x2="475" y2="290" stroke="#8b949e" stroke-width="1" marker-end="url(#arrow)"/>
+
+        <!-- c_t passes straight to KV cache -->
+        <line x1="450" y1="225" x2="620" y2="225" stroke="#58a6ff" stroke-width="1"/>
+
+        <!-- KV cache -->
+        <rect x="620" y="200" width="160" height="85" fill="rgba(63,185,80,0.1)" stroke="#3fb950"/>
+        <text x="700" y="225" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">KV Cache</text>
+        <text x="700" y="248" text-anchor="middle" fill="#8b949e" font-size="10">c_t (512) + k_rope (64)</text>
+        <text x="700" y="265" text-anchor="middle" fill="#3fb950" font-size="10">= 576 dim / token</text>
+        <text x="700" y="278" text-anchor="middle" fill="#8b949e" font-size="10">共享跨所有 128 heads</text>
+        <line x1="600" y1="290" x2="620" y2="270" stroke="#8b949e" stroke-width="1"/>
+      </svg>
+      <div class="diagram-caption">图 3：MLA 解耦 RoPE 结构 — YaRN 只作用于 64 维 q_rope / k_rope，latent c_t 完全不碰 RoPE（这样后面才能矩阵吸收）。</div>
+    </div>
+
+    <div class="callout callout-warning">
+      <div class="callout-icon">⚠️</div>
+      <div class="callout-body">
+        <div class="callout-title">为什么 c_t 不能加 RoPE？</div>
+        <div class="callout-text">
+          如果对 c_t 直接施加 R<sub>m</sub>，那么注意力 score = q·(c·W<sub>UK</sub><sup>T</sup>·R<sub>m</sub><sup>T</sup>) 里的 R<sub>m</sub><sup>T</sup> 会挡在 W<sub>UK</sub><sup>T</sup> 和 c 之间，
+          使 W<sub>UQ</sub>·W<sub>UK</sub><sup>T</sup> 的矩阵吸收失效（R<sub>m</sub> 依赖位置）。所以必须额外开一个 64 维的 k_rope 独立承载位置信息，MLA 论文称为 <em>Decoupled RoPE</em>。
+        </div>
+      </div>
+    </div>
+
+    <p>DeepSeek-V3 的具体 YaRN 配置（摘自官方 <code>config.json</code>）：</p>
+
+<pre><code><span class="str">"rope_scaling"</span>: {
+    <span class="str">"type"</span>: <span class="str">"yarn"</span>,
+    <span class="str">"factor"</span>: <span class="num">40</span>,                  <span class="cm"># s = 163840 / 4096</span>
+    <span class="str">"original_max_position_embeddings"</span>: <span class="num">4096</span>,
+    <span class="str">"beta_fast"</span>: <span class="num">32</span>,
+    <span class="str">"beta_slow"</span>: <span class="num">1</span>,
+    <span class="str">"mscale"</span>: <span class="num">1.0</span>,                 <span class="cm"># 用于 q_rope / k_rope</span>
+    <span class="str">"mscale_all_dim"</span>: <span class="num">1.0</span>          <span class="cm"># 用于 q_nope / softmax 总缩放</span>
+},
+<span class="str">"rope_theta"</span>: <span class="num">10000</span>,                <span class="cm"># base 仍是 10k（YaRN 基础上调整）</span>
+<span class="str">"qk_rope_head_dim"</span>: <span class="num">64</span>,
+<span class="str">"qk_nope_head_dim"</span>: <span class="num">128</span>,
+<span class="str">"v_head_dim"</span>: <span class="num">128</span>,
+<span class="str">"max_position_embeddings"</span>: <span class="num">163840</span>
+<span class="code-label">DeepSeek-V3 config.json</span></code></pre>
+
+    <!-- ══════════════════════════════ 5. Model Comparison ══════════════════════════════ -->
+    <h2 id="compare">🏛️ 5. 四家主流模型 RoPE 对比</h2>
+
+    <h3 id="deepseek-rope">5.1 DeepSeek V2 / V3 — 解耦 RoPE + YaRN</h3>
+    <ul>
+      <li><strong>架构</strong>：MLA，Q 拆为 <code>q_nope (128) + q_rope (64)</code>，K 拆为 <code>c_t (512 共享) + k_rope (64 共享)</code></li>
+      <li><strong>base</strong> = 10000（标准），<strong>YaRN factor</strong> = 40，<strong>有效 context</strong> = 128K~160K</li>
+      <li><strong>mscale</strong> = 0.1·ln(40)+1 ≈ 1.369，乘进 Q/K 而非 logits</li>
+      <li><strong>独特之处</strong>：RoPE 只作用在 1/3 的 Q 维度（64/192）和 1/9 的 K 维度（64/576）；矩阵吸收不受影响</li>
+    </ul>
+
+    <h3 id="qwen-rope">5.2 Qwen 2.5 / Qwen 3 — 大 base + 可选 YaRN</h3>
+    <ul>
+      <li><strong>架构</strong>：GQA，全维 RoPE（rotary_pct = 1.0），head_dim = 128</li>
+      <li><strong>base</strong> = <em>1,000,000</em>（即 ABF RoPE，Attention Bias Function RoPE），Qwen 2 就已从 10k 调到 1M</li>
+      <li><strong>native context</strong>：Qwen3 原生 32K，启用 YaRN 后 131K；Qwen2.5-1M 进一步 + DCA 到 1M</li>
+      <li><strong>DCA (Dual Chunk Attention)</strong>：长序列分块，块内用相对位置，块间用特殊偏置，与 YaRN 正交组合</li>
+      <li><strong>独特之处</strong>：主要靠"预训练就用大 base"换取较好的长度外推性，YaRN 是锦上添花</li>
+    </ul>
+
+    <h3 id="glm-rope">5.3 GLM / ChatGLM — Partial RoPE</h3>
+    <ul>
+      <li><strong>架构</strong>：MHA（GLM-4）或 MQA（ChatGLM3），<strong>partial_rotary_factor = 0.5</strong></li>
+      <li><strong>head_dim</strong> = 128，但只有前 64 维做 RoPE，后 64 维原样保留</li>
+      <li><strong>base</strong> = 10000（GLM-4 标准），某些长文本变体会调大</li>
+      <li><strong>独特之处</strong>：最早（ChatGLM-6B 时代）就采用半维 RoPE，设计动机是留一半维度承载"纯内容信息"，不受位置干扰。GLM-4-9B-Chat-1M 在此基础上叠加 YaRN 扩到 1M</li>
+    </ul>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">🔍</div>
+      <div class="callout-body">
+        <div class="callout-title">GLM 的 partial RoPE 与 DeepSeek MLA 的解耦 RoPE 的异同</div>
+        <div class="callout-text">
+          <strong>相似</strong>：都只在部分维度做 RoPE。<strong>本质不同</strong>：GLM 的 partial 是在同一个 head 内"前半旋转后半保持"，目的是留信息容量；
+          DeepSeek MLA 的解耦是"压缩维度 c_t 一路 + 独立的 k_rope 一路"，目的是保证 W<sub>UK</sub> 吸收成立——动机完全不一样。
+        </div>
+      </div>
+    </div>
+
+    <h3 id="ernie-rope">5.4 ERNIE 4.5 — 标准全维 RoPE + 多种 scaling</h3>
+    <ul>
+      <li><strong>架构</strong>：MoE（ERNIE-4.5-300B-A47B 等）或 dense，全维 RoPE</li>
+      <li><strong>base</strong> = <em>500,000</em>（rope_theta 默认 5e5，介于 Llama 的 1e4/5e5 与 Qwen 的 1e6 之间）</li>
+      <li><strong>rope_scaling</strong> 字段支持 <code>default / linear / dynamic / yarn / longrope / llama3</code> 六种，由使用方按需开启</li>
+      <li><strong>独特之处</strong>：HuggingFace 官方把 ERNIE 4.5 的 RoPE 抽象为通用 <code>rope_parameters</code> 字典，配置非常"标准"，没有像 DeepSeek/GLM 那样引入架构层面的 RoPE 变体</li>
+    </ul>
+
+    <!-- ══════════════════════════════ 5.5 Visual Comparison ══════════════════════════════ -->
+    <h2 id="visual-compare">🖼️ 5.5 四家 QK 计算流程可视化对比</h2>
+
+    <p>下面用统一的视觉语言画出四个模型在 <strong>Q/K 向量构造 → RoPE 施加 → QK<sup>T</sup> 打分</strong> 全流程的差异。颜色约定：</p>
+
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin:12px 0 24px;">
+      <div style="display:flex; align-items:center; gap:8px; font-size:13px;">
+        <span style="width:16px; height:16px; background:rgba(248,81,73,0.4); border:1px solid #f85149; display:inline-block;"></span>
+        受 RoPE 旋转（位置相关）
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; font-size:13px;">
+        <span style="width:16px; height:16px; background:rgba(88,166,255,0.3); border:1px solid #58a6ff; display:inline-block;"></span>
+        不加 RoPE（纯内容）
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; font-size:13px;">
+        <span style="width:16px; height:16px; background:rgba(188,140,255,0.3); border:1px solid #bc8cff; display:inline-block;"></span>
+        压缩 latent
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; font-size:13px;">
+        <span style="width:16px; height:16px; background:rgba(63,185,80,0.2); border:1px solid #3fb950; display:inline-block;"></span>
+        score 输出
+      </div>
+    </div>
+
+    <!-- ─────── Model 1: DeepSeek V3 (MLA + Decoupled RoPE + YaRN) ─────── -->
+    <h3 id="vis-deepseek">🅐 DeepSeek V3（MLA 解耦 RoPE + YaRN）</h3>
+
+    <div class="diagram-wrap">
+      <svg width="900" height="480" viewBox="0 0 900 480" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; height:auto;">
+        <defs>
+          <marker id="ar1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill="#8b949e"/>
+          </marker>
+        </defs>
+
+        <!-- Title banner -->
+        <rect x="0" y="0" width="900" height="30" fill="rgba(248,81,73,0.08)"/>
+        <text x="450" y="20" text-anchor="middle" fill="#f85149" font-size="13" font-weight="700">DeepSeek V3：Q 分两段 · K 是 latent+rope · 只对 64 维做 YaRN</text>
+
+        <!-- Hidden input -->
+        <rect x="30" y="60" width="120" height="36" fill="rgba(139,148,158,0.15)" stroke="#8b949e"/>
+        <text x="90" y="82" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">h_t (7168)</text>
+
+        <!-- Q branch -->
+        <text x="30" y="130" fill="#e3b341" font-size="12" font-weight="700">── Query 侧 ──</text>
+        <rect x="30" y="145" width="220" height="34" fill="rgba(227,179,65,0.15)" stroke="#e3b341"/>
+        <text x="140" y="167" text-anchor="middle" fill="#e6edf3" font-size="11">W_UQ · (W_DQ · h_t)  = Q 每头 192 维</text>
+
+        <!-- Q split into nope + rope -->
+        <line x1="140" y1="180" x2="100" y2="210" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+        <line x1="140" y1="180" x2="200" y2="210" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+
+        <rect x="30" y="215" width="140" height="34" fill="rgba(88,166,255,0.3)" stroke="#58a6ff"/>
+        <text x="100" y="236" text-anchor="middle" fill="#e6edf3" font-size="11">q_nope (128 dim)</text>
+
+        <rect x="180" y="215" width="100" height="34" fill="rgba(248,81,73,0.35)" stroke="#f85149"/>
+        <text x="230" y="236" text-anchor="middle" fill="#e6edf3" font-size="11">q_rope (64)</text>
+
+        <!-- YaRN on q_rope -->
+        <rect x="180" y="260" width="100" height="30" fill="rgba(248,81,73,0.15)" stroke="#f85149" stroke-dasharray="2,2"/>
+        <text x="230" y="280" text-anchor="middle" fill="#f85149" font-size="11" font-weight="700">× R_m (YaRN)</text>
+        <line x1="230" y1="249" x2="230" y2="260" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+
+        <!-- Final Q = [q_nope, q_rope·R_m] concat -->
+        <rect x="30" y="305" width="250" height="34" fill="rgba(227,179,65,0.15)" stroke="#e3b341" stroke-width="1.5"/>
+        <text x="155" y="326" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">Q = [q_nope (128) ‖ q_rope·R_m (64)]</text>
+        <line x1="100" y1="249" x2="100" y2="305" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+        <line x1="230" y1="290" x2="230" y2="305" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+
+        <!-- K branch (right side) -->
+        <text x="420" y="130" fill="#bc8cff" font-size="12" font-weight="700">── Key 侧（所有 head 共享） ──</text>
+        <rect x="420" y="145" width="220" height="34" fill="rgba(188,140,255,0.15)" stroke="#bc8cff"/>
+        <text x="530" y="167" text-anchor="middle" fill="#e6edf3" font-size="11">W_DKV · h_t → c_t (512) + k_rope (64)</text>
+
+        <!-- split -->
+        <line x1="500" y1="180" x2="470" y2="210" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+        <line x1="560" y1="180" x2="590" y2="210" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+
+        <rect x="400" y="215" width="140" height="34" fill="rgba(188,140,255,0.35)" stroke="#bc8cff"/>
+        <text x="470" y="236" text-anchor="middle" fill="#e6edf3" font-size="11">c_t (512, latent)</text>
+        <text x="470" y="198" text-anchor="middle" fill="#3fb950" font-size="10">存进 KV Cache</text>
+
+        <rect x="550" y="215" width="100" height="34" fill="rgba(248,81,73,0.35)" stroke="#f85149"/>
+        <text x="600" y="236" text-anchor="middle" fill="#e6edf3" font-size="11">k_rope (64)</text>
+
+        <!-- YaRN on k_rope -->
+        <rect x="550" y="260" width="100" height="30" fill="rgba(248,81,73,0.15)" stroke="#f85149" stroke-dasharray="2,2"/>
+        <text x="600" y="280" text-anchor="middle" fill="#f85149" font-size="11" font-weight="700">× R_m (YaRN)</text>
+        <line x1="600" y1="249" x2="600" y2="260" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+
+        <!-- c_t unchanged -->
+        <text x="470" y="280" text-anchor="middle" fill="#3fb950" font-size="10">（不加 RoPE）</text>
+
+        <!-- K cache layout -->
+        <rect x="400" y="305" width="250" height="34" fill="rgba(63,185,80,0.12)" stroke="#3fb950" stroke-width="1.5"/>
+        <text x="525" y="326" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">KV Cache: c_t (512) + k_rope·R_m (64) = 576</text>
+        <line x1="470" y1="249" x2="470" y2="305" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+        <line x1="600" y1="290" x2="600" y2="305" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+
+        <!-- QK score -->
+        <rect x="680" y="300" width="200" height="80" fill="rgba(63,185,80,0.1)" stroke="#3fb950" stroke-width="1.5"/>
+        <text x="780" y="325" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">score =</text>
+        <text x="780" y="345" text-anchor="middle" fill="#e6edf3" font-size="11" font-family="monospace">q_nope·(c·W_UK ᵀ)</text>
+        <text x="780" y="362" text-anchor="middle" fill="#e6edf3" font-size="11" font-family="monospace">+ q_rope·k_rope</text>
+        <line x1="280" y1="322" x2="680" y2="335" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#ar1)"/>
+        <line x1="650" y1="322" x2="680" y2="345" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#ar1)"/>
+
+        <!-- Key point callout -->
+        <rect x="30" y="400" width="840" height="60" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-dasharray="3,3"/>
+        <text x="45" y="422" fill="#f85149" font-size="12" font-weight="700">🔑 关键点：</text>
+        <text x="45" y="442" fill="#e6edf3" font-size="12">① RoPE 只作用在 q_rope / k_rope 的 64 维上，其他维度（128 q_nope、512 c_t）完全不转。</text>
+        <text x="45" y="458" fill="#e6edf3" font-size="12">② KV Cache 只存 c_t(512)+k_rope(64) = 576 维，共享所有 128 heads — MLA 压缩的来源。</text>
+      </svg>
+      <div class="diagram-caption">图 5-A：DeepSeek V3 的 QK 计算流程 — 最复杂，但 KV Cache 最省。</div>
+    </div>
+
+    <!-- ─────── Model 2: Qwen3 ─────── -->
+    <h3 id="vis-qwen">🅑 Qwen3（全维 RoPE + 大 base 1e6）</h3>
+
+    <div class="diagram-wrap">
+      <svg width="900" height="320" viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; height:auto;">
+        <rect x="0" y="0" width="900" height="30" fill="rgba(88,166,255,0.08)"/>
+        <text x="450" y="20" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="700">Qwen3：全维 RoPE，所有 128 维都参与旋转（base=1,000,000）</text>
+
+        <!-- h -->
+        <rect x="30" y="55" width="120" height="36" fill="rgba(139,148,158,0.15)" stroke="#8b949e"/>
+        <text x="90" y="77" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">h_t</text>
+
+        <!-- Q -->
+        <text x="30" y="130" fill="#e3b341" font-size="12" font-weight="700">── Query ──</text>
+        <rect x="30" y="145" width="300" height="40" fill="rgba(248,81,73,0.35)" stroke="#f85149"/>
+        <text x="180" y="169" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">Q 每头 128 维 — 全部旋转</text>
+
+        <!-- R_m on entire Q -->
+        <rect x="30" y="195" width="300" height="34" fill="rgba(248,81,73,0.12)" stroke="#f85149" stroke-dasharray="2,2"/>
+        <text x="180" y="217" text-anchor="middle" fill="#f85149" font-size="12" font-weight="700">× R_m  (base θ = 1e6，全 128 维)</text>
+
+        <!-- K -->
+        <text x="390" y="130" fill="#bc8cff" font-size="12" font-weight="700">── Key (GQA 共享) ──</text>
+        <rect x="390" y="145" width="300" height="40" fill="rgba(248,81,73,0.35)" stroke="#f85149"/>
+        <text x="540" y="169" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">K 每 KV-head 128 维 — 全部旋转</text>
+
+        <rect x="390" y="195" width="300" height="34" fill="rgba(248,81,73,0.12)" stroke="#f85149" stroke-dasharray="2,2"/>
+        <text x="540" y="217" text-anchor="middle" fill="#f85149" font-size="12" font-weight="700">× R_m  (YaRN 可选，长上下文时启用)</text>
+
+        <!-- score -->
+        <rect x="720" y="160" width="160" height="60" fill="rgba(63,185,80,0.1)" stroke="#3fb950" stroke-width="1.5"/>
+        <text x="800" y="185" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">score =</text>
+        <text x="800" y="205" text-anchor="middle" fill="#e6edf3" font-size="12" font-family="monospace">q · k ᵀ (128)</text>
+
+        <!-- arrows -->
+        <line x1="90" y1="91" x2="90" y2="145" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+        <line x1="180" y1="185" x2="180" y2="195" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+        <line x1="540" y1="185" x2="540" y2="195" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+        <line x1="330" y1="211" x2="720" y2="185" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#ar1)"/>
+        <line x1="690" y1="211" x2="720" y2="205" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#ar1)"/>
+
+        <!-- Key point -->
+        <rect x="30" y="250" width="840" height="60" fill="rgba(88,166,255,0.08)" stroke="#58a6ff" stroke-dasharray="3,3"/>
+        <text x="45" y="272" fill="#58a6ff" font-size="12" font-weight="700">🔑 关键点：</text>
+        <text x="45" y="292" fill="#e6edf3" font-size="12">① 最简单的 RoPE — 全维旋转，QK 是标准内积。② 靠把 base 从 1e4 提到 1e6（ABF）拉长波长，原生就支持 32K 外推。</text>
+        <text x="45" y="308" fill="#e6edf3" font-size="12">③ KV Cache 存整条 K 向量 (n_kv_heads × 128)，内存占用是 DeepSeek MLA 的 5~10 倍。</text>
+      </svg>
+      <div class="diagram-caption">图 5-B：Qwen3 的 QK 流程 — 朴素直接，靠大 base 和 YaRN 扩上下文。</div>
+    </div>
+
+    <!-- ─────── Model 3: GLM-4 ─────── -->
+    <h3 id="vis-glm">🅒 GLM-4（Partial RoPE：前 64 旋转 + 后 64 保持）</h3>
+
+    <div class="diagram-wrap">
+      <svg width="900" height="340" viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; height:auto;">
+        <rect x="0" y="0" width="900" height="30" fill="rgba(227,179,65,0.08)"/>
+        <text x="450" y="20" text-anchor="middle" fill="#e3b341" font-size="13" font-weight="700">GLM-4：Partial RoPE — 每个 head 的 128 维，前 64 旋转、后 64 保留</text>
+
+        <!-- h -->
+        <rect x="30" y="55" width="120" height="36" fill="rgba(139,148,158,0.15)" stroke="#8b949e"/>
+        <text x="90" y="77" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">h_t</text>
+
+        <!-- Q -->
+        <text x="30" y="130" fill="#e3b341" font-size="12" font-weight="700">── Query ──</text>
+        <rect x="30" y="145" width="180" height="40" fill="rgba(248,81,73,0.35)" stroke="#f85149"/>
+        <text x="120" y="169" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">q[:64] 旋转段</text>
+
+        <rect x="210" y="145" width="180" height="40" fill="rgba(88,166,255,0.3)" stroke="#58a6ff"/>
+        <text x="300" y="169" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">q[64:] 保留段</text>
+
+        <rect x="30" y="195" width="180" height="30" fill="rgba(248,81,73,0.12)" stroke="#f85149" stroke-dasharray="2,2"/>
+        <text x="120" y="215" text-anchor="middle" fill="#f85149" font-size="11" font-weight="700">× R_m (base=1e4)</text>
+
+        <rect x="210" y="195" width="180" height="30" fill="rgba(88,166,255,0.08)" stroke="#58a6ff" stroke-dasharray="2,2"/>
+        <text x="300" y="215" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">原样通过（identity）</text>
+
+        <!-- K -->
+        <text x="450" y="130" fill="#bc8cff" font-size="12" font-weight="700">── Key ──</text>
+        <rect x="450" y="145" width="180" height="40" fill="rgba(248,81,73,0.35)" stroke="#f85149"/>
+        <text x="540" y="169" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">k[:64] 旋转段</text>
+
+        <rect x="630" y="145" width="180" height="40" fill="rgba(88,166,255,0.3)" stroke="#58a6ff"/>
+        <text x="720" y="169" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">k[64:] 保留段</text>
+
+        <rect x="450" y="195" width="180" height="30" fill="rgba(248,81,73,0.12)" stroke="#f85149" stroke-dasharray="2,2"/>
+        <text x="540" y="215" text-anchor="middle" fill="#f85149" font-size="11" font-weight="700">× R_m (base=1e4)</text>
+
+        <rect x="630" y="195" width="180" height="30" fill="rgba(88,166,255,0.08)" stroke="#58a6ff" stroke-dasharray="2,2"/>
+        <text x="720" y="215" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">原样通过（identity）</text>
+
+        <!-- Score -->
+        <rect x="30" y="245" width="780" height="36" fill="rgba(63,185,80,0.1)" stroke="#3fb950" stroke-width="1.5"/>
+        <text x="420" y="268" text-anchor="middle" fill="#e6edf3" font-size="12" font-family="monospace" font-weight="700">score = q[:64]·k[:64]ᵀ  (位置依赖)   +   q[64:]·k[64:]ᵀ  (纯内容)</text>
+
+        <!-- Key point -->
+        <rect x="30" y="295" width="840" height="40" fill="rgba(227,179,65,0.08)" stroke="#e3b341" stroke-dasharray="3,3"/>
+        <text x="45" y="318" fill="#e3b341" font-size="12" font-weight="700">🔑 关键点：</text>
+        <text x="120" y="318" fill="#e6edf3" font-size="12">同一个 head 内，一半维度"管位置"，另一半"管内容" — partial_rotary_factor = 0.5（留信息容量，非 MLA 那种架构动机）。</text>
+      </svg>
+      <div class="diagram-caption">图 5-C：GLM-4 的 QK 流程 — 红蓝并排拼接，最后 QK 内积自然拆成"位置项 + 内容项"之和。</div>
+    </div>
+
+    <!-- ─────── Model 4: ERNIE 4.5 ─────── -->
+    <h3 id="vis-ernie">🅓 ERNIE 4.5（全维 RoPE + base 5e5 + 可配置 scaling）</h3>
+
+    <div class="diagram-wrap">
+      <svg width="900" height="340" viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; height:auto;">
+        <rect x="0" y="0" width="900" height="30" fill="rgba(63,185,80,0.08)"/>
+        <text x="450" y="20" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="700">ERNIE 4.5：最"标准"的全维 RoPE，通过 rope_scaling 字段选择扩展方式</text>
+
+        <!-- h -->
+        <rect x="30" y="55" width="120" height="36" fill="rgba(139,148,158,0.15)" stroke="#8b949e"/>
+        <text x="90" y="77" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">h_t</text>
+
+        <!-- Q -->
+        <text x="30" y="130" fill="#e3b341" font-size="12" font-weight="700">── Query ──</text>
+        <rect x="30" y="145" width="300" height="40" fill="rgba(248,81,73,0.35)" stroke="#f85149"/>
+        <text x="180" y="169" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">Q 全 128 维</text>
+
+        <rect x="30" y="195" width="300" height="40" fill="rgba(248,81,73,0.12)" stroke="#f85149" stroke-dasharray="2,2"/>
+        <text x="180" y="212" text-anchor="middle" fill="#f85149" font-size="12" font-weight="700">× R_m  (base=500,000)</text>
+        <text x="180" y="228" text-anchor="middle" fill="#8b949e" font-size="10">rope_type: default/linear/yarn/longrope/llama3</text>
+
+        <!-- K -->
+        <text x="390" y="130" fill="#bc8cff" font-size="12" font-weight="700">── Key ──</text>
+        <rect x="390" y="145" width="300" height="40" fill="rgba(248,81,73,0.35)" stroke="#f85149"/>
+        <text x="540" y="169" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">K 全 128 维</text>
+
+        <rect x="390" y="195" width="300" height="40" fill="rgba(248,81,73,0.12)" stroke="#f85149" stroke-dasharray="2,2"/>
+        <text x="540" y="212" text-anchor="middle" fill="#f85149" font-size="12" font-weight="700">× R_m  (base=500,000)</text>
+        <text x="540" y="228" text-anchor="middle" fill="#8b949e" font-size="10">同上 scaling</text>
+
+        <!-- Score -->
+        <rect x="720" y="170" width="160" height="60" fill="rgba(63,185,80,0.1)" stroke="#3fb950" stroke-width="1.5"/>
+        <text x="800" y="195" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">score =</text>
+        <text x="800" y="215" text-anchor="middle" fill="#e6edf3" font-size="12" font-family="monospace">q · k ᵀ (128)</text>
+
+        <!-- arrows -->
+        <line x1="90" y1="91" x2="90" y2="145" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+        <line x1="180" y1="185" x2="180" y2="195" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+        <line x1="540" y1="185" x2="540" y2="195" stroke="#8b949e" stroke-width="1" marker-end="url(#ar1)"/>
+        <line x1="330" y1="215" x2="720" y2="195" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#ar1)"/>
+        <line x1="690" y1="215" x2="720" y2="215" stroke="#3fb950" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#ar1)"/>
+
+        <!-- Key point -->
+        <rect x="30" y="255" width="840" height="70" fill="rgba(63,185,80,0.08)" stroke="#3fb950" stroke-dasharray="3,3"/>
+        <text x="45" y="277" fill="#3fb950" font-size="12" font-weight="700">🔑 关键点：</text>
+        <text x="45" y="297" fill="#e6edf3" font-size="12">① 计算图和 Qwen3 几乎一样，区别只在 base（5e5 vs 1e6）和 scaling 策略配置灵活。</text>
+        <text x="45" y="313" fill="#e6edf3" font-size="12">② 没有架构层面的 RoPE 变体 — HuggingFace 把它归为"通用 rope_parameters 字典"模板。</text>
+      </svg>
+      <div class="diagram-caption">图 5-D：ERNIE 4.5 的 QK 流程 — 最朴素的标准 RoPE，差异体现在配置而非架构。</div>
+    </div>
+
+    <!-- ─────── Side-by-side summary diagram ─────── -->
+    <h3>四家一图并排：谁"染红"了 Q/K 的哪段？</h3>
+
+    <div class="diagram-wrap">
+      <svg width="900" height="380" viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; height:auto;">
+        <!-- Header row -->
+        <text x="60" y="25" fill="#e6edf3" font-size="13" font-weight="700">Model</text>
+        <text x="230" y="25" fill="#e3b341" font-size="13" font-weight="700">Query 向量</text>
+        <text x="570" y="25" fill="#bc8cff" font-size="13" font-weight="700">Key 向量 (Cache 中)</text>
+        <text x="820" y="25" fill="#3fb950" font-size="13" font-weight="700">长度</text>
+
+        <line x1="20" y1="35" x2="880" y2="35" stroke="#30363d"/>
+
+        <!-- DeepSeek V3 row -->
+        <text x="40" y="80" fill="#f85149" font-size="12" font-weight="700">DeepSeek V3</text>
+        <text x="40" y="96" fill="#8b949e" font-size="10">MLA 解耦</text>
+        <!-- Q: 128 blue + 64 red -->
+        <rect x="150" y="65" width="240" height="28" fill="rgba(88,166,255,0.3)" stroke="#58a6ff"/>
+        <text x="270" y="83" text-anchor="middle" fill="#e6edf3" font-size="11">q_nope · 128 (不转)</text>
+        <rect x="390" y="65" width="120" height="28" fill="rgba(248,81,73,0.4)" stroke="#f85149"/>
+        <text x="450" y="83" text-anchor="middle" fill="#e6edf3" font-size="11">q_rope·R · 64</text>
+        <!-- K: 512 purple + 64 red -->
+        <rect x="550" y="65" width="210" height="28" fill="rgba(188,140,255,0.3)" stroke="#bc8cff"/>
+        <text x="655" y="83" text-anchor="middle" fill="#e6edf3" font-size="11">c_t · 512 (latent)</text>
+        <rect x="760" y="65" width="50" height="28" fill="rgba(248,81,73,0.4)" stroke="#f85149"/>
+        <text x="785" y="83" text-anchor="middle" fill="#e6edf3" font-size="10">k_rope·R·64</text>
+        <text x="820" y="83" fill="#3fb950" font-size="12" font-weight="700">Q:192</text>
+        <text x="820" y="97" fill="#3fb950" font-size="11">K:576</text>
+
+        <line x1="20" y1="115" x2="880" y2="115" stroke="#30363d"/>
+
+        <!-- Qwen3 row -->
+        <text x="40" y="160" fill="#58a6ff" font-size="12" font-weight="700">Qwen3</text>
+        <text x="40" y="176" fill="#8b949e" font-size="10">base 1e6</text>
+        <!-- Q: full red -->
+        <rect x="150" y="145" width="360" height="28" fill="rgba(248,81,73,0.4)" stroke="#f85149"/>
+        <text x="330" y="163" text-anchor="middle" fill="#e6edf3" font-size="11">q·R · 128 (全旋转)</text>
+        <!-- K: full red -->
+        <rect x="550" y="145" width="260" height="28" fill="rgba(248,81,73,0.4)" stroke="#f85149"/>
+        <text x="680" y="163" text-anchor="middle" fill="#e6edf3" font-size="11">k·R · 128 (全旋转)</text>
+        <text x="820" y="163" fill="#3fb950" font-size="12" font-weight="700">Q:128</text>
+        <text x="820" y="177" fill="#3fb950" font-size="11">K:128</text>
+
+        <line x1="20" y1="195" x2="880" y2="195" stroke="#30363d"/>
+
+        <!-- GLM-4 row -->
+        <text x="40" y="240" fill="#e3b341" font-size="12" font-weight="700">GLM-4</text>
+        <text x="40" y="256" fill="#8b949e" font-size="10">partial 50%</text>
+        <!-- Q: 64 red + 64 blue -->
+        <rect x="150" y="225" width="180" height="28" fill="rgba(248,81,73,0.4)" stroke="#f85149"/>
+        <text x="240" y="243" text-anchor="middle" fill="#e6edf3" font-size="11">q[:64]·R (旋转)</text>
+        <rect x="330" y="225" width="180" height="28" fill="rgba(88,166,255,0.3)" stroke="#58a6ff"/>
+        <text x="420" y="243" text-anchor="middle" fill="#e6edf3" font-size="11">q[64:] (不转)</text>
+        <!-- K same -->
+        <rect x="550" y="225" width="130" height="28" fill="rgba(248,81,73,0.4)" stroke="#f85149"/>
+        <text x="615" y="243" text-anchor="middle" fill="#e6edf3" font-size="11">k[:64]·R</text>
+        <rect x="680" y="225" width="130" height="28" fill="rgba(88,166,255,0.3)" stroke="#58a6ff"/>
+        <text x="745" y="243" text-anchor="middle" fill="#e6edf3" font-size="11">k[64:]</text>
+        <text x="820" y="243" fill="#3fb950" font-size="12" font-weight="700">Q:128</text>
+        <text x="820" y="257" fill="#3fb950" font-size="11">K:128</text>
+
+        <line x1="20" y1="275" x2="880" y2="275" stroke="#30363d"/>
+
+        <!-- ERNIE 4.5 row -->
+        <text x="40" y="320" fill="#3fb950" font-size="12" font-weight="700">ERNIE 4.5</text>
+        <text x="40" y="336" fill="#8b949e" font-size="10">base 5e5</text>
+        <rect x="150" y="305" width="360" height="28" fill="rgba(248,81,73,0.4)" stroke="#f85149"/>
+        <text x="330" y="323" text-anchor="middle" fill="#e6edf3" font-size="11">q·R · 128 (全旋转)</text>
+        <rect x="550" y="305" width="260" height="28" fill="rgba(248,81,73,0.4)" stroke="#f85149"/>
+        <text x="680" y="323" text-anchor="middle" fill="#e6edf3" font-size="11">k·R · 128 (全旋转)</text>
+        <text x="820" y="323" fill="#3fb950" font-size="12" font-weight="700">Q:128</text>
+        <text x="820" y="337" fill="#3fb950" font-size="11">K:128</text>
+
+        <line x1="20" y1="355" x2="880" y2="355" stroke="#30363d"/>
+
+        <!-- Bottom hint -->
+        <text x="40" y="373" fill="#8b949e" font-size="11" font-style="italic">
+          红色 = RoPE 旋转段 &nbsp;|&nbsp; 蓝色 = 不动段 &nbsp;|&nbsp; 紫色 = 压缩 latent &nbsp;|&nbsp; 数字 = 维度长度
+        </text>
+      </svg>
+      <div class="diagram-caption">图 5-E：四家 QK 向量"染色图" — 一眼看出谁家 RoPE 管哪段、KV Cache 存多宽。</div>
+    </div>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">💡</div>
+      <div class="callout-body">
+        <div class="callout-title">一句话概括四张图的差异</div>
+        <div class="callout-text">
+          <strong>DeepSeek</strong> = 分段（Q 192、K 576），只 64 维染红，其余靠架构压缩；<br>
+          <strong>Qwen3 / ERNIE</strong> = 简单粗暴，整条 Q/K 全染红，差异只在 base；<br>
+          <strong>GLM-4</strong> = 一人一半，前 64 染红、后 64 保蓝。
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ 6. Summary Table ══════════════════════════════ -->
+    <h2 id="summary-table">📊 6. 横向对比总表</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>模型</th>
+            <th>RoPE 类型</th>
+            <th>base (θ)</th>
+            <th>rotary ratio</th>
+            <th>原生长度</th>
+            <th>扩展方法</th>
+            <th>极限长度</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>DeepSeek V3</strong></td>
+            <td><span class="cell-mid">解耦 RoPE</span><br><small>(Decoupled)</small></td>
+            <td class="cell-mono">10,000</td>
+            <td>64/192 Q<br>64/576 K</td>
+            <td class="cell-mono">4K</td>
+            <td><span class="cell-good">YaRN (s=40)</span><br>β_fast=32, β_slow=1</td>
+            <td class="cell-good">163,840</td>
+          </tr>
+          <tr>
+            <td><strong>Qwen3 / Qwen2.5</strong></td>
+            <td>全维 RoPE<br><small>(ABF)</small></td>
+            <td class="cell-mono cell-good">1,000,000</td>
+            <td>1.0 (full)</td>
+            <td class="cell-mono">32K</td>
+            <td><span class="cell-good">YaRN</span>+可选 DCA</td>
+            <td class="cell-good">131K~1M</td>
+          </tr>
+          <tr>
+            <td><strong>GLM-4</strong></td>
+            <td><span class="cell-mid">Partial RoPE</span></td>
+            <td class="cell-mono">10,000</td>
+            <td class="cell-mid">0.5 (前 64/128)</td>
+            <td class="cell-mono">128K</td>
+            <td>YaRN (1M 版本)</td>
+            <td class="cell-mono">1,000,000</td>
+          </tr>
+          <tr>
+            <td><strong>ERNIE 4.5</strong></td>
+            <td>标准全维 RoPE</td>
+            <td class="cell-mono">500,000</td>
+            <td>1.0 (full)</td>
+            <td class="cell-mono">128K</td>
+            <td>可配置<br><small>(default/linear/yarn/llama3)</small></td>
+            <td class="cell-mono">128K+</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>数值直观感受</h3>
+    <p>用 head_dim = 128 时 base 对最低频波长的影响（λ<sub>max</sub> = 2π · base<sup>(d-2)/d</sup>）：</p>
+
+    <div class="metric-grid">
+      <div class="metric-card cyan">
+        <span class="metric-num">~58K</span>
+        <div class="metric-label">base=1e4, λ_max</div>
+      </div>
+      <div class="metric-card yellow">
+        <span class="metric-num">~3.3M</span>
+        <div class="metric-label">base=5e5, λ_max</div>
+      </div>
+      <div class="metric-card green">
+        <span class="metric-num">~7.4M</span>
+        <div class="metric-label">base=1e6, λ_max</div>
+      </div>
+      <div class="metric-card purple">
+        <span class="metric-num">40×</span>
+        <div class="metric-label">DeepSeek YaRN factor</div>
+      </div>
+    </div>
+
+    <p>base 越大 → 最低频波长越长 → 模型"见过"的相对位置跨度越大 → 天然外推能力越强。这是 Qwen 直接把 base 调到 1M 的底层逻辑。</p>
+
+    <!-- ══════════════════════════════ 7. Conclusions ══════════════════════════════ -->
+    <h2 id="conclusions">✅ 7. 结论与建议</h2>
+
+    <p>从算法视角，RoPE 家族的演化可以用一张图概括：</p>
+
+    <div class="diagram-wrap">
+      <svg width="820" height="230" viewBox="0 0 820 230" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; height:auto;">
+        <!-- Standard RoPE -->
+        <rect x="20" y="90" width="140" height="60" fill="rgba(88,166,255,0.15)" stroke="#58a6ff" rx="6"/>
+        <text x="90" y="115" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="700">标准 RoPE</text>
+        <text x="90" y="133" text-anchor="middle" fill="#8b949e" font-size="11">RoFormer 2021</text>
+
+        <!-- arrow to NTK -->
+        <line x1="160" y1="120" x2="210" y2="40" stroke="#8b949e" stroke-width="1" marker-end="url(#arrow2)"/>
+        <text x="175" y="80" fill="#8b949e" font-size="10">调 base</text>
+
+        <line x1="160" y1="120" x2="210" y2="200" stroke="#8b949e" stroke-width="1" marker-end="url(#arrow2)"/>
+        <text x="175" y="170" fill="#8b949e" font-size="10">降维</text>
+
+        <defs>
+          <marker id="arrow2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill="#8b949e"/>
+          </marker>
+        </defs>
+
+        <!-- NTK-aware -->
+        <rect x="220" y="10" width="140" height="60" fill="rgba(63,185,80,0.15)" stroke="#3fb950" rx="6"/>
+        <text x="290" y="35" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="700">NTK-aware</text>
+        <text x="290" y="53" text-anchor="middle" fill="#8b949e" font-size="11">单一 base 调整</text>
+
+        <!-- Partial RoPE -->
+        <rect x="220" y="170" width="140" height="60" fill="rgba(227,179,65,0.15)" stroke="#e3b341" rx="6"/>
+        <text x="290" y="195" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="700">Partial RoPE</text>
+        <text x="290" y="213" text-anchor="middle" fill="#8b949e" font-size="11">GLM / ChatGLM</text>
+
+        <!-- arrow to YaRN -->
+        <line x1="360" y1="40" x2="430" y2="90" stroke="#8b949e" stroke-width="1" marker-end="url(#arrow2)"/>
+        <text x="385" y="55" fill="#8b949e" font-size="10">分段策略</text>
+
+        <!-- YaRN -->
+        <rect x="430" y="90" width="140" height="60" fill="rgba(188,140,255,0.2)" stroke="#bc8cff" rx="6"/>
+        <text x="500" y="115" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="700">YaRN</text>
+        <text x="500" y="133" text-anchor="middle" fill="#8b949e" font-size="11">3段 + mscale</text>
+
+        <!-- arrow to Decoupled -->
+        <line x1="570" y1="120" x2="630" y2="120" stroke="#8b949e" stroke-width="1" marker-end="url(#arrow2)"/>
+        <text x="580" y="110" fill="#8b949e" font-size="10">+MLA</text>
+
+        <!-- Decoupled / MLA YaRN -->
+        <rect x="640" y="90" width="160" height="60" fill="rgba(248,81,73,0.2)" stroke="#f85149" rx="6"/>
+        <text x="720" y="112" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="700">MLA 解耦 YaRN</text>
+        <text x="720" y="130" text-anchor="middle" fill="#8b949e" font-size="11">DeepSeek V2/V3</text>
+        <text x="720" y="145" text-anchor="middle" fill="#f85149" font-size="10">仅 64 维受影响</text>
+      </svg>
+      <div class="diagram-caption">图 4：RoPE 技术演化路线 — 从标准 RoPE 到 MLA 解耦 YaRN 的三条主要改进方向。</div>
+    </div>
+
+    <div class="callout callout-tip">
+      <div class="callout-icon">🚀</div>
+      <div class="callout-body">
+        <div class="callout-title">选型建议</div>
+        <div class="callout-text">
+          <strong>新训练模型</strong>：直接用 base=1e6（Qwen 路线）+ 长上下文训练，比事后 YaRN 效果好。<br>
+          <strong>已有 4K/8K 模型想扩到 128K+</strong>：YaRN，factor = target/train，β_fast=32 / β_slow=1，再配 mscale。<br>
+          <strong>KV cache 内存吃紧</strong>：走 MLA 架构，RoPE 必须解耦成 k_rope 独立 64 维。<br>
+          <strong>切忌</strong>：单纯线性插值 (PI) 对困惑度有肉眼可见的损伤；动态 NTK 在边界频率不连续；YaRN 目前在效果 / 实现复杂度平衡上最好。
+        </div>
+      </div>
+    </div>
+
+    <hr />
+
+    <h2 id="references">📚 参考资料 / References</h2>
+    <ol class="ref-list">
+      <li class="ref-item"><a href="https://arxiv.org/abs/2104.09864" target="_blank">RoFormer: Enhanced Transformer with Rotary Position Embedding (Su et al., 2021)</a> — RoPE 原始论文</li>
+      <li class="ref-item"><a href="https://arxiv.org/abs/2309.00071" target="_blank">YaRN: Efficient Context Window Extension of Large Language Models (Peng et al., 2023)</a> — YaRN 三段策略与 mscale 推导</li>
+      <li class="ref-item"><a href="https://arxiv.org/abs/2405.04434" target="_blank">DeepSeek-V2 Technical Report</a> — MLA 与解耦 RoPE 首次提出</li>
+      <li class="ref-item"><a href="https://github.com/deepseek-ai/DeepSeek-V3/blob/main/inference/model.py" target="_blank">DeepSeek-V3 inference/model.py</a> — YaRN + MLA 官方实现</li>
+      <li class="ref-item"><a href="https://docs.vllm.ai/en/v0.10.2/api/vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.html" target="_blank">vLLM deepseek_scaling_rope API</a> — 生产级 YaRN 实现参考</li>
+      <li class="ref-item"><a href="https://huggingface.co/docs/transformers/en/model_doc/glm" target="_blank">HuggingFace GLM-4 Model Doc</a> — partial_rotary_factor=0.5 官方说明</li>
+      <li class="ref-item"><a href="https://huggingface.co/docs/transformers/en/model_doc/ernie4_5_moe" target="_blank">HuggingFace ERNIE 4.5 Model Doc</a> — rope_parameters / rope_scaling 配置字段</li>
+      <li class="ref-item"><a href="https://huggingface.co/Qwen/Qwen3-32B" target="_blank">Qwen3-32B on HuggingFace</a> — rope_theta=1e6 与 YaRN 使用说明</li>
+      <li class="ref-item"><a href="https://qwenlm.github.io/blog/qwen2.5-1m/" target="_blank">Qwen2.5-1M Blog Post</a> — DCA + YaRN 扩 1M 上下文</li>
+      <li class="ref-item"><a href="https://arxiv.org/html/2407.10671v1" target="_blank">Qwen2 Technical Report</a> — ABF RoPE（base 从 10k 提到 1M）</li>
+      <li class="ref-item"><a href="https://amaarora.github.io/posts/2025-09-21-rope-context-extension.html" target="_blank">How LLMs Scaled from 512 to 2M Context</a> — RoPE 外推方法综述</li>
+      <li class="ref-item"><a href="https://huggingface.co/deepseek-ai/DeepSeek-V2/discussions/4" target="_blank">DeepSeek-V2 Discussion: mscale calculation</a> — mscale 公式的官方讨论</li>
+    </ol>
+
+  </main>
+</div>
+
+<a class="back-top" href="#" title="回到顶部">↑</a>
+
+</body>
+</html>
