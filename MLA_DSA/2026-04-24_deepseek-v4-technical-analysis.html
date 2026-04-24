@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepSeek-V4 技术报告深度解读 — 迈向高效百万 Token 上下文智能</title>
+  <!-- RESEARCH_META
+  title: DeepSeek-V4 技术报告深度解读 — 迈向高效百万 Token 上下文智能
+  date: 2026-04-24
+  tags: DeepSeek-V4, MoE, 注意力机制, 长上下文, GPU优化
+  summary: 深度解析 DeepSeek-V4 系列的全部技术创新，涵盖混合注意力架构（CSA+HCA）、流形约束超连接（mHC）、Muon 优化器、基础设施优化与后训练流水线。
+  -->
+  <!-- Mermaid for diagrams -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:         #0d1117;
+      --bg2:        #161b22;
+      --bg3:        #1c2128;
+      --border:     #30363d;
+      --text:       #e6edf3;
+      --text2:      #8b949e;
+      --text3:      #656d76;
+      --cyan:       #39d0d8;
+      --blue:       #58a6ff;
+      --green:      #3fb950;
+      --yellow:     #e3b341;
+      --orange:     #f78166;
+      --purple:     #bc8cff;
+      --red:        #f85149;
+      --font-mono:  'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.75;
+      font-size: 16px;
+    }
+
+    /* ── Layout ── */
+    .page-wrap {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      min-height: 100vh;
+    }
+    @media (max-width: 900px) {
+      .page-wrap { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+    }
+
+    /* ── Sidebar / TOC ── */
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      padding: 24px 16px;
+    }
+    .sidebar-brand {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text3);
+      margin-bottom: 16px;
+    }
+    .toc-list { list-style: none; }
+    .toc-item a {
+      display: block;
+      padding: 5px 8px;
+      font-size: 13px;
+      color: var(--text2);
+      text-decoration: none;
+      border-radius: 6px;
+      transition: all .15s;
+      border-left: 2px solid transparent;
+    }
+    .toc-item a:hover {
+      color: var(--text);
+      background: var(--bg3);
+      border-left-color: var(--cyan);
+    }
+    .toc-item.h3 a { padding-left: 20px; font-size: 12px; }
+
+    /* ── Main Content ── */
+    .content {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 32px 80px;
+    }
+    @media (max-width: 640px) { .content { padding: 24px 16px 60px; } }
+
+    /* ── Cover / Header ── */
+    .cover {
+      padding: 40px 0 32px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 40px;
+    }
+    .cover-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.4px;
+    }
+    .badge-cyan   { background: rgba(57,208,216,.15); color: var(--cyan); }
+    .badge-blue   { background: rgba(88,166,255,.15); color: var(--blue); }
+    .badge-green  { background: rgba(63,185,80,.15);  color: var(--green); }
+    .badge-yellow { background: rgba(227,179,65,.15); color: var(--yellow); }
+    .badge-purple { background: rgba(188,140,255,.15);color: var(--purple); }
+    .badge-orange { background: rgba(247,129,102,.15);color: var(--orange); }
+    .cover h1 {
+      font-size: clamp(24px, 4vw, 40px);
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #e6edf3 20%, var(--cyan) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .cover-summary {
+      font-size: 16px;
+      color: var(--text2);
+      max-width: 640px;
+      line-height: 1.6;
+    }
+    .cover-date {
+      font-size: 12px;
+      color: var(--text3);
+      margin-top: 12px;
+    }
+
+    /* ── Typography ── */
+    h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 48px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      scroll-margin-top: 24px;
+    }
+    h3 {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text);
+      margin: 28px 0 12px;
+      scroll-margin-top: 24px;
+    }
+    h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--text2); }
+    p { margin-bottom: 14px; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    strong { color: var(--text); font-weight: 600; }
+    em { color: var(--yellow); font-style: italic; }
+
+    /* ── TL;DR Box ── */
+    .tldr {
+      background: linear-gradient(135deg, rgba(57,208,216,.08), rgba(188,140,255,.08));
+      border: 1px solid rgba(57,208,216,.25);
+      border-radius: 12px;
+      padding: 24px 28px;
+      margin: 0 0 40px;
+    }
+    .tldr-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--cyan);
+      margin-bottom: 12px;
+    }
+    .tldr ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .tldr li {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 15px;
+      color: var(--text);
+    }
+    .tldr li::before { content: "\2192"; color: var(--cyan); flex-shrink: 0; font-weight: 700; }
+
+    /* ── Callout Boxes ── */
+    .callout {
+      display: flex;
+      gap: 14px;
+      padding: 16px 20px;
+      border-radius: 10px;
+      margin: 20px 0;
+      border: 1px solid;
+    }
+    .callout-icon { font-size: 20px; flex-shrink: 0; line-height: 1.4; }
+    .callout-body { flex: 1; }
+    .callout-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .callout-text { font-size: 14px; line-height: 1.65; }
+
+    .callout-insight { background: rgba(57,208,216,.07); border-color: rgba(57,208,216,.3); }
+    .callout-insight .callout-title { color: var(--cyan); }
+    .callout-warning { background: rgba(227,179,65,.07); border-color: rgba(227,179,65,.3); }
+    .callout-warning .callout-title { color: var(--yellow); }
+    .callout-danger  { background: rgba(248,81,73,.07);  border-color: rgba(248,81,73,.3); }
+    .callout-danger  .callout-title { color: var(--red); }
+    .callout-tip     { background: rgba(63,185,80,.07);  border-color: rgba(63,185,80,.3); }
+    .callout-tip     .callout-title { color: var(--green); }
+
+    /* ── Metric Cards ── */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      margin: 20px 0;
+    }
+    .metric-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+    }
+    .metric-num {
+      font-size: 28px;
+      font-weight: 800;
+      display: block;
+      line-height: 1.1;
+    }
+    .metric-label { font-size: 12px; color: var(--text2); margin-top: 4px; }
+    .metric-card.cyan .metric-num  { color: var(--cyan); }
+    .metric-card.blue .metric-num  { color: var(--blue); }
+    .metric-card.green .metric-num { color: var(--green); }
+    .metric-card.yellow .metric-num{ color: var(--yellow); }
+    .metric-card.purple .metric-num{ color: var(--purple); }
+    .metric-card.orange .metric-num{ color: var(--orange); }
+
+    /* ── Tables ── */
+    .table-wrap { overflow-x: auto; margin: 20px 0; border-radius: 10px; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    thead tr { background: var(--bg2); }
+    th {
+      padding: 12px 16px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text); }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: var(--bg3); }
+    .cell-good  { color: var(--green); font-weight: 600; }
+    .cell-bad   { color: var(--red);   font-weight: 600; }
+    .cell-mid   { color: var(--yellow);font-weight: 600; }
+    .cell-mono  { font-family: var(--font-mono); font-size: 12px; }
+    .cell-best  { color: var(--cyan); font-weight: 700; }
+
+    /* ── Code ── */
+    pre {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      overflow-x: auto;
+      margin: 16px 0;
+      position: relative;
+    }
+    code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text);
+    }
+    p code, li code {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 13px;
+      color: var(--cyan);
+    }
+    .code-label {
+      position: absolute;
+      top: 10px; right: 14px;
+      font-size: 11px;
+      color: var(--text3);
+      font-family: var(--font-mono);
+    }
+    /* Simple keyword colors */
+    .kw  { color: var(--purple); }
+    .fn  { color: var(--blue); }
+    .str { color: var(--green); }
+    .num { color: var(--orange); }
+    .cm  { color: var(--text3); font-style: italic; }
+    .tp  { color: var(--yellow); }
+
+    /* ── Mermaid diagrams ── */
+    .mermaid-wrap {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+      margin: 20px 0;
+      overflow-x: auto;
+    }
+    .mermaid { text-align: center; }
+
+    /* ── Lists ── */
+    ul, ol { padding-left: 24px; margin-bottom: 14px; }
+    li { margin-bottom: 6px; }
+    ul li::marker { color: var(--cyan); }
+    ol li::marker { color: var(--cyan); font-weight: 600; }
+
+    /* ── Comparison bars ── */
+    .bar-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+    .bar-label { width: 140px; font-size: 13px; color: var(--text2); flex-shrink: 0; }
+    .bar-track { flex: 1; background: var(--bg3); border-radius: 4px; height: 8px; }
+    .bar-fill  { height: 100%; border-radius: 4px; transition: width .4s; }
+    .bar-value { width: 48px; text-align: right; font-size: 12px; color: var(--text2); flex-shrink: 0; }
+
+    /* ── Divider ── */
+    hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+    /* ── References ── */
+    .ref-list { list-style: none; padding: 0; counter-reset: refs; }
+    .ref-item {
+      counter-increment: refs;
+      display: flex;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .ref-item::before {
+      content: "[" counter(refs) "]";
+      color: var(--cyan);
+      font-weight: 700;
+      font-size: 12px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    /* ── Back to top ── */
+    .back-top {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      width: 40px; height: 40px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      cursor: pointer;
+      text-decoration: none;
+      color: var(--text2);
+      transition: all .2s;
+      opacity: 0.7;
+    }
+    .back-top:hover { opacity: 1; border-color: var(--cyan); color: var(--cyan); }
+  </style>
+</head>
+<body>
+<script>mermaid.initialize({ theme: 'dark', startOnLoad: true });</script>
+
+<div class="page-wrap">
+
+  <!-- ── Sidebar TOC ── -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">目录</div>
+    <ul class="toc-list">
+      <li class="toc-item"><a href="#tldr">TL;DR</a></li>
+      <li class="toc-item"><a href="#overview">1. 模型概览</a></li>
+      <li class="toc-item h3"><a href="#overview-arch">整体架构</a></li>
+      <li class="toc-item h3"><a href="#overview-comparison">模型对比</a></li>
+      <li class="toc-item"><a href="#attention">2. 混合注意力架构</a></li>
+      <li class="toc-item h3"><a href="#csa">2.1 CSA 压缩稀疏注意力</a></li>
+      <li class="toc-item h3"><a href="#hca">2.2 HCA 重压缩注意力</a></li>
+      <li class="toc-item h3"><a href="#hybrid-config">2.3 混合配置</a></li>
+      <li class="toc-item"><a href="#mhc">3. 流形约束超连接</a></li>
+      <li class="toc-item"><a href="#muon">4. Muon 优化器</a></li>
+      <li class="toc-item"><a href="#infra">5. 基础设施创新</a></li>
+      <li class="toc-item h3"><a href="#infra-ep">5.1 通信计算重叠</a></li>
+      <li class="toc-item h3"><a href="#infra-tilelang">5.2 TileLang</a></li>
+      <li class="toc-item h3"><a href="#infra-deterministic">5.3 确定性 Kernel</a></li>
+      <li class="toc-item h3"><a href="#infra-fp4">5.4 FP4 量化</a></li>
+      <li class="toc-item h3"><a href="#infra-kvcache">5.5 推理 KV Cache</a></li>
+      <li class="toc-item"><a href="#pretrain">6. 预训练</a></li>
+      <li class="toc-item"><a href="#posttrain">7. 后训练</a></li>
+      <li class="toc-item h3"><a href="#specialist">7.1 Specialist Training</a></li>
+      <li class="toc-item h3"><a href="#opd">7.2 On-Policy 蒸馏</a></li>
+      <li class="toc-item"><a href="#eval">8. 评估结果</a></li>
+      <li class="toc-item"><a href="#references">参考资料</a></li>
+    </ul>
+  </nav>
+
+  <!-- ── Main Content ── -->
+  <main class="content">
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- Cover -->
+    <div class="cover">
+      <div class="cover-meta">
+        <span class="badge badge-cyan">DeepSeek-V4</span>
+        <span class="badge badge-purple">MoE</span>
+        <span class="badge badge-blue">注意力机制</span>
+        <span class="badge badge-green">长上下文</span>
+        <span class="badge badge-orange">GPU优化</span>
+      </div>
+      <h1>DeepSeek-V4 技术报告深度解读 — 迈向高效百万 Token 上下文智能</h1>
+      <p class="cover-summary">深度解析 DeepSeek-V4 系列的全部技术创新，涵盖混合注意力架构（CSA+HCA）、流形约束超连接（mHC）、Muon 优化器、基础设施优化与后训练流水线。</p>
+      <div class="cover-date">2026-04-24 &nbsp;&middot;&nbsp; Ibin! Research Notes</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- TL;DR -->
+    <div class="tldr" id="tldr">
+      <div class="tldr-title">TL;DR — 核心要点</div>
+      <ul>
+        <li>DeepSeek-V4 系列包含两个 MoE 模型：V4-Pro（1.6T 参数，49B 激活）和 V4-Flash（284B 参数，13B 激活），均原生支持 100 万 token 上下文</li>
+        <li>核心架构创新：混合 CSA（压缩稀疏注意力）+ HCA（重压缩注意力）让 1M 上下文下 FLOPs 仅为 V3.2 的 27%，KV Cache 仅为 10%</li>
+        <li>流形约束超连接（mHC）将残差映射约束到双随机矩阵流形上，保证深层训练数值稳定</li>
+        <li>采用 Muon 优化器替代 AdamW，配合混合 Newton-Schulz 迭代实现更快收敛</li>
+        <li>后训练采用领域专家独立训练 + On-Policy 蒸馏（OPD）范式，V4-Pro-Max 在开源模型中重新定义了 SOTA</li>
+      </ul>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- Section 1: 模型概览 -->
+    <h2 id="overview">1. 模型概览</h2>
+
+    <p>DeepSeek-V4 是 DeepSeek 系列大语言模型的第四代迭代，延续了混合专家（Mixture of Experts, MoE）架构路线。本次发布包含两款模型：<strong>V4-Pro</strong>（旗舰级，1.6T 总参数）和 <strong>V4-Flash</strong>（轻量高效，284B 总参数）。两款模型均原生支持 <em>100 万 token</em> 上下文窗口，这是开源模型首次在如此规模的上下文长度上实现端到端原生训练与推理。</p>
+
+    <p>相比前代 V3.2，V4 系列在架构层面进行了全面革新：用 CSA+HCA 混合注意力替代 MLA+DSA、引入流形约束超连接（mHC）替代传统残差连接、将 Muon 优化器作为主力训练优化器。这些改进共同作用，使得百万 token 上下文从理论可行变为实际高效。</p>
+
+    <h3 id="overview-arch">整体架构</h3>
+
+    <p>每个 Transformer Block 内部由注意力模块和前馈（MoE）模块组成，两者均包裹在 mHC（Manifold-Constrained HyperConnection）的 Pre-Block Mixing、Post-Block Mixing 和 Residual Mixing 三层操作中。整体结构如下图所示：</p>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart TB
+    subgraph TB1["DeepSeek-V4 Transformer Block x L"]
+        E["Embedding"] --> PBM1["Pre-Block Mixing\nmHC"]
+        PBM1 --> ATT["CSA / HCA\n混合注意力"]
+        ATT --> PoBM1["Post-Block Mixing\nmHC"]
+        PoBM1 --> RM1["Residual Mixing\nmHC"]
+        RM1 --> PBM2["Pre-Block Mixing\nmHC"]
+        PBM2 --> FFN["DeepSeekMoE"]
+        FFN --> PoBM2["Post-Block Mixing\nmHC"]
+        PoBM2 --> RM2["Residual Mixing\nmHC"]
+    end
+    RM2 --> PH["Prediction Head\nLM Loss"]
+    PH --> MTP["MTP Modules\nMTP Loss"]
+      </div>
+    </div>
+
+    <div class="callout callout-tip">
+      <div class="callout-icon">&#x1F680;</div>
+      <div class="callout-body">
+        <div class="callout-title">架构亮点</div>
+        <div class="callout-text">mHC 取代了传统的简单残差连接（x + F(x)），在每个子模块前后引入三步混合操作。这一改进是 V4 能稳定训练 61 层 Transformer 的关键所在。</div>
+      </div>
+    </div>
+
+    <!-- Metric Cards -->
+    <div class="metric-grid">
+      <div class="metric-card cyan">
+        <span class="metric-num">1.6T</span>
+        <div class="metric-label">V4-Pro 总参数</div>
+      </div>
+      <div class="metric-card blue">
+        <span class="metric-num">49B</span>
+        <div class="metric-label">V4-Pro 激活参数</div>
+      </div>
+      <div class="metric-card green">
+        <span class="metric-num">284B</span>
+        <div class="metric-label">V4-Flash 总参数</div>
+      </div>
+      <div class="metric-card yellow">
+        <span class="metric-num">13B</span>
+        <div class="metric-label">V4-Flash 激活参数</div>
+      </div>
+      <div class="metric-card purple">
+        <span class="metric-num">1M</span>
+        <div class="metric-label">上下文长度</div>
+      </div>
+      <div class="metric-card orange">
+        <span class="metric-num">33T</span>
+        <div class="metric-label">预训练 Token 数</div>
+      </div>
+    </div>
+
+    <h3 id="overview-comparison">模型规格对比</h3>
+
+    <p>下表详细对比了 V4-Pro、V4-Flash 与前代 V3.2 在关键维度上的差异：</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>特性</th>
+            <th>DeepSeek-V3.2</th>
+            <th>V4-Flash</th>
+            <th>V4-Pro</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>总参数</strong></td>
+            <td>671B</td>
+            <td>284B</td>
+            <td class="cell-best">1.6T</td>
+          </tr>
+          <tr>
+            <td><strong>激活参数</strong></td>
+            <td>37B</td>
+            <td class="cell-good">13B</td>
+            <td>49B</td>
+          </tr>
+          <tr>
+            <td><strong>Transformer 层数</strong></td>
+            <td>-</td>
+            <td>43</td>
+            <td class="cell-best">61</td>
+          </tr>
+          <tr>
+            <td><strong>隐藏维度</strong></td>
+            <td>-</td>
+            <td>4096</td>
+            <td class="cell-best">7168</td>
+          </tr>
+          <tr>
+            <td><strong>注意力类型</strong></td>
+            <td>MLA + DSA</td>
+            <td class="cell-good">CSA + HCA 混合</td>
+            <td class="cell-good">CSA + HCA 混合</td>
+          </tr>
+          <tr>
+            <td><strong>上下文长度</strong></td>
+            <td>128K</td>
+            <td class="cell-best">1M</td>
+            <td class="cell-best">1M</td>
+          </tr>
+          <tr>
+            <td><strong>1M FLOPs（相对 V3.2）</strong></td>
+            <td>100%</td>
+            <td class="cell-good">10%</td>
+            <td class="cell-good">27%</td>
+          </tr>
+          <tr>
+            <td><strong>1M KV Cache（相对 V3.2）</strong></td>
+            <td>100%</td>
+            <td class="cell-good">7%</td>
+            <td class="cell-good">10%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">&#x1F4A1;</div>
+      <div class="callout-body">
+        <div class="callout-title">Key Insight</div>
+        <div class="callout-text">V4-Flash 仅用 284B 总参数和 13B 激活参数，就在 1M 上下文下将 FLOPs 降至 V3.2 的 10%，KV Cache 降至 7%。这意味着在同等硬件上，V4-Flash 可以处理远超 V3.2 的上下文长度，而 V4-Pro 则在保持高质量输出的前提下实现了同样量级的效率飞跃。</div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- Section 2: 混合注意力架构 -->
+    <h2 id="attention">2. 混合注意力架构（CSA + HCA）</h2>
+
+    <p>DeepSeek-V4 最核心的架构创新在于其<strong>混合注意力机制</strong>。传统 Transformer 在处理超长上下文时面临两个根本性挑战：注意力计算的二次复杂度导致 FLOPs 爆炸，以及 KV Cache 的线性增长导致显存耗尽。V4 通过将 CSA（Compressed Sparse Attention）和 HCA（Heavily Compressed Attention）组合使用，同时解决了这两个问题。</p>
+
+    <!-- ── 2.1 CSA ── -->
+    <h3 id="csa">2.1 Compressed Sparse Attention（CSA）— 压缩稀疏注意力</h3>
+
+    <p>CSA 是 V4 注意力架构的主力模块，核心思想是：先将 KV 序列压缩为短序列，再用稀疏选择机制挑出最相关的部分进行注意力计算。具体包含以下五个关键组件：</p>
+
+    <h4>Token-Level Compressor（Token 级压缩器）</h4>
+    <p>每 <code>m</code> 个连续 token 的 KV 表征被压缩为 1 个条目。压缩过程并非简单的池化，而是通过两组可学习的 KV 投影 <code>C^a</code>、<code>C^b</code> 和对应的压缩权重 <code>Z^a</code>、<code>Z^b</code>，使用 Softmax 加权求和得到压缩后的 KV 条目 <code>C^Comp</code>。这种方式保留了 token 间的相对重要性信息，而非均匀池化。</p>
+
+    <h4>Lightning Indexer（闪电索引器）</h4>
+    <p>用低秩查询（low-rank query）为每个压缩 KV 块生成索引分数 <code>I_{t,s}</code>。通过 Top-k 选择器从所有压缩块中筛选出与当前查询最相关的 k 个块用于后续的稀疏注意力计算。这一步骤的计算开销极低，因为使用的是低秩投影而非全维查询。</p>
+
+    <h4>Shared Key-Value MQA（共享键值多查询注意力）</h4>
+    <p>被选中的压缩 KV 条目同时作为 Key 和 Value（即 K=V），使用 Multi-Query Attention（MQA）方式执行核心注意力运算。共享 KV 的设计进一步减少了存储开销。</p>
+
+    <h4>Grouped Output Projection（分组输出投影）</h4>
+    <p>将 <code>n_h</code> 个注意力头分成 <code>g</code> 组。每组头先投影到低维空间，再拼接合并回原始维度。这一设计在不损失表达能力的前提下显著减少了输出投影的计算量。</p>
+
+    <h4>Sliding Window（滑动窗口）</h4>
+    <p>额外保留最近 <code>n_win = 128</code> 个未压缩 KV 用于捕获局部依赖关系。滑动窗口部分的注意力与稀疏注意力部分的结果通过拼接方式合并，确保模型在关注全局信息的同时不丢失近邻上下文。</p>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+    H["Hidden States\nof KV Tokens"] --> TC1["Token-Level\nCompressor"]
+    TC1 --> CKV["Compressed\nKV Entries\n1/m 压缩"]
+    CKV --> LI["Lightning Indexer\nTop-k 选择"]
+    LI --> SCKV["Selected\nCompressed KV"]
+    Q["Query Token"] --> TC2["Token-Level\nCompressor"]
+    TC2 --> IQ["Indexer Queries"]
+    IQ --> LI
+    SCKV --> CAT["Concatenation\n+ Sliding Window KV"]
+    CAT --> MQA["Shared KV\nMulti-Query Attention"]
+    Q --> MQA
+    MQA --> OUT["Attention Output"]
+      </div>
+    </div>
+
+    <div class="callout callout-warning">
+      <div class="callout-icon">&#x26A0;&#xFE0F;</div>
+      <div class="callout-body">
+        <div class="callout-title">注意事项</div>
+        <div class="callout-text">CSA 的压缩率 <code>m</code> 是一个关键超参数。V4-Pro 使用 <code>m=4</code>，意味着每 4 个 token 压缩为 1 个。过大的 m 会导致信息丢失，过小则无法有效减少计算量。Lightning Indexer 的 Top-k 值同样需要在召回率和效率之间权衡。</div>
+      </div>
+    </div>
+
+    <!-- ── 2.2 HCA ── -->
+    <h3 id="hca">2.2 Heavily Compressed Attention（HCA）— 重压缩注意力</h3>
+
+    <p>HCA 是 CSA 的"极端版本"，使用更激进的压缩率 <code>m'</code>，其中 <code>m' &gt;&gt; m</code>。在 V4-Pro 中，HCA 的压缩率达到了 <code>m' = 128</code>，相比 CSA 的 <code>m = 4</code> 高出 32 倍。</p>
+
+    <p>HCA 与 CSA 的关键区别在于：</p>
+    <ul>
+      <li><strong>不使用稀疏选择</strong>：由于压缩率极高，序列已经足够短，因此 HCA 保持稠密注意力（Dense Attention），不需要 Lightning Indexer 进行 Top-k 筛选</li>
+      <li><strong>共享 KV MQA</strong>：同 CSA 一样使用共享键值的 Multi-Query Attention</li>
+      <li><strong>分组输出投影</strong>：同 CSA 一样使用 Grouped Output Projection 减少计算</li>
+      <li><strong>Sliding Window 分支</strong>：同样保留一个滑动窗口分支用于近邻上下文捕获</li>
+    </ul>
+
+    <p>HCA 的设计哲学是：用极端压缩换取全局视野。虽然单个 HCA 层的信息保真度不如 CSA，但通过与 CSA 交替堆叠，模型能够在不同层级上兼顾全局概览和局部细节。</p>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">&#x1F4A1;</div>
+      <div class="callout-body">
+        <div class="callout-title">Key Insight</div>
+        <div class="callout-text">HCA 的 128x 压缩意味着 100 万 token 的 KV 序列被压缩为仅约 7800 个条目，这使得稠密注意力在计算上完全可行。HCA 层为模型提供了"鸟瞰图"般的全局上下文理解能力。</div>
+      </div>
+    </div>
+
+    <!-- ── 2.3 混合配置 ── -->
+    <h3 id="hybrid-config">2.3 混合配置策略</h3>
+
+    <p>CSA 和 HCA 并非孤立使用，而是按照精心设计的混合策略在不同层间交替部署：</p>
+
+    <ul>
+      <li><strong>前 2 层</strong>：使用纯 Sliding Window Attention（SWA）。这是因为浅层主要负责局部特征提取，全局注意力的收益有限</li>
+      <li><strong>后续层</strong>：交替使用 CSA 和 HCA。CSA 负责中粒度的稀疏全局关注，HCA 负责粗粒度的稠密全局概览</li>
+      <li><strong>部分 RoPE</strong>：仅对隐藏维度的最后 64 维应用旋转位置编码（RoPE），其余维度不携带位置信息。这有助于在长上下文场景下保持位置编码的有效性</li>
+      <li><strong>Attention Sink 机制</strong>：引入可学习的 sink logit，防止 Softmax 分母趋近于零时注意力分数爆炸。这是处理超长序列时的关键数值稳定性技巧</li>
+      <li><strong>混合精度 KV Cache</strong>：CSA/HCA 的压缩 KV Cache 使用 BF16 + FP8 混合精度存储，进一步节省显存</li>
+    </ul>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">&#x1F4A1;</div>
+      <div class="callout-body">
+        <div class="callout-title">KV Cache 压缩的里程碑意义</div>
+        <div class="callout-text">在 1M token 上下文设定下，相比传统 BF16 GQA8（head dim=128）的配置，DeepSeek-V4 的 KV Cache 可以缩减到约 2%。这使得百万 token 上下文从理论可能变为实际可行。</div>
+      </div>
+    </div>
+
+    <h4>KV Cache 节省量对比</h4>
+    <div class="bar-row">
+      <div class="bar-label">传统 BF16 GQA8</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%; background:var(--red)"></div></div>
+      <div class="bar-value">100%</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">V3.2 (MLA+DSA)</div>
+      <div class="bar-track"><div class="bar-fill" style="width:50%; background:var(--yellow)"></div></div>
+      <div class="bar-value">~50%</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">V4-Pro (CSA+HCA)</div>
+      <div class="bar-track"><div class="bar-fill" style="width:10%; background:var(--cyan)"></div></div>
+      <div class="bar-value">10%</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">V4-Flash (CSA+HCA)</div>
+      <div class="bar-track"><div class="bar-fill" style="width:7%; background:var(--green)"></div></div>
+      <div class="bar-value">7%</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- Section 3: mHC -->
+    <h2 id="mhc">3. 流形约束超连接（Manifold-Constrained HyperConnection, mHC）</h2>
+
+    <p>残差连接（Residual Connection）是深度网络训练的基石。传统 Transformer 使用简单的加法残差 <code>x + F(x)</code>，而 DeepSeek-V3 引入了超连接（HyperConnection, HC）扩展残差宽度。然而，V4 的工程实践发现，原始 HC 在深层堆叠时会出现数值不稳定问题。mHC 是对此问题的系统性解决方案。</p>
+
+    <h3>标准超连接（HC）回顾</h3>
+    <p>标准 HC 在残差流中引入三个线性映射 <code>A_l</code>、<code>B_l</code>、<code>C_l</code>。其中 <code>A_l</code> 控制子模块的输入混合，<code>C_l</code> 控制子模块输出混合，而 <code>B_l</code> 负责残差流的直接传播映射。当这三个矩阵可自由学习时，深层网络中 <code>B_l</code> 的连续乘积 <code>B_L * B_{L-1} * ... * B_1</code> 可能出现爆炸或消失。</p>
+
+    <h3>mHC 的约束方案</h3>
+    <p>mHC 的核心思想是将残差映射矩阵 <code>B_l</code> 约束到<strong>双随机矩阵流形</strong> M（Birkhoff 多面体）上：</p>
+
+    <pre><code><span class="cm">// 双随机矩阵流形的数学定义</span>
+<span class="tp">M</span> = {<span class="tp">M</span> <span class="kw">in</span> <span class="tp">R</span>^{n x n} | <span class="tp">M</span> * <span class="num">1</span>_n = <span class="num">1</span>_n,
+                       <span class="tp">M</span>^T * <span class="num">1</span>_n = <span class="num">1</span>_n,
+                       <span class="tp">M</span> >= <span class="num">0</span>}
+<span class="cm">// 关键性质: 谱范数 ||B_l||_2 &lt;= 1（非扩张性）</span>
+<span class="cm">// 使用 Sinkhorn-Knopp 算法（20 次迭代）投影到流形</span>
+<span class="code-label">Math</span></code></pre>
+
+    <p>双随机矩阵的三个约束条件保证了每行和每列之和为 1，且所有元素非负。这意味着：</p>
+    <ul>
+      <li><strong>谱范数 <code>||B_l||_2 &le; 1</code></strong>：保证映射是非扩张的，连续乘积不会爆炸</li>
+      <li><strong>行和列归一化</strong>：残差流的"信息总量"在每层传播中保持守恒</li>
+      <li><strong>非负约束</strong>：避免残差分量间的相消干涉</li>
+    </ul>
+
+    <h3>Sinkhorn-Knopp 投影</h3>
+    <p>在每次前向传播中，<code>B_l</code> 的原始参数通过 Sinkhorn-Knopp 算法（固定 20 次迭代）投影到双随机矩阵流形上。该算法交替进行行归一化和列归一化，收敛速度极快。</p>
+
+    <h3>A_l 和 C_l 的约束</h3>
+    <p>输入混合矩阵 <code>A_l</code> 和输出混合矩阵 <code>C_l</code> 通过 <strong>Sigmoid</strong> 函数约束为非负有界值。这确保了子模块的输入和输出混合不会出现符号翻转。</p>
+
+    <h3>动态参数化（Dynamic Parameterization）</h3>
+    <p>mHC 的参数分解为两部分：</p>
+    <ul>
+      <li><strong>Dynamic（输入依赖）</strong>：根据当前 token 的隐藏状态动态生成，捕获上下文特定的残差路由</li>
+      <li><strong>Static（输入无关）</strong>：全局共享的偏置项，提供稳定的基础残差通路</li>
+    </ul>
+
+    <div class="callout callout-warning">
+      <div class="callout-icon">&#x26A0;&#xFE0F;</div>
+      <div class="callout-body">
+        <div class="callout-title">训练稳定性的代价</div>
+        <div class="callout-text">Sinkhorn-Knopp 投影引入了额外的计算开销（每层每步 20 次迭代），但相对于整个 Transformer 块的前向传播而言，这一开销可以忽略不计。更重要的是，mHC 消除了原始 HC 在 40+ 层深度时出现的训练发散问题，使得 V4-Pro 的 61 层架构成为可能。</div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- Section 4: Muon 优化器 -->
+    <h2 id="muon">4. Muon 优化器</h2>
+
+    <p>DeepSeek-V4 在优化器选择上做出了重大转变：对大部分模块使用 <strong>Muon 优化器</strong> 替代了传统的 AdamW。Muon 的核心特点是在参数更新前对梯度矩阵进行正交化处理，使得更新方向更加均匀地分布在参数空间中。</p>
+
+    <h3>适用范围</h3>
+    <p>并非所有模块都使用 Muon。具体分配如下：</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>模块</th>
+            <th>优化器</th>
+            <th>原因</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Attention、FFN/MoE 权重</strong></td>
+            <td class="cell-good">Muon</td>
+            <td>矩阵参数，正交化有效</td>
+          </tr>
+          <tr>
+            <td><strong>Embedding</strong></td>
+            <td class="cell-mid">AdamW</td>
+            <td>稀疏更新，正交化不适用</td>
+          </tr>
+          <tr>
+            <td><strong>Prediction Head</strong></td>
+            <td class="cell-mid">AdamW</td>
+            <td>与 Embedding 共享/对称</td>
+          </tr>
+          <tr>
+            <td><strong>mHC 静态偏置</strong></td>
+            <td class="cell-mid">AdamW</td>
+            <td>低维向量，非矩阵</td>
+          </tr>
+          <tr>
+            <td><strong>RMSNorm</strong></td>
+            <td class="cell-mid">AdamW</td>
+            <td>缩放参数，非矩阵</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>混合 Newton-Schulz 迭代</h3>
+    <p>Muon 优化器的关键步骤是对梯度矩阵进行正交化。V4 使用了<strong>混合 Newton-Schulz 迭代</strong>来实现高效的正交化近似：</p>
+
+    <ul>
+      <li><strong>前 8 步</strong>：使用系数 <code>(a, b, c) = (3.4445, -4.7750, 2.0315)</code>，追求快速收敛到正交矩阵的近似解</li>
+      <li><strong>后 2 步</strong>：使用系数 <code>(a, b, c) = (2, -1.5, 0.5)</code>，追求精确稳定的最终结果</li>
+    </ul>
+
+    <p>总共 10 步迭代就能将梯度矩阵正交化到足够的精度，且全部操作可以在 GPU 上以矩阵乘法形式高效执行。</p>
+
+    <h3>QK-Clip 不再需要</h3>
+    <p>由于 V4 在 Q/KV 投影输出上直接应用了 RMSNorm，注意力 logit 的数值范围天然有界，因此<strong>不需要 QK-Clip</strong>（V3 中用于防止注意力 logit 溢出的技巧）。这简化了训练流水线并减少了一个超参数。</p>
+
+    <h3>混合 ZeRO 策略</h3>
+    <p>Muon 优化器的状态（一阶和二阶矩估计）需要在多 GPU 间分片。V4 使用背包算法（Knapsack Algorithm）将参数矩阵最优地分配到各个 rank 上，确保每个 rank 的 Muon 状态内存占用尽量均衡。</p>
+
+    <div class="callout callout-tip">
+      <div class="callout-icon">&#x1F680;</div>
+      <div class="callout-body">
+        <div class="callout-title">Muon 的收敛优势</div>
+        <div class="callout-text">Muon 的正交化梯度更新使得参数空间的探索更加高效，实验显示在同等训练 token 数下，Muon 比 AdamW 实现了更低的训练损失和更好的下游任务性能。这也是 V4 能在 33T tokens 的训练预算下达到如此性能水平的重要原因之一。</div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- Section 5: 基础设施创新 -->
+    <h2 id="infra">5. 基础设施创新</h2>
+
+    <p>DeepSeek-V4 的技术报告用了相当大的篇幅介绍基础设施层面的创新。这些底层优化往往是百万 token 上下文从"理论可行"到"实际可部署"的关键。</p>
+
+    <!-- ── 5.1 通信计算重叠 ── -->
+    <h3 id="infra-ep">5.1 细粒度通信-计算重叠（Expert Parallelism）</h3>
+
+    <p>MoE 模型的 Expert Parallelism 面临一个核心瓶颈：专家分布在不同 GPU 上，token 需要通过 All-to-All 通信路由到目标专家。传统方案中，通信和计算是串行执行的，浪费了大量 GPU 算力。</p>
+
+    <p>V4 将 MoE 层的执行分为 4 个阶段：<strong>Dispatch</strong>（发送 token 到目标 GPU）、<strong>Linear-1</strong>（第一层线性变换）、<strong>Linear-2</strong>（第二层线性变换）、<strong>Combine</strong>（收集结果回原始 GPU）。通过将专家拆分为多个 wave，实现了细粒度的流水线式通信-计算重叠。</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>方案</th>
+            <th>策略</th>
+            <th>理论加速</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Naive</strong></td>
+            <td>串行执行所有阶段</td>
+            <td>1.0x</td>
+          </tr>
+          <tr>
+            <td><strong>Comet</strong></td>
+            <td>Dispatch+L1, L2+Combine 两组重叠</td>
+            <td class="cell-mid">1.42x</td>
+          </tr>
+          <tr>
+            <td><strong>DeepSeek-V4</strong></td>
+            <td>细粒度 wave 级流水线</td>
+            <td class="cell-good">1.92x</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">&#x1F4A1;</div>
+      <div class="callout-body">
+        <div class="callout-title">通信隐藏阈值</div>
+        <div class="callout-text">每 GBps 互联带宽可隐藏 6.1 TFLOP/s 的计算。一旦带宽达到此阈值，通信不再是瓶颈。这一分析为 MoE 模型的硬件配置提供了清晰的决策依据。</div>
+      </div>
+    </div>
+
+    <p>该方案的开源实现名为 <strong>MegaMoE</strong>，集成在 DeepGEMM 项目中。</p>
+
+    <!-- ── 5.2 TileLang ── -->
+    <h3 id="infra-tilelang">5.2 TileLang DSL</h3>
+
+    <p>V4 的训练和推理框架使用 <strong>TileLang</strong>（一种领域专用语言）替代了数百个手写的 Torch ATen 算子。TileLang 带来了以下改进：</p>
+
+    <ul>
+      <li><strong>Host Codegen</strong>：将主机端逻辑编译为生成代码。传统的 Python host-side 调用开销在数十微秒级别，而 TileLang 的 codegen 将其降至亚微秒。对于 MoE 这类需要频繁 dispatch 的场景，这一优化意义重大</li>
+      <li><strong>Z3 SMT Solver 集成</strong>：在编译期使用 Z3 求解器进行形式化整数分析（如 tile size 合法性验证、内存访问越界检查），将运行时错误提前到编译期发现</li>
+      <li><strong>数值精度保障</strong>：默认关闭 <code>fast-math</code> 编译选项，牺牲少量性能换取严格的数值精度。对于大规模训练（33T tokens），微小的数值偏差可能在数十万步后累积为严重的训练偏差</li>
+    </ul>
+
+    <div class="callout callout-tip">
+      <div class="callout-icon">&#x1F680;</div>
+      <div class="callout-body">
+        <div class="callout-title">工程哲学</div>
+        <div class="callout-text">TileLang 体现了 DeepSeek 团队"正确性优先于性能"的工程哲学。在大规模训练场景下，一个 bit flip 级别的数值错误可能导致数天的训练浪费。Z3 形式化验证和禁用 fast-math 的决策看似保守，实则是对训练稳定性的最佳投资。</div>
+      </div>
+    </div>
+
+    <!-- ── 5.3 确定性 Kernel ── -->
+    <h3 id="infra-deterministic">5.3 Batch-Invariant &amp; Deterministic Kernel</h3>
+
+    <p>训练的可复现性（reproducibility）是调试和科学研究的基础。V4 在多个关键算子上实现了 batch-invariant 和确定性计算：</p>
+
+    <ul>
+      <li><strong>Attention</strong>：采用双 kernel 策略实现 batch-invariant 解码。第一个 kernel 计算局部注意力结果，第二个 kernel 进行跨 batch 的归一化，消除 batch 内 token 排列对结果的影响</li>
+      <li><strong>GEMM</strong>：用 DeepGEMM 替代 cuBLAS，并放弃 split-k 策略。split-k 虽然能提高 GPU 利用率，但引入了非确定性规约。DeepGEMM 使用单一 k 分块保证结果确定性</li>
+      <li><strong>MoE Backward</strong>：通过 token order pre-processing 和 buffer isolation 确保反向传播的确定性。每个专家的 token 按固定顺序处理，不同专家的梯度缓冲区互不干扰</li>
+      <li><strong>mHC</strong>：split-k 分段输出 + 确定性规约。Sinkhorn-Knopp 迭代中的中间结果按固定分段写入独立缓冲区，再进行确定性求和</li>
+    </ul>
+
+    <div class="callout callout-warning">
+      <div class="callout-icon">&#x26A0;&#xFE0F;</div>
+      <div class="callout-body">
+        <div class="callout-title">性能与确定性的权衡</div>
+        <div class="callout-text">放弃 split-k 和 cuBLAS 的非确定性优化导致了约 3-5% 的单步训练性能下降。但 DeepSeek 团队认为，确定性训练带来的调试效率提升和实验可复现性远远弥补了这一损失。在 33T token 的训练规模下，每次因非确定性 bug 导致的回滚代价都是巨大的。</div>
+      </div>
+    </div>
+
+    <!-- ── 5.4 FP4 量化 ── -->
+    <h3 id="infra-fp4">5.4 FP4 量化感知训练</h3>
+
+    <p>V4 在训练期间对部分权重和激活进行了 FP4（MXFP4）量化感知训练，以减少内存占用和通信开销：</p>
+
+    <ul>
+      <li><strong>MoE 专家权重</strong>：每个专家的前馈层权重在前向传播中以 FP4 精度执行矩阵乘法</li>
+      <li><strong>CSA Indexer 的 QK 路径</strong>：Lightning Indexer 的低秩查询和键的点积计算使用 FP4 精度</li>
+    </ul>
+
+    <h4>FP4 到 FP8 的无损反量化</h4>
+    <p>MXFP4 使用 E2M1 格式（2 位指数 + 1 位尾数），而 FP8 使用 E4M3 格式（4 位指数 + 3 位尾数）。由于 FP8 的指数位比 FP4 多 2 位，FP4 到 FP8 的反量化是<strong>无损</strong>的 -- 每个 FP4 值都能精确表示为 FP8 值。这意味着在需要 FP8 精度的计算路径上，可以直接从 FP4 存储恢复而不引入额外误差。</p>
+
+    <h4>Index 分数量化</h4>
+    <p>Lightning Indexer 的 Top-k 选择分数从 FP32 量化到 BF16，Top-k 召回率达到 <strong>99.7%</strong>。这意味着仅 0.3% 的 token 会因为量化误差选错压缩块，对最终性能的影响微乎其微。</p>
+
+    <!-- ── 5.5 推理 KV Cache ── -->
+    <h3 id="infra-kvcache">5.5 推理框架 KV Cache 设计</h3>
+
+    <p>V4 的推理框架设计了异构 KV Cache 体系，针对 CSA/HCA 混合注意力的特殊需求进行优化：</p>
+
+    <h4>State Cache vs Classical KV Cache</h4>
+    <ul>
+      <li><strong>State Cache</strong>：存储 Sliding Window Attention（SWA）的未压缩 KV 和尚未完成压缩的尾部 token。这部分数据热度高、更新频繁，保留在 GPU HBM 中</li>
+      <li><strong>Classical KV Cache</strong>：存储 CSA/HCA 的压缩 KV 条目。这部分数据生成后不再更新，可以移至低速存储</li>
+    </ul>
+
+    <h4>On-Disk KV Cache 三种策略</h4>
+    <p>针对不同的延迟和存储需求，V4 提供了三种 KV Cache 管理策略：</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>策略</th>
+            <th>描述</th>
+            <th>显存占用</th>
+            <th>首 Token 延迟</th>
+            <th>适用场景</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Full SWA Caching</strong></td>
+            <td>完整缓存所有 SWA KV</td>
+            <td class="cell-bad">高</td>
+            <td class="cell-good">低</td>
+            <td>低延迟在线推理</td>
+          </tr>
+          <tr>
+            <td><strong>Periodic Checkpointing</strong></td>
+            <td>周期性保存 SWA 检查点</td>
+            <td class="cell-mid">中</td>
+            <td class="cell-mid">中</td>
+            <td>平衡型部署</td>
+          </tr>
+          <tr>
+            <td><strong>Zero SWA Caching</strong></td>
+            <td>不缓存 SWA KV，按需重算</td>
+            <td class="cell-good">低</td>
+            <td class="cell-bad">高</td>
+            <td>极长上下文/离线批处理</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- Section 6: 预训练 -->
+    <h2 id="pretrain">6. 预训练</h2>
+
+    <p>V4 的预训练遵循"从短到长、从稠密到稀疏"的渐进策略，在 33T+ tokens 的数据上完成训练。</p>
+
+    <h3>数据准备</h3>
+    <ul>
+      <li><strong>总量</strong>：32T+ tokens，相比 V3 的数据集更大，且包含更多长文档和学术论文</li>
+      <li><strong>有效上下文更长</strong>：通过数据筛选和打包策略，确保训练样本中包含大量真正需要长距离依赖的文档</li>
+      <li><strong>多语言覆盖</strong>：中英双语为主，同时包含代码、数学公式和结构化数据</li>
+    </ul>
+
+    <h3>序列长度渐进扩展</h3>
+    <p>训练过程中序列长度逐步扩展，使模型渐进适应更长的上下文：</p>
+
+    <div class="bar-row">
+      <div class="bar-label">阶段 1: 4K</div>
+      <div class="bar-track"><div class="bar-fill" style="width:4%; background:var(--blue)"></div></div>
+      <div class="bar-value">4K</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">阶段 2: 16K</div>
+      <div class="bar-track"><div class="bar-fill" style="width:16%; background:var(--cyan)"></div></div>
+      <div class="bar-value">16K</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">阶段 3: 64K</div>
+      <div class="bar-track"><div class="bar-fill" style="width:64%; background:var(--green)"></div></div>
+      <div class="bar-value">64K</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">阶段 4: 1M</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%; background:var(--yellow)"></div></div>
+      <div class="bar-value">1M</div>
+    </div>
+
+    <h3>注意力模式切换</h3>
+    <p>训练先以<strong>稠密注意力</strong>（Full Attention）warmup 约 1T tokens，让模型在完整注意力模式下建立基础语言能力。之后再引入 CSA+HCA 的稀疏注意力机制，让模型在保持基础能力的同时学习高效的长上下文处理策略。</p>
+
+    <h3>训练稳定性技巧</h3>
+    <p>大规模预训练中的两个关键稳定性技巧：</p>
+
+    <h4>Anticipatory Routing（前瞻性路由）</h4>
+    <p>MoE 的路由模块使用<strong>历史参数</strong> <code>&theta;_{t-&Delta;t}</code> 进行前向计算，而非当前步的参数。这一设计解耦了骨干网络和路由的同步更新，防止路由决策和专家参数之间的反馈循环导致训练振荡。</p>
+
+    <h4>SwiGLU Clamping</h4>
+    <p>SwiGLU 激活函数的两个分量分别进行数值裁剪：</p>
+    <ul>
+      <li><strong>线性分量</strong>：clamp 到 [-10, 10] 范围</li>
+      <li><strong>门控分量</strong>：上界 clamp 到 10（Swish 函数的下界天然有界）</li>
+    </ul>
+    <p>这防止了 FP16/BF16 训练中偶发的激活值溢出问题。</p>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">&#x1F4A1;</div>
+      <div class="callout-body">
+        <div class="callout-title">渐进式训练的必要性</div>
+        <div class="callout-text">直接在 1M 上下文长度上训练是不现实的：长序列的梯度方差大、显存占用高、通信开销重。V4 的 4K->16K->64K->1M 渐进策略让模型在每个阶段都能充分利用计算资源，同时避免了长序列训练初期的不稳定。</div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- Section 7: 后训练 -->
+    <h2 id="posttrain">7. 后训练</h2>
+
+    <p>V4 的后训练流水线包含两个核心阶段：<strong>Specialist Training</strong>（领域专家独立训练）和 <strong>On-Policy Distillation</strong>（在线策略蒸馏）。这一范式使得最终的 V4-Pro-Max 模型在多个基准上达到了开源模型的新 SOTA。</p>
+
+    <!-- ── 7.1 Specialist Training ── -->
+    <h3 id="specialist">7.1 Specialist Training（领域专家训练）</h3>
+
+    <p>不同于传统的"一锅炖"后训练策略，V4 将后训练拆解为多个独立的领域专家训练任务。每个专家针对特定领域进行深度优化：</p>
+
+    <ul>
+      <li><strong>数学专家</strong>：在竞赛数学数据上进行 SFT + GRPO 强化学习</li>
+      <li><strong>编程专家</strong>：在代码生成、调试和重构数据上训练</li>
+      <li><strong>Agent 专家</strong>：在工具调用和多步推理数据上训练</li>
+      <li><strong>指令遵循专家</strong>：在复杂指令和对话数据上训练</li>
+    </ul>
+
+    <h4>两阶段训练流程</h4>
+    <p>每个领域专家遵循相同的两阶段训练流程：</p>
+    <ol>
+      <li><strong>SFT（Supervised Fine-Tuning）</strong>：在领域特定的标注数据上进行监督微调</li>
+      <li><strong>GRPO（Group Relative Policy Optimization）</strong>：基于奖励模型的强化学习训练，进一步提升推理能力和输出质量</li>
+    </ol>
+
+    <h4>三种推理模式</h4>
+    <p>训练完成的模型支持三种推理模式，可根据任务复杂度动态选择：</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>模式</th>
+            <th>描述</th>
+            <th>延迟</th>
+            <th>适用场景</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Non-think</strong></td>
+            <td>直接输出，不进行链式推理</td>
+            <td class="cell-good">低</td>
+            <td>简单问答、翻译等</td>
+          </tr>
+          <tr>
+            <td><strong>Think High</strong></td>
+            <td>中等深度的链式推理</td>
+            <td class="cell-mid">中</td>
+            <td>数学题、代码生成</td>
+          </tr>
+          <tr>
+            <td><strong>Think Max</strong></td>
+            <td>最大深度的链式推理</td>
+            <td class="cell-bad">高</td>
+            <td>竞赛题、复杂 Agent 任务</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4>Generative Reward Model（GRM）</h4>
+    <p>V4 使用<strong>模型自身</strong>作为奖励模型（Generative Reward Model），而非训练一个独立的 Reward Model。GRM 通过生成式的方式对候选回复进行评估打分，这避免了传统标量奖励模型的信息瓶颈问题。</p>
+
+    <h4>XML-based Tool-Call Schema</h4>
+    <p>V4 使用基于 XML 的工具调用模式（|DSML|），替代了传统的 JSON function-calling 格式。XML 格式在嵌套结构和流式输出方面具有天然优势。</p>
+
+    <h4>Interleaved Thinking</h4>
+    <p>在工具调用场景中，V4 保留了<strong>全部推理历史</strong>（interleaved thinking），而非仅保留最终的工具调用决策。这使得模型在多步工具调用链中能够回溯先前的推理过程，做出更连贯的决策。</p>
+
+    <h4>Quick Instruction</h4>
+    <p>引入特殊 token 实现 KV Cache 复用的辅助任务并行。当用户发起一个辅助查询（如"顺便帮我查一下..."）时，Quick Instruction 允许模型在不清空主任务 KV Cache 的前提下并行处理辅助任务。</p>
+
+    <!-- ── 7.2 OPD ── -->
+    <h3 id="opd">7.2 On-Policy Distillation（OPD）</h3>
+
+    <p>OPD 是将多个领域专家的知识融合到单一学生模型中的关键步骤。其核心特点：</p>
+
+    <ul>
+      <li><strong>多教师到单学生</strong>的 reverse KL 散度蒸馏。每个领域专家作为一个教师模型，学生模型同时学习所有教师的知识</li>
+      <li><strong>Full-vocabulary logit distillation</strong>：在完整词表维度上进行 logit 对齐，而非仅在 token 级别进行近似匹配。这确保了学生模型忠实地继承每个教师的输出分布</li>
+      <li><strong>教师权重按需加载</strong>：10+ 个教师模型的权重不会同时驻留在 GPU 显存中，而是根据当前 batch 的领域标签按需加载。仅缓存最后一层的 hidden states 用于 logit 计算</li>
+      <li><strong>"On-Policy"</strong>：蒸馏过程中使用<strong>学生模型自身</strong>的采样结果作为训练数据（而非教师的采样结果），确保学生在自己的分布上优化，避免分布偏移</li>
+    </ul>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">&#x1F4A1;</div>
+      <div class="callout-body">
+        <div class="callout-title">OPD 的创新之处</div>
+        <div class="callout-text">传统蒸馏通常使用教师模型的采样结果（off-policy），容易出现分布偏移。V4 的 on-policy 蒸馏让学生模型在自己的输出分布上学习教师的修正方向，收敛更稳定、泛化更好。结合 full-vocabulary logit 对齐，OPD 实现了几乎无损的知识压缩。</div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- Section 8: 评估结果 -->
+    <h2 id="eval">8. 评估结果</h2>
+
+    <p>V4-Pro-Max 在多个权威基准测试上展示了与顶级闭源模型匹配甚至超越的性能。以下数据来源于技术报告 Table 6：</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Benchmark</th>
+            <th>Opus 4.6 Max</th>
+            <th>GPT-5.4 xHigh</th>
+            <th>Gemini-3.1 High</th>
+            <th>DS-V4-Pro Max</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>MMLU-Pro</strong></td>
+            <td>89.1</td>
+            <td>87.5</td>
+            <td class="cell-best">91.0</td>
+            <td>87.5</td>
+          </tr>
+          <tr>
+            <td><strong>SimpleQA-Verified</strong></td>
+            <td>46.2</td>
+            <td>45.3</td>
+            <td class="cell-best">75.6</td>
+            <td class="cell-good">57.9</td>
+          </tr>
+          <tr>
+            <td><strong>Codeforces</strong></td>
+            <td>-</td>
+            <td class="cell-good">3168</td>
+            <td>3052</td>
+            <td class="cell-best">3206</td>
+          </tr>
+          <tr>
+            <td><strong>HMMT 2026</strong></td>
+            <td>96.2</td>
+            <td class="cell-best">97.7</td>
+            <td>94.7</td>
+            <td>95.2</td>
+          </tr>
+          <tr>
+            <td><strong>MRCR 1M</strong></td>
+            <td class="cell-best">92.9</td>
+            <td>-</td>
+            <td>76.3</td>
+            <td class="cell-good">83.5</td>
+          </tr>
+          <tr>
+            <td><strong>Terminal Bench 2.0</strong></td>
+            <td>65.4</td>
+            <td class="cell-best">75.1</td>
+            <td>68.5</td>
+            <td>67.9</td>
+          </tr>
+          <tr>
+            <td><strong>SWE Verified</strong></td>
+            <td class="cell-best">80.8</td>
+            <td>-</td>
+            <td>80.6</td>
+            <td>80.6</td>
+          </tr>
+          <tr>
+            <td><strong>Toolathlon</strong></td>
+            <td>47.2</td>
+            <td class="cell-best">54.6</td>
+            <td>48.8</td>
+            <td class="cell-good">51.8</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>关键亮点解读</h3>
+
+    <div class="callout callout-tip">
+      <div class="callout-icon">&#x1F680;</div>
+      <div class="callout-body">
+        <div class="callout-title">Codeforces 排名 23</div>
+        <div class="callout-text">DS-V4-Pro Max 在 Codeforces 上达到 3206 分，这是开源模型首次匹配甚至超越闭源模型的竞赛编程能力。排名全球第 23，意味着模型已经具备了 Grandmaster 级别的算法设计能力。</div>
+      </div>
+    </div>
+
+    <div class="callout callout-insight">
+      <div class="callout-icon">&#x1F4A1;</div>
+      <div class="callout-body">
+        <div class="callout-title">SimpleQA 大幅领先</div>
+        <div class="callout-text">SimpleQA-Verified 得分 57.9，相比其他开源模型领先约 20 个百分点。这表明 V4 在事实性问答（factual QA）方面有了质的飞跃，可能得益于更大规模的预训练数据和更好的知识蒸馏。</div>
+      </div>
+    </div>
+
+    <h4>其他重要成绩</h4>
+    <ul>
+      <li><strong>1M 上下文 MRCR 83.5</strong>：超越 Gemini-3.1-Pro（76.3），仅次于 Opus 4.6 Max（92.9），验证了 CSA+HCA 混合注意力在超长上下文上的有效性</li>
+      <li><strong>中文写作胜率 62.7%</strong>：在与 Gemini-3.1-Pro 的中文写作对比中胜率 62.7%，体现了强大的中文生成能力</li>
+      <li><strong>白领任务非败率 63%</strong>：在与 Opus-4.6-Max 的白领任务对比中，非败率（不输的概率）达到 63%</li>
+      <li><strong>Code Agent Pass Rate 67%</strong>：超越 Sonnet 4.5，接近 Opus 4.5 的水平。这表明 V4 在复杂多步代码 Agent 任务上已经具备了实战部署能力</li>
+    </ul>
+
+    <h3>性能对比可视化</h3>
+
+    <h4>Codeforces 评分</h4>
+    <div class="bar-row">
+      <div class="bar-label">DS-V4-Pro Max</div>
+      <div class="bar-track"><div class="bar-fill" style="width:96%; background:var(--cyan)"></div></div>
+      <div class="bar-value">3206</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">GPT-5.4 xHigh</div>
+      <div class="bar-track"><div class="bar-fill" style="width:95%; background:var(--blue)"></div></div>
+      <div class="bar-value">3168</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Gemini-3.1 High</div>
+      <div class="bar-track"><div class="bar-fill" style="width:91%; background:var(--purple)"></div></div>
+      <div class="bar-value">3052</div>
+    </div>
+
+    <h4>MRCR 1M 上下文</h4>
+    <div class="bar-row">
+      <div class="bar-label">Opus 4.6 Max</div>
+      <div class="bar-track"><div class="bar-fill" style="width:93%; background:var(--purple)"></div></div>
+      <div class="bar-value">92.9</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">DS-V4-Pro Max</div>
+      <div class="bar-track"><div class="bar-fill" style="width:84%; background:var(--cyan)"></div></div>
+      <div class="bar-value">83.5</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Gemini-3.1 High</div>
+      <div class="bar-track"><div class="bar-fill" style="width:76%; background:var(--blue)"></div></div>
+      <div class="bar-value">76.3</div>
+    </div>
+
+    <h4>SWE Verified</h4>
+    <div class="bar-row">
+      <div class="bar-label">Opus 4.6 Max</div>
+      <div class="bar-track"><div class="bar-fill" style="width:81%; background:var(--purple)"></div></div>
+      <div class="bar-value">80.8</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Gemini-3.1 High</div>
+      <div class="bar-track"><div class="bar-fill" style="width:81%; background:var(--blue)"></div></div>
+      <div class="bar-value">80.6</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">DS-V4-Pro Max</div>
+      <div class="bar-track"><div class="bar-fill" style="width:81%; background:var(--cyan)"></div></div>
+      <div class="bar-value">80.6</div>
+    </div>
+
+    <div class="callout callout-tip">
+      <div class="callout-icon">&#x1F680;</div>
+      <div class="callout-body">
+        <div class="callout-title">开源模型的新标杆</div>
+        <div class="callout-text">V4-Pro-Max 作为开源模型，在多个基准上已经与顶级闭源模型（Opus 4.6、GPT-5.4、Gemini-3.1）处于同一梯队。特别是在 Codeforces 和 SimpleQA 上的表现，标志着开源与闭源模型之间的能力差距正在被快速缩小。</div>
+      </div>
+    </div>
+
+    <hr />
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- References -->
+    <h2 id="references">参考资料</h2>
+    <ol class="ref-list">
+      <li class="ref-item"><a href="https://huggingface.co/collections/deepseek-ai/deepseek-v4" target="_blank">DeepSeek-V4 Technical Report</a> — 官方技术报告与模型权重合集</li>
+      <li class="ref-item"><a href="https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro/tree/main/inference" target="_blank">DeepSeek-V4-Pro 开源推理实现</a> — 官方推理框架代码，包含 CSA/HCA 注意力和异构 KV Cache 实现</li>
+      <li class="ref-item"><a href="https://github.com/deepseek-ai/DeepGEMM/pull/304" target="_blank">MegaMoE 开源实现</a> — 细粒度通信-计算重叠的 Expert Parallelism 实现，集成在 DeepGEMM 项目中</li>
+    </ol>
+
+  </main>
+</div>
+
+<a class="back-top" href="#" title="回到顶部">&uarr;</a>
+
+</body>
+</html>
