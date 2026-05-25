@@ -1,0 +1,1689 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SGLang 模型推理部署与二次开发全景指南</title>
+  <!-- RESEARCH_META
+  title: SGLang 模型推理部署与二次开发全景指南
+  date: 2026-05-25
+  tags: SGLang, LLM Inference, DeepSeek, GLM, KV Cache, PD Disaggregation, Deployment
+  summary: 面向从 FastDeploy 迁移到 SGLang 的工程实践报告，覆盖运行时架构、DeepSeek/GLM 支持、KV Cache 管理、集中式部署、PD 分离部署、性能调优和二次开发路径。
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --paper: #fbfaf7;
+      --ink: #1d2428;
+      --muted: #667078;
+      --line: #d9d6cd;
+      --panel: #ffffff;
+      --panel-2: #f2f5f1;
+      --green: #177245;
+      --teal: #0b6f7c;
+      --indigo: #4056a1;
+      --amber: #a96500;
+      --red: #a43a34;
+      --violet: #7a4b97;
+      --code-bg: #111820;
+      --code-text: #e7edf2;
+      --shadow: 0 18px 42px rgba(30, 34, 38, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.72;
+      font-size: 16px;
+    }
+    a { color: var(--indigo); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      background: #ecefe9;
+      border: 1px solid #dfe3dc;
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.92em;
+    }
+    pre {
+      margin: 18px 0;
+      padding: 18px 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      background: var(--code-bg);
+      color: var(--code-text);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+    }
+    pre code { background: transparent; border: 0; color: inherit; padding: 0; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 284px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 28px 20px;
+      background: #eef1ec;
+      border-right: 1px solid var(--line);
+    }
+    main {
+      max-width: 1120px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 44px 40px 96px;
+    }
+    .brand {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--green);
+      margin-bottom: 18px;
+    }
+    .toc {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .toc a {
+      display: block;
+      padding: 7px 10px;
+      border-left: 3px solid transparent;
+      border-radius: 4px;
+      color: #4f5961;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .toc a:hover { background: rgba(23,114,69,0.08); border-left-color: var(--green); text-decoration: none; color: var(--ink); }
+    .toc .sub a { padding-left: 24px; font-size: 12px; color: #69727a; }
+
+    .hero {
+      padding: 52px 0 30px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 32px;
+    }
+    .kicker {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      background: #eef5f0;
+      color: var(--green);
+    }
+    .badge.teal { background: #e7f3f4; color: var(--teal); }
+    .badge.indigo { background: #eceefd; color: var(--indigo); }
+    .badge.amber { background: #fbefd9; color: var(--amber); }
+    .badge.violet { background: #f2eaf7; color: var(--violet); }
+    h1 {
+      margin: 0 0 16px;
+      max-width: 900px;
+      font-size: clamp(32px, 5vw, 58px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      max-width: 860px;
+      color: var(--muted);
+      font-size: 18px;
+      margin: 0 0 18px;
+    }
+    .meta {
+      color: #7f858a;
+      font-size: 13px;
+    }
+
+    section { margin-top: 44px; }
+    h2 {
+      margin: 0 0 18px;
+      font-size: 28px;
+      line-height: 1.22;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+      scroll-margin-top: 26px;
+    }
+    h3 {
+      margin: 28px 0 12px;
+      font-size: 20px;
+      line-height: 1.32;
+      scroll-margin-top: 26px;
+    }
+    h4 {
+      margin: 22px 0 8px;
+      font-size: 16px;
+      color: #384249;
+    }
+    p { margin: 0 0 14px; }
+    ul, ol { padding-left: 22px; }
+    li { margin: 6px 0; }
+
+    .tldr {
+      display: grid;
+      gap: 12px;
+      margin: 28px 0 32px;
+      padding: 24px;
+      border: 1px solid #bbd7c7;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #eff8f2, #f8f8ee);
+      box-shadow: var(--shadow);
+    }
+    .tldr-title {
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      color: var(--green);
+      text-transform: uppercase;
+    }
+    .tldr ul { margin: 0; padding-left: 20px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 20px 0;
+    }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+    .card h3, .card h4 { margin-top: 0; }
+    .metric {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 34px;
+      line-height: 1;
+      font-weight: 900;
+      color: var(--green);
+    }
+    .caption { color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .callout {
+      margin: 20px 0;
+      padding: 18px 20px;
+      border-left: 5px solid var(--teal);
+      background: #edf6f7;
+      border-radius: 6px;
+    }
+    .callout.warn { border-left-color: var(--amber); background: #fbf2df; }
+    .callout.danger { border-left-color: var(--red); background: #faeeed; }
+    .callout.good { border-left-color: var(--green); background: #eef8f2; }
+    .callout strong { display: block; margin-bottom: 6px; }
+
+    .table-wrap {
+      margin: 20px 0;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid #e6e3dc;
+    }
+    th {
+      background: #edf1ea;
+      color: #2e383f;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: 0; }
+
+    figure {
+      margin: 24px 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+    figure img {
+      display: block;
+      width: 100%;
+      max-height: 520px;
+      object-fit: contain;
+      background: #fff;
+      padding: 18px;
+    }
+    figcaption {
+      border-top: 1px solid var(--line);
+      padding: 10px 14px;
+      color: var(--muted);
+      font-size: 13px;
+      background: #f6f6f2;
+    }
+    .mermaid-wrap {
+      margin: 22px 0;
+      padding: 18px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow-x: auto;
+    }
+    .mermaid { min-width: 680px; }
+
+    .source-list li { margin-bottom: 9px; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid #d4d1c7;
+      color: #475058;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .path {
+      display: block;
+      margin-top: 8px;
+      color: #57616a;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { display: none; }
+      main { padding: 28px 18px 72px; }
+      .grid, .grid.two { grid-template-columns: 1fr; }
+      .mermaid { min-width: 520px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">SGLang Field Guide</div>
+      <ol class="toc">
+        <li><a href="#overview">1. 总览</a></li>
+        <li><a href="#fastdeploy">2. 从 FastDeploy 迁移</a></li>
+        <li><a href="#features">3. SGLang 核心特性</a></li>
+        <li><a href="#architecture">4. 运行时整体架构</a></li>
+        <li class="sub"><a href="#request-flow">请求链路</a></li>
+        <li class="sub"><a href="#parallelism">并行体系</a></li>
+        <li><a href="#models">5. DeepSeek / GLM / 模型支持</a></li>
+        <li class="sub"><a href="#deepseek">DeepSeek 系列</a></li>
+        <li class="sub"><a href="#glm">GLM 系列</a></li>
+        <li><a href="#cache">6. Cache 管理模块</a></li>
+        <li><a href="#centralized">7. 集中式部署</a></li>
+        <li><a href="#pd">8. PD 分离式部署</a></li>
+        <li><a href="#hicache-pd">9. HiCache + PD</a></li>
+        <li><a href="#tuning">10. 性能调优与压测</a></li>
+        <li><a href="#dev">11. 二次开发</a></li>
+        <li><a href="#production">12. 生产落地清单</a></li>
+        <li><a href="#references">13. 参考资料</a></li>
+      </ol>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <div class="kicker">
+          <span class="badge">SGLang</span>
+          <span class="badge teal">DeepSeek / GLM</span>
+          <span class="badge indigo">KV Cache</span>
+          <span class="badge amber">PD Disaggregation</span>
+          <span class="badge violet">二次开发</span>
+        </div>
+        <h1>SGLang 模型推理部署与二次开发全景指南</h1>
+        <p class="subtitle">面向从 FastDeploy 迁移到 SGLang 的工程实践：讲清楚 SGLang 的特性、运行时结构、DeepSeek/GLM 推理链路、Cache 管理、集中式部署、Prefill/Decode 分离部署，以及如何进入源码做模型、缓存、调度和网关层扩展。</p>
+        <div class="meta">生成日期：2026-05-25 · 官方仓库快照：sgl-project/sglang commit 6e8fe17 · 适合对象：推理平台工程师、模型部署工程师、LLM 系统二开研发</div>
+      </header>
+
+      <div class="tldr" id="overview">
+        <div class="tldr-title">TL;DR</div>
+        <ul>
+          <li>SGLang 是一个面向大模型推理服务的高性能运行时，核心组合是 OpenAI 兼容 API、动态调度、RadixAttention 前缀缓存、丰富 attention backend、DeepSeek/GLM 等大模型专项优化，以及 PD 分离式部署能力。</li>
+          <li>如果你从 FastDeploy 转过来，迁移重点不是“换一个启动命令”，而是把服务拆成四层：入口协议层、调度层、模型执行层、KV Cache/传输层；SGLang 在后两层给了更多可调参数和源码扩展点。</li>
+          <li>DeepSeek V3/V3.1/R1 的关键是 MLA、MoE、FP8/DeepGEMM、DP Attention、EAGLE；DeepSeek V3.2 与 GLM-5 进一步引入 DSA 稀疏注意力，SGLang 文档给出了专门部署命令和 kernel 选择策略。</li>
+          <li>Cache 管理是 SGLang 的灵魂：L1 GPU KV pool + RadixCache 做本地前缀复用；HiCache 把缓存扩展到 L2 host memory 与 L3 分布式存储；PD 模式再把 prefill 生成的 KV 通过 Mooncake/NIXL/Ascend 传到 decode worker。</li>
+          <li>集中式部署适合快速上线和中小规模服务；PD 分离适合长上下文、高并发、prefill 与 decode 干扰明显的生产场景，但会引入传输后端、bootstrap、router、缓存一致性和观测复杂度。</li>
+        </ul>
+      </div>
+
+      <section id="fastdeploy">
+        <h2>1. 从 FastDeploy 迁移到 SGLang：先换脑图，再换命令</h2>
+        <p>很多迁移失败不是因为 SGLang 难用，而是还按“单进程模型服务”的方式理解它。SGLang 的设计更像一个推理操作系统：它把请求接入、tokenization、调度、模型 forward、cache 分配、KV 迁移、detokenization、router 负载均衡拆成清晰模块。</p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart LR
+  A["FastDeploy 迁移视角"] --> B["API 兼容层"]
+  A --> C["模型权重与 tokenizer"]
+  A --> D["并行与显存策略"]
+  A --> E["缓存复用策略"]
+  A --> F["集群与网关策略"]
+  B --> B1["OpenAI /generate /embeddings"]
+  C --> C1["HF repo 或本地路径"]
+  D --> D1["TP / DP / EP / PP / DP Attention"]
+  E --> E1["RadixCache / HiCache / cache-aware routing"]
+  F --> F1["SGLang Router / PD / 多 worker"]
+          </pre>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>迁移项</th>
+                <th>FastDeploy 里常见关注点</th>
+                <th>SGLang 对应方式</th>
+                <th>迁移建议</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>服务入口</td>
+                <td>HTTP/RPC 服务、模型名、采样参数</td>
+                <td><code>sglang.launch_server</code> 暴露 OpenAI-compatible API；router 可接多个 worker</td>
+                <td>优先改客户端 base_url，不要一开始重写业务 SDK。</td>
+              </tr>
+              <tr>
+                <td>模型加载</td>
+                <td>本地权重、模型配置、量化格式</td>
+                <td><code>--model-path</code>/<code>--model</code> 指向 HF repo 或本地目录；支持 safetensors、gguf、bitsandbytes、fastsafetensors 等 load format</td>
+                <td>生产建议先离线下载权重，固定 revision，记录 commit 与启动参数。</td>
+              </tr>
+              <tr>
+                <td>并行策略</td>
+                <td>多卡切分、张量并行、流水线</td>
+                <td><code>--tp</code>、<code>--dp</code>、<code>--ep</code>、<code>--pp</code>、<code>--enable-dp-attention</code></td>
+                <td>小模型先用 TP/DP；DeepSeek 大模型重点评估 DP Attention 与 EP。</td>
+              </tr>
+              <tr>
+                <td>显存与吞吐</td>
+                <td>batch、max tokens、OOM</td>
+                <td><code>--mem-fraction-static</code>、<code>--max-running-requests</code>、<code>--chunked-prefill-size</code>、<code>--cuda-graph-max-bs</code></td>
+                <td>以压测日志里的 token usage、queue req、TTFT/TPOT 为准，不靠感觉调参。</td>
+              </tr>
+              <tr>
+                <td>缓存复用</td>
+                <td>prefix cache、KV cache 容量</td>
+                <td>RadixAttention/RadixCache 默认本地复用；HiCache 扩展到 host 与分布式存储</td>
+                <td>多轮对话、固定系统提示、RAG 模板、长文档 QA 是缓存收益最大的场景。</td>
+              </tr>
+              <tr>
+                <td>大规模服务</td>
+                <td>网关、LB、容错、扩缩容</td>
+                <td>SGLang Model Gateway / Router；支持 regular worker、PD worker、gRPC、cache-aware 策略</td>
+                <td>先集中式上线，再按瓶颈决定是否拆 PD；不要过早把架构复杂化。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout good">
+          <strong>推荐迁移顺序</strong>
+          本地单模型跑通 OpenAI API → 同机多卡 TP 跑通 → 加压测与指标 → 加 router/多 worker → 调 Radix/HiCache → 最后再上 PD 分离。这个顺序能让问题定位从简单到复杂。
+        </div>
+      </section>
+
+      <section id="features">
+        <h2>2. SGLang 的核心特性</h2>
+
+        <div class="grid">
+          <div class="card">
+            <span class="metric">API</span>
+            <h3>OpenAI 兼容服务</h3>
+            <p>支持 chat completions、completions、embeddings、vision、rerank、classify 等入口。客户端可用 OpenAI Python SDK，把 <code>base_url</code> 指向 SGLang。</p>
+          </div>
+          <div class="card">
+            <span class="metric">KV</span>
+            <h3>RadixAttention</h3>
+            <p>用 radix tree 组织前缀 KV，复用共享 prompt 的已计算缓存。它不是简单哈希缓存，而是按 token 前缀做最长匹配、节点分裂与 eviction。</p>
+          </div>
+          <div class="card">
+            <span class="metric">PD</span>
+            <h3>Prefill/Decode 分离</h3>
+            <p>把计算密集的 prefill 和内存带宽密集的 decode 拆到不同 worker，降低 prefill 对 decode latency 的干扰。</p>
+          </div>
+          <div class="card">
+            <span class="metric">MoE</span>
+            <h3>DeepSeek/GLM 专项优化</h3>
+            <p>覆盖 MLA、DSA、MoE、FP8、DeepGEMM、DP Attention、EAGLE speculative decoding、reasoning/tool parser 等关键路径。</p>
+          </div>
+          <div class="card">
+            <span class="metric">L1-L3</span>
+            <h3>HiCache 层级缓存</h3>
+            <p>GPU memory 作为 L1，host memory 作为 L2，Mooncake/HF3FS/NIXL/AIBrix 等作为 L3，适合长上下文与跨实例缓存复用。</p>
+          </div>
+          <div class="card">
+            <span class="metric">Dev</span>
+            <h3>源码扩展友好</h3>
+            <p>模型实现集中在 <code>srt/models</code>，cache 在 <code>srt/mem_cache</code>，调度在 <code>srt/managers</code>，PD 在 <code>srt/disaggregation</code>。</p>
+          </div>
+        </div>
+
+        <h3>重要能力矩阵</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>能力</th>
+                <th>主要参数/模块</th>
+                <th>何时使用</th>
+                <th>注意点</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Tensor Parallel</td>
+                <td><code>--tp</code>/<code>--tp-size</code></td>
+                <td>单模型放不进一张卡，或需要多卡分摊计算</td>
+                <td>TP 越大通信越重；跨节点 TP 要关注网络与 NCCL。</td>
+              </tr>
+              <tr>
+                <td>Data Parallel</td>
+                <td><code>--dp</code>、router 多 worker</td>
+                <td>模型能放进每组 GPU，希望提升吞吐</td>
+                <td>官方文档更推荐用 Model Gateway 做数据并行入口。</td>
+              </tr>
+              <tr>
+                <td>DP Attention</td>
+                <td><code>--enable-dp-attention --dp N</code></td>
+                <td>DeepSeek 类 MLA/MoE 高并发场景，KV 容量成为瓶颈</td>
+                <td>不适合低延迟小 batch 场景，可能增加单请求延迟。</td>
+              </tr>
+              <tr>
+                <td>Expert Parallel</td>
+                <td><code>--ep</code>、<code>--moe-a2a-backend</code></td>
+                <td>MoE 大模型，专家层通信成为主要瓶颈</td>
+                <td>需要评估 DeepEP、网络拓扑和 expert load balance。</td>
+              </tr>
+              <tr>
+                <td>Quantization</td>
+                <td><code>--quantization</code>、<code>--kv-cache-dtype</code></td>
+                <td>降低显存、提升并发或匹配 FP8/NVFP4 checkpoint</td>
+                <td>DeepSeek 官方 FP8 权重不需要再加 <code>--quantization fp8</code>。</td>
+              </tr>
+              <tr>
+                <td>Speculative Decoding</td>
+                <td><code>--speculative-algorithm EAGLE</code></td>
+                <td>DeepSeek/GLM 等支持 MTP 或草稿模型时提升 decode</td>
+                <td>要配合 batch size、attention backend、CUDA Graph 捕获范围调。</td>
+              </tr>
+              <tr>
+                <td>Structured Output</td>
+                <td>xgrammar / outlines / llguidance</td>
+                <td>JSON、正则、函数调用、受限生成</td>
+                <td>会引入 grammar 编译和调度开销，需压测。</td>
+              </tr>
+              <tr>
+                <td>Observability</td>
+                <td><code>--enable-metrics</code>、<code>--enable-trace</code>、profiler endpoints</td>
+                <td>生产压测、问题定位、容量规划</td>
+                <td>PD 模式 prefill 与 decode profiler 必须分开抓。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <h2>3. SGLang 运行时整体架构</h2>
+        <p>SGLang 的后端通常称为 SRT。一个最小服务包括 HTTP/OpenAI 入口、TokenizerManager、Scheduler、TP worker / ModelRunner、DetokenizerManager、KV cache 与 attention backend。请求不是“直接调用模型”，而是被拆成 tokenization、排队、prefill/extend、decode、采样、detokenize、streaming 输出。</p>
+
+        <div class="mermaid-wrap" id="request-flow">
+          <pre class="mermaid">
+flowchart TD
+  Client["Client / OpenAI SDK / curl"] --> HTTP["HTTP Server&lt;br/&gt;OpenAI-compatible endpoints"]
+  HTTP --> Tok["TokenizerManager&lt;br/&gt;text/image/audio -> token ids / embeddings"]
+  Tok --> Sched["Scheduler&lt;br/&gt;waiting queue / running batch / policies"]
+  Sched --> Cache["KV Cache Manager&lt;br/&gt;ReqToTokenPool + TokenToKVPool + Radix/HiCache"]
+  Sched --> Worker["TP Worker"]
+  Worker --> Runner["ModelRunner&lt;br/&gt;forward_extend / forward_decode"]
+  Runner --> Attn["Attention Backend&lt;br/&gt;FA3 / FlashInfer / TRTLLM / FlashMLA / DSA"]
+  Runner --> Model["Model Implementation&lt;br/&gt;srt/models/*.py"]
+  Model --> Sample["Sampler / logits processor / grammar"]
+  Sample --> Detok["DetokenizerManager"]
+  Detok --> HTTP
+  HTTP --> Client
+          </pre>
+        </div>
+
+        <div class="grid two">
+          <div class="card">
+            <h3>源码入口图</h3>
+            <p>这些路径是你二开 SGLang 时最常看的“地标”。</p>
+            <span class="path">python/sglang/launch_server.py</span>
+            <span class="path">python/sglang/srt/entrypoints/http_server.py</span>
+            <span class="path">python/sglang/srt/managers/tokenizer_manager.py</span>
+            <span class="path">python/sglang/srt/managers/scheduler.py</span>
+            <span class="path">python/sglang/srt/model_executor/model_runner.py</span>
+            <span class="path">python/sglang/srt/mem_cache/</span>
+            <span class="path">python/sglang/srt/disaggregation/</span>
+            <span class="path">python/sglang/srt/models/</span>
+          </div>
+          <div class="card">
+            <h3>调度器初始化顺序</h3>
+            <p>从当前源码看，Scheduler 会解析参数、初始化并行状态、启动模型 worker、构建 KV cache、注册 HiCache draft pool、初始化 chunked prefill、建立调度策略，最后进入普通或 overlap event loop。</p>
+            <p class="caption">关键行来自 <code>python/sglang/srt/managers/scheduler.py</code>：Scheduler 在初始化阶段调用 <code>kv_cache_builder.build_kv_cache(...)</code>，把 <code>req_to_token_pool</code>、<code>token_to_kv_pool_allocator</code> 和 <code>tree_cache</code> 接到调度链路。</p>
+          </div>
+        </div>
+
+        <h3 id="parallelism">并行体系：TP、DP、EP、PP、DP Attention 怎么选</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>策略</th>
+                <th>切分对象</th>
+                <th>适合场景</th>
+                <th>启动参数</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>TP Tensor Parallel</td>
+                <td>矩阵权重、attention heads、MLP 等按 GPU 切</td>
+                <td>单模型太大；DeepSeek/GLM 大 checkpoint 常用</td>
+                <td><code>--tp 8</code>、跨节点加 <code>--nnodes</code>/<code>--node-rank</code>/<code>--dist-init-addr</code></td>
+              </tr>
+              <tr>
+                <td>DP Data Parallel</td>
+                <td>多份模型副本处理不同请求</td>
+                <td>吞吐优先、模型可复制</td>
+                <td><code>--dp 2</code> 或 router 多 worker</td>
+              </tr>
+              <tr>
+                <td>DP Attention</td>
+                <td>attention KV cache 按 DP 分组，不在所有 TP rank 复制</td>
+                <td>DeepSeek 类 MLA 高并发，KV cache 容量限制明显</td>
+                <td><code>--enable-dp-attention --dp 8</code></td>
+              </tr>
+              <tr>
+                <td>EP Expert Parallel</td>
+                <td>MoE experts 分布到不同 GPU</td>
+                <td>DeepSeek/GLM/Kimi/Qwen MoE 大模型</td>
+                <td><code>--ep 8</code>、<code>--moe-a2a-backend deepep</code></td>
+              </tr>
+              <tr>
+                <td>PP Pipeline Parallel</td>
+                <td>Transformer layers 分段</td>
+                <td>模型深、显存压力大或多节点流水线</td>
+                <td><code>--pp 2</code>、可结合 dynamic chunking</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Attention backend 选择</h3>
+        <p>SGLang 默认会按硬件与模型架构自动选择 backend，但生产调优时你需要知道边界条件：MHA 模型常见 backend 有 FlashInfer、FA3、FA4、Triton、TRTLLM MHA；MLA 模型有 FlashInfer MLA、FlashMLA、Cutlass MLA、TRTLLM MLA、FA3、Triton；DeepSeek V3.2/GLM-5 的 DSA 又有 flashmla_sparse、flashmla_kv、fa3、trtllm、tilelang、aiter 等子 backend。</p>
+
+        <div class="callout warn">
+          <strong>page_size 是性能和命中率的拉扯</strong>
+          <code>--page-size</code> 越大，metadata 和 I/O 更友好，部分 backend 也要求固定页大小；但 prefix cache 只能匹配完整 page，短 prompt 或细粒度共享场景会降低命中率。想最大化 prefix reuse 用小 page；想压榨 kernel/存储吞吐时再上大 page。
+        </div>
+      </section>
+
+      <section id="models">
+        <h2>4. SGLang 对大语言模型的支持情况</h2>
+        <p>截至本报告使用的官方仓库快照，SGLang 文档把模型支持分成文本生成、多模态、embedding/rerank/classify、specialized 与扩展模型。文本生成支持范围已经覆盖 DeepSeek、Kimi、GPT-OSS、Qwen、Llama、Mistral、Gemma、Phi、MiniCPM、OLMo、MiniMax、Command、DBRX、Grok、ChatGLM、GLM-4、InternLM、Baichuan、XVERSE、ERNIE、Nemotron 等大量模型族。</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>模型族</th>
+                <th>SGLang 支持重点</th>
+                <th>典型模型 ID</th>
+                <th>工程关注点</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>DeepSeek V3 / V3.1 / R1</td>
+                <td>MLA、MoE、FP8、DeepGEMM、DP Attention、EAGLE、reasoning/tool parser</td>
+                <td><code>deepseek-ai/DeepSeek-R1</code><br/><code>deepseek-ai/DeepSeek-V3-0324</code></td>
+                <td>H200/B200/MI300X/H20/A100/NPU 等硬件下参数差异大，先按官方 DeepSeek usage 文档起步。</td>
+              </tr>
+              <tr>
+                <td>DeepSeek V3.2 / GLM-5</td>
+                <td>DSA 稀疏注意力、IndexCache、MTP/EAGLE、PD 示例</td>
+                <td><code>deepseek-ai/DeepSeek-V3.2-Exp</code><br/><code>zai-org/GLM-5-FP8</code></td>
+                <td>DSA backend 自动选择但可手动指定；GLM-5 共享 V3.2 多数部署方式。</td>
+              </tr>
+              <tr>
+                <td>GLM-4.5 / GLM-4.6 / GLM-4.7</td>
+                <td>FP8、多卡 TP、EAGLE、reasoning parser、tool call parser、thinking budget</td>
+                <td><code>zai-org/GLM-4.6-FP8</code></td>
+                <td>GLM-4.7 tool parser 用 <code>glm47</code>；GLM-4.5/4.6 用 <code>glm45</code>。</td>
+              </tr>
+              <tr>
+                <td>Qwen / Llama / Kimi / MiniMax</td>
+                <td>常规 MHA/GQA、MoE、reasoning、tool calls、部分多模态与长上下文</td>
+                <td><code>Qwen/Qwen3-30B-A3B</code><br/><code>meta-llama/Llama-4-Scout...</code></td>
+                <td>优先查 supported models 与 basic usage，注意 chat template 和 parser。</td>
+              </tr>
+              <tr>
+                <td>多模态模型</td>
+                <td>Qwen-VL、DeepSeek-VL2/OCR、GLM-4.5V、Gemma 3、LLaVA、MiniCPM-V、Qwen3-ASR 等</td>
+                <td><code>Qwen/Qwen3-VL-235B-A22B-Instruct</code><br/><code>zai-org/GLM-4.5V</code></td>
+                <td>关注 <code>--enable-multimodal</code>、<code>--mm-process-config</code>、bidirectional attention、显存限制。</td>
+              </tr>
+              <tr>
+                <td>Transformers fallback</td>
+                <td>未原生实现的 decoder-style 模型可回退到 Transformers backend</td>
+                <td>任意符合条件的 HF 模型</td>
+                <td>需要模型 attention 支持 <code>ALL_ATTENTION_FUNCTIONS</code> 并声明 <code>_supports_attention_backend</code>。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="deepseek">DeepSeek 推理结构：MLA / MoE / DP Attention / EAGLE</h3>
+        <p>DeepSeek V3/R1 类模型在 SGLang 中不是普通 Llama 路径。它的重点是 MLA 减少 KV cache 体积，MoE 提供大参数容量但只激活部分专家，FP8/DeepGEMM 提升矩阵乘效率，DP Attention 解决高并发下 KV cache 被 TP rank 复制的问题，EAGLE/MTP 用草稿 token 减少 decode 步数。</p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart TD
+  T["Input tokens"] --> E["Embedding + positions"]
+  E --> L1["Transformer Layer x N"]
+  L1 --> MLA["MLA / DSA Attention&lt;br/&gt;RadixAttention wrapper"]
+  L1 --> MOE["MoE experts&lt;br/&gt;routing + all-to-all"]
+  MLA --> KV["KV / latent KV cache&lt;br/&gt;GPU pool + prefix tree"]
+  MOE --> N["Norm + residual"]
+  N --> H["Hidden states"]
+  H --> Head["LM Head / logits"]
+  Head --> Sample["Sampler / parser / grammar"]
+  Sample --> Out["Next token"]
+  Out -->|loop| L1
+          </pre>
+        </div>
+
+        <figure>
+          <img src="https://lmsys.org/images/blog/sglang_v0_3/deepseek_mla.svg" alt="DeepSeek MLA optimization illustration from SGLang LMSYS blog" />
+          <figcaption>DeepSeek MLA 优化示意图。SGLang 文档说明其通过 weight absorption、MLA attention backends、FP8 KV、CUDA Graph、chunked prefix cache 等优化 DeepSeek decode 吞吐。</figcaption>
+        </figure>
+
+        <figure>
+          <img src="https://lmsys.org/images/blog/sglang_v0_4/dp_attention.svg" alt="DP Attention illustration from SGLang LMSYS blog" />
+          <figcaption>DP Attention 示意图。开启后 attention 的 KV cache 不再在所有 TP rank 上完整复制，更适合高并发 DeepSeek 系列服务。</figcaption>
+        </figure>
+
+        <h4>DeepSeek V3/R1 集中式启动参考</h4>
+        <pre><code class="language-bash">python3 -m sglang.launch_server \
+  --model-path deepseek-ai/DeepSeek-R1 \
+  --tp 8 \
+  --trust-remote-code \
+  --host 0.0.0.0 \
+  --port 30000 \
+  --mem-fraction-static 0.90 \
+  --enable-metrics \
+  --enable-cache-report</code></pre>
+
+        <h4>DeepSeek V3.2 / GLM-5 推荐思路</h4>
+        <p>DeepSeek V3.2 通过 DSA 针对长上下文做稀疏注意力优化；GLM-5 也使用 DSA 结构，因此官方文档说明 GLM-5 可以复用 DeepSeek V3.2 的大部分部署方式，主要差异在 reasoning parser 和 tool parser。</p>
+        <pre><code class="language-bash"># DeepSeek V3.2/GLM-5: TP + DP Attention
+python -m sglang.launch_server \
+  --model deepseek-ai/DeepSeek-V3.2-Exp \
+  --tp 8 \
+  --dp 8 \
+  --enable-dp-attention
+
+# GLM-5: 替换模型，并使用 GLM parser
+python -m sglang.launch_server \
+  --model zai-org/GLM-5-FP8 \
+  --tp-size 8 \
+  --dp-size 8 \
+  --enable-dp-attention \
+  --tool-call-parser glm47 \
+  --reasoning-parser glm45</code></pre>
+
+        <h3 id="glm">GLM 推理结构与启动重点</h3>
+        <p>GLM-4.5/4.6/4.7 与 GLM-5 在 SGLang 中都已经有官方 usage。GLM-4.5/4.6 FP8 可用 8xH100/H200 启动；可通过 EAGLE speculative decoding 提速；thinking budget 可通过自定义 logit processor 控制。GLM-5 则共享 DeepSeek V3.2/DSA 路径。</p>
+
+        <pre><code class="language-bash"># GLM-4.6 FP8 基础启动
+python3 -m sglang.launch_server \
+  --model zai-org/GLM-4.6-FP8 \
+  --tp 8
+
+# GLM-4.6 + parser + EAGLE + thinking budget 支持
+python3 -m sglang.launch_server \
+  --model-path zai-org/GLM-4.6-FP8 \
+  --tp-size 8 \
+  --tool-call-parser glm45 \
+  --reasoning-parser glm45 \
+  --speculative-algorithm EAGLE \
+  --speculative-num-steps 3 \
+  --speculative-eagle-topk 1 \
+  --speculative-num-draft-tokens 4 \
+  --mem-fraction-static 0.9 \
+  --served-model-name glm-4.6-fp8 \
+  --enable-custom-logit-processor</code></pre>
+
+        <div class="callout warn">
+          <strong>Parser 是业务兼容的关键</strong>
+          DeepSeek/GLM 推理服务不仅要“吐字”，还要把 reasoning_content、tool calls、thinking budget 等结构解析对。迁移时要把 <code>--reasoning-parser</code>、<code>--tool-call-parser</code>、chat template 和客户端协议一起验收。
+        </div>
+      </section>
+
+      <section id="cache">
+        <h2>5. Cache 管理模块：从 KV pool 到 RadixCache 再到 HiCache</h2>
+        <p>LLM 推理中的缓存不是“可选优化”，而是决定吞吐、延迟和显存容量的核心系统。SGLang 的缓存层可以按三个层级理解：请求到 token slot 的映射、token slot 到实际 K/V tensor 的内存池、前缀匹配和跨层级复用的 cache controller。</p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart TD
+  Req["Req&lt;br/&gt;origin_input_ids + output_ids"] --> RTP["ReqToTokenPool&lt;br/&gt;req_pool_idx -> token slots"]
+  RTP --> Alloc["TokenToKVPoolAllocator&lt;br/&gt;alloc/free KV slots"]
+  Alloc --> KVPool["TokenToKVPool&lt;br/&gt;per-layer K/V tensors"]
+  Req --> Radix["RadixCache&lt;br/&gt;token prefix -> KV indices"]
+  Radix --> Match["match_prefix&lt;br/&gt;longest prefix hit"]
+  Radix --> Insert["cache_finished_req / insert"]
+  Radix --> Evict["evict&lt;br/&gt;LRU / LFU / FIFO / priority..."]
+  KVPool --> Attn["Attention backend reads KV"]
+          </pre>
+        </div>
+
+        <h3>5.1 本地 GPU KV cache：两个 pool + 一个 tree</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>组件</th>
+                <th>源码位置</th>
+                <th>职责</th>
+                <th>二开关注点</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>ReqToTokenPool</td>
+                <td><code>srt/mem_cache/memory_pool.py</code></td>
+                <td>给每个请求分配 <code>req_pool_idx</code>，维护 request 到 token slots 的二维映射</td>
+                <td>并发请求上限、chunked prefill 复用 request slot、decode 侧 prealloc。</td>
+              </tr>
+              <tr>
+                <td>TokenToKVPoolAllocator</td>
+                <td><code>srt/mem_cache/allocator.py</code></td>
+                <td>为 extend/decode 分配 KV token slots，满了时触发 eviction 或 retract</td>
+                <td>OOM、碎片、page allocation、decode 每步增量分配。</td>
+              </tr>
+              <tr>
+                <td>KV Pool</td>
+                <td><code>srt/mem_cache/memory_pool.py</code></td>
+                <td>真实 K/V tensor 存储，按 MHA/MLA/Mamba/SWA 等形态有不同实现</td>
+                <td>KV dtype、FP8/FP4、MLA latent KV、hybrid attention。</td>
+              </tr>
+              <tr>
+                <td>RadixCache</td>
+                <td><code>srt/mem_cache/radix_cache.py</code></td>
+                <td>用 token prefix 查找最长 KV 前缀，结束请求时插入，按策略驱逐</td>
+                <td><code>extra_key</code> 隔离 LoRA/版本/RAG 上下文；page_size 影响命中。</td>
+              </tr>
+              <tr>
+                <td>Cache Builder</td>
+                <td><code>srt/mem_cache/kv_cache_builder.py</code></td>
+                <td>根据模型、server args、并行组创建 req pool、KV allocator、tree cache</td>
+                <td>新增 cache 类型、禁用条件、HiCache 注册、hybrid SWA/SSM 兼容。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>5.2 RadixAttention：为什么它比普通 prefix cache 更细</h3>
+        <p>RadixCache 的 key 不只是 token ids，还可以携带 <code>extra_key</code> 命名空间，用来隔离 LoRA adapter、cache version、RAG 上下文等。匹配时会按 <code>page_size</code> 对齐，查找最长前缀；如果命中落在一个节点中间，tree 会 split 出精确边界，后续请求会更快命中。</p>
+
+        <div class="callout good">
+          <strong>如何判断 RadixCache 是否生效</strong>
+          启动加 <code>--enable-cache-report</code>，OpenAI 响应中的 usage 会返回 cached tokens 信息；压测共享系统提示或重复长 prompt，观察 TTFT 与 cached token 数是否上升。
+        </div>
+
+        <h3>5.3 HiCache：L1 GPU、L2 Host、L3 分布式存储</h3>
+        <p>HiCache 是 RadixAttention 的层级化扩展。SGLang 文档把它类比为 CPU cache：L1 是 GPU memory，本地且最快；L2 是 host memory，容量更大；L3 是跨实例共享的分布式存储，如 Mooncake、HF3FS、NIXL、AIBrix KVCache、LMCache 或 file backend。</p>
+
+        <figure>
+          <img src="https://lmsys.org/images/blog/hicache/hicache_overview.png" alt="SGLang HiCache workflow" />
+          <figcaption>HiCache 工作流：local match、L3 prefetch、prefill 计算、write-back。它把前缀 KV 从单实例 GPU cache 扩展成跨实例可复用的层级缓存。</figcaption>
+        </figure>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart LR
+  NewReq["New request tokens"] --> Local["Local match&lt;br/&gt;HiRadixTree"]
+  Local --> L1["L1 GPU KV"]
+  Local --> L2["L2 Host KV"]
+  Local --> Miss["Missed suffix"]
+  Miss --> Query["Query L3 metadata"]
+  Query --> L3["L3 Storage&lt;br/&gt;Mooncake / HF3FS / NIXL / AIBrix"]
+  L3 --> Prefetch["Prefetch to L2"]
+  Prefetch --> LoadGPU["CPU -> GPU transfer"]
+  LoadGPU --> Prefill["Prefill only missing part"]
+  Prefill --> Write["Write-back policy"]
+  Write --> L2
+  Write --> L3
+          </pre>
+        </div>
+
+        <figure>
+          <img src="https://lmsys.org/images/blog/hicache/hicache_layout.png" alt="SGLang HiCache memory layout" />
+          <figcaption>HiCache host memory layout。page-first 和 page-first-direct 布局让 L3 I/O 更容易做大块传输与 zero-copy。</figcaption>
+        </figure>
+
+        <h4>HiCache 常用参数</h4>
+        <pre><code class="language-bash">python3 -m sglang.launch_server \
+  --model-path /models/DeepSeek-R1 \
+  --tp 8 \
+  --page-size 64 \
+  --enable-hierarchical-cache \
+  --hicache-ratio 2 \
+  --hicache-mem-layout page_first_direct \
+  --hicache-io-backend direct \
+  --hicache-write-policy write_through \
+  --hicache-storage-backend hf3fs \
+  --hicache-storage-prefetch-policy wait_complete \
+  --enable-metrics \
+  --enable-cache-report</code></pre>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>参数</th>
+                <th>作用</th>
+                <th>建议</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>--enable-hierarchical-cache</code></td>
+                <td>开启 HiCache</td>
+                <td>长上下文、多轮、共享前缀明显时开启。</td>
+              </tr>
+              <tr>
+                <td><code>--hicache-ratio</code>/<code>--hicache-size</code></td>
+                <td>控制 host KV pool 容量</td>
+                <td><code>--hicache-size</code> 会覆盖 ratio；多 rank 时按每 rank 计算。</td>
+              </tr>
+              <tr>
+                <td><code>--hicache-storage-prefetch-policy</code></td>
+                <td>L3 prefetch 停止策略</td>
+                <td>延迟敏感用 best_effort；命中优先用 wait_complete；生产常用 timeout 平衡。</td>
+              </tr>
+              <tr>
+                <td><code>--hicache-write-policy</code></td>
+                <td>L1/L2/L3 写回策略</td>
+                <td>存储带宽充足用 write_through；热数据筛选用 write_through_selective；容量紧张用 write_back。</td>
+              </tr>
+              <tr>
+                <td><code>--hicache-mem-layout</code></td>
+                <td>Host memory 数据布局</td>
+                <td>有 L3 backend 时优先评估 page_first_direct。</td>
+              </tr>
+              <tr>
+                <td><code>--hicache-storage-backend</code></td>
+                <td>L3 backend</td>
+                <td>可选 file、mooncake、hf3fs、nixl、aibrix、dynamic。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="centralized">
+        <h2>6. 集中式部署：先跑稳，再拆复杂架构</h2>
+        <p>集中式部署指 prefill 与 decode 在同一个 SGLang engine 内统一调度。它部署简单、链路短、故障面小，是迁移第一站。缺点是长 prompt prefill 会打断 decode，DP Attention 下不同 DP worker 可能处理不同阶段，导致 decode latency 抖动。</p>
+
+        <h3>6.1 安装与容器</h3>
+        <pre><code class="language-bash"># 推荐 uv 安装
+pip install --upgrade pip
+pip install uv
+uv pip install sglang
+
+# 开发源码安装
+git clone https://github.com/sgl-project/sglang
+cd sglang
+pip install -e "python"
+
+# Docker 运行示例
+docker run --gpus all \
+  --shm-size 32g \
+  -p 30000:30000 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  --env "HF_TOKEN=&lt;secret&gt;" \
+  --ipc=host \
+  lmsysorg/sglang:latest-runtime \
+  python3 -m sglang.launch_server \
+    --model-path meta-llama/Llama-3.1-8B-Instruct \
+    --host 0.0.0.0 \
+    --port 30000</code></pre>
+
+        <h3>6.2 单机多卡 DeepSeek / GLM 模板</h3>
+        <div class="grid two">
+          <div class="card">
+            <h3>DeepSeek V3/R1</h3>
+            <pre><code class="language-bash">python3 -m sglang.launch_server \
+  --model-path deepseek-ai/DeepSeek-R1 \
+  --tp 8 \
+  --trust-remote-code \
+  --host 0.0.0.0 \
+  --port 30000 \
+  --mem-fraction-static 0.90 \
+  --enable-metrics \
+  --enable-cache-report</code></pre>
+          </div>
+          <div class="card">
+            <h3>GLM-4.6 FP8</h3>
+            <pre><code class="language-bash">python3 -m sglang.launch_server \
+  --model zai-org/GLM-4.6-FP8 \
+  --tp 8 \
+  --tool-call-parser glm45 \
+  --reasoning-parser glm45 \
+  --host 0.0.0.0 \
+  --port 30000 \
+  --mem-fraction-static 0.90</code></pre>
+          </div>
+        </div>
+
+        <h3>6.3 OpenAI SDK 请求</h3>
+        <pre><code class="language-python">from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:30000/v1", api_key="EMPTY")
+
+resp = client.chat.completions.create(
+    model="deepseek-ai/DeepSeek-R1",
+    messages=[
+        {"role": "system", "content": "你是一个严谨的推理助手。"},
+        {"role": "user", "content": "解释一下 SGLang 的 RadixCache。"},
+    ],
+    temperature=0.2,
+    max_tokens=1024,
+)
+
+print(resp.choices[0].message)</code></pre>
+
+        <h3>6.4 Router 多 worker 集中式服务</h3>
+        <p>如果模型可复制，可以启动多个 regular worker，用 SGLang Model Gateway / Router 做负载均衡。策略可选 random、round_robin、power_of_two、cache_aware、bucket。共享前缀多时优先评估 cache_aware。</p>
+        <pre><code class="language-bash"># Worker 1
+python -m sglang.launch_server \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 8000
+
+# Worker 2
+python -m sglang.launch_server \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 8001
+
+# Router
+python -m sglang_router.launch_router \
+  --worker-urls http://worker1:8000 http://worker2:8001 \
+  --policy cache_aware \
+  --host 0.0.0.0 \
+  --port 30000</code></pre>
+      </section>
+
+      <section id="pd">
+        <h2>7. PD 分离式部署：Prefill 与 Decode 各干各的活</h2>
+        <p>LLM 推理有两个阶段：prefill 处理整个输入序列，计算密集；decode 每次生成一个 token，内存带宽和 KV cache 访问密集。集中式调度把两者混在一起，会出现 prefill 打断 decode、DP Attention worker 阶段不均衡等问题。PD Disaggregation 就是把 prefill worker 和 decode worker 拆开，用 KV transfer backend 连接。</p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart LR
+  Client["Client"] --> Router["SGLang Router&lt;br/&gt;--pd-disaggregation"]
+  Router --> P1["Prefill worker A&lt;br/&gt;compute prompt KV"]
+  Router --> P2["Prefill worker B&lt;br/&gt;cache-aware optional"]
+  P1 --> Transfer["KV transfer backend&lt;br/&gt;Mooncake / NIXL / Ascend"]
+  P2 --> Transfer
+  Transfer --> D1["Decode worker A&lt;br/&gt;receive KV + generate"]
+  Transfer --> D2["Decode worker B&lt;br/&gt;receive KV + generate"]
+  D1 --> Router
+  D2 --> Router
+  Router --> Client
+          </pre>
+        </div>
+
+        <h3>7.1 什么时候值得上 PD</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>场景</th>
+                <th>集中式表现</th>
+                <th>PD 分离收益</th>
+                <th>风险</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>长 prompt + 长输出混合</td>
+                <td>prefill 抢占 decode，TPOT 抖动</td>
+                <td>decode worker 更稳定，prefill 可独立扩容</td>
+                <td>KV 传输成为新瓶颈。</td>
+              </tr>
+              <tr>
+                <td>DeepSeek/GLM MoE 大模型高并发</td>
+                <td>DP Attention 下阶段不均衡明显</td>
+                <td>prefill/decode 分别调 batch、并行与显存</td>
+                <td>并行配置、bootstrap、router 更复杂。</td>
+              </tr>
+              <tr>
+                <td>多租户或不同 SLO</td>
+                <td>请求类型相互干扰</td>
+                <td>可给 prefill/decode 不同硬件池和路由策略</td>
+                <td>需要完整指标和容量规划。</td>
+              </tr>
+              <tr>
+                <td>固定系统提示多、长文档 QA</td>
+                <td>本地 prefix cache 受单实例限制</td>
+                <td>配合 HiCache/L3 可跨实例复用</td>
+                <td>缓存一致性和存储带宽要验证。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>7.2 单机 Llama PD 最小示例</h3>
+        <pre><code class="language-bash"># Prefill worker
+python -m sglang.launch_server \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --disaggregation-mode prefill \
+  --port 30000 \
+  --disaggregation-ib-device mlx5_roce0
+
+# Decode worker
+python -m sglang.launch_server \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --disaggregation-mode decode \
+  --port 30001 \
+  --base-gpu-id 1 \
+  --disaggregation-ib-device mlx5_roce0
+
+# Router
+python -m sglang_router.launch_router \
+  --pd-disaggregation \
+  --prefill http://127.0.0.1:30000 \
+  --decode http://127.0.0.1:30001 \
+  --host 0.0.0.0 \
+  --port 8000</code></pre>
+
+        <h3>7.3 DeepSeek V3.2 / GLM-5 PD 模板</h3>
+        <pre><code class="language-bash"># Prefill
+python -m sglang.launch_server \
+  --model-path deepseek-ai/DeepSeek-V3.2-Exp \
+  --disaggregation-mode prefill \
+  --host ${LOCAL_IP} \
+  --port ${PREFILL_PORT} \
+  --tp 8 \
+  --dp 8 \
+  --enable-dp-attention \
+  --dist-init-addr ${HOST}:${DIST_PORT} \
+  --trust-remote-code \
+  --disaggregation-bootstrap-port 8998 \
+  --mem-fraction-static 0.9
+
+# Decode
+python -m sglang.launch_server \
+  --model-path deepseek-ai/DeepSeek-V3.2-Exp \
+  --disaggregation-mode decode \
+  --host ${LOCAL_IP} \
+  --port ${DECODE_PORT} \
+  --tp 8 \
+  --dp 8 \
+  --enable-dp-attention \
+  --dist-init-addr ${HOST}:${DIST_PORT} \
+  --trust-remote-code \
+  --mem-fraction-static 0.9
+
+# Router
+python -m sglang_router.launch_router \
+  --pd-disaggregation \
+  --prefill ${PREFILL_ADDR} 8998 \
+  --decode ${DECODE_ADDR} \
+  --host 0.0.0.0 \
+  --port 8000</code></pre>
+
+        <h3>7.4 Transfer backend：Mooncake、NIXL、Ascend</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Backend</th>
+                <th>安装/参数</th>
+                <th>适合场景</th>
+                <th>关键注意点</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Mooncake</td>
+                <td><code>uv pip install mooncake-transfer-engine</code><br/><code>--disaggregation-transfer-backend mooncake</code> 或默认相关路径</td>
+                <td>RDMA/NVLink 高性能 KV transfer，DeepSeek 多节点示例丰富</td>
+                <td>配置 IB device、NVLink mem pool、thread pool、queue size、timeout。</td>
+              </tr>
+              <tr>
+                <td>NIXL</td>
+                <td><code>pip install nixl</code><br/><code>--disaggregation-transfer-backend nixl</code></td>
+                <td>UCX/LIBFABRIC/插件化传输</td>
+                <td>通过 <code>SGLANG_DISAGGREGATION_NIXL_BACKEND</code> 选择 UCX 或 LIBFABRIC。</td>
+              </tr>
+              <tr>
+                <td>Ascend</td>
+                <td><code>--disaggregation-transfer-backend ascend</code></td>
+                <td>昇腾 NPU 部署</td>
+                <td>需要 memfabric_hybrid、ASCEND_MF_STORE_URL、ASCEND_NPU_PHY_ID 等环境变量。</td>
+              </tr>
+              <tr>
+                <td>Fake</td>
+                <td><code>--disaggregation-transfer-backend fake</code></td>
+                <td>decode-only benchmark 或链路开发调试</td>
+                <td>不能代表真实 KV 传输性能。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>7.5 PD 内部源码流程</h3>
+        <p>当前源码中，Scheduler 混入了 <code>SchedulerDisaggregationPrefillMixin</code> 和 <code>SchedulerDisaggregationDecodeMixin</code>。Prefill event loop 会接收请求、等待 bootstrap 完成、生成 prefill batch、run batch，然后把 KV transfer 任务放入 inflight queue；Decode event loop 会处理 decode queue、构造 prebuilt batch、把已经收到 KV 的请求合并进 running batch，然后逐 token decode。</p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+sequenceDiagram
+  participant R as Router
+  participant P as Prefill Scheduler
+  participant T as Transfer Backend
+  participant D as Decode Scheduler
+  participant C as Client
+  C->>R: chat/completions
+  R->>P: request + bootstrap metadata
+  R->>D: preallocate / decode metadata
+  P->>P: tokenize handled earlier, schedule prefill batch
+  P->>P: forward_extend, build KV
+  P->>T: send KV pages / indices
+  T->>D: KV ready
+  D->>D: build prebuilt batch
+  D->>D: forward_decode loop
+  D->>R: streamed tokens
+  R->>C: SSE / response
+          </pre>
+        </div>
+
+        <div class="callout danger">
+          <strong>PD 最容易踩的坑</strong>
+          只看总吞吐不够。必须分开看 prefill TTFT、decode TPOT/ITL、KV transfer latency、bootstrap timeout、decode waiting timeout、router queue、各 worker token usage。任何一个环节卡住都会表现成“模型慢”。
+        </div>
+      </section>
+
+      <section id="hicache-pd">
+        <h2>8. HiCache + PD：长上下文生产部署的组合拳</h2>
+        <p>PD 解决阶段干扰，HiCache 解决缓存容量和跨实例复用。SGLang 官方最佳实践给出两种组合：只在 prefill 节点启用 HiCache，适合系统提示/模板复用；或在 prefill 节点启用 HiCache，并在 decode 节点开启异步 KV offload，让多轮对话里的 decode 产物也回流到 L3，供后续 prefill 复用。</p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart TD
+  subgraph P["Prefill Cluster"]
+    P1["Prefill worker 1&lt;br/&gt;HiCache enabled"]
+    P2["Prefill worker 2&lt;br/&gt;HiCache enabled"]
+  end
+  subgraph D["Decode Cluster"]
+    D1["Decode worker 1&lt;br/&gt;optional async offload"]
+    D2["Decode worker 2&lt;br/&gt;optional async offload"]
+  end
+  subgraph L3["Shared L3 KV Storage"]
+    S1["HF3FS / Mooncake / NIXL / AIBrix"]
+  end
+  P1 <--> S1
+  P2 <--> S1
+  D1 -->|write-back dialogue KV| S1
+  D2 -->|write-back dialogue KV| S1
+  P1 -->|PD transfer| D1
+  P2 -->|PD transfer| D2
+          </pre>
+        </div>
+
+        <h3>8.1 Prefill-only HiCache</h3>
+        <pre><code class="language-bash">python3 -m sglang.launch_server \
+  --model-path /models/DeepSeek-R1 \
+  --tp 8 \
+  --host 0.0.0.0 \
+  --port 10000 \
+  --enable-metrics \
+  --enable-cache-report \
+  --mem-fraction-static 0.85 \
+  --page-size 64 \
+  --enable-hierarchical-cache \
+  --hicache-ratio 2 \
+  --hicache-mem-layout page_first_direct \
+  --hicache-io-backend direct \
+  --hicache-write-policy write_through \
+  --hicache-storage-backend hf3fs \
+  --hicache-storage-prefetch-policy wait_complete \
+  --disaggregation-ib-device mlx5_0 \
+  --disaggregation-mode prefill \
+  --disaggregation-transfer-backend mooncake</code></pre>
+
+        <h3>8.2 Decode async offload</h3>
+        <pre><code class="language-bash">python3 -m sglang.launch_server \
+  --model-path /models/DeepSeek-R1 \
+  --tp 8 \
+  --host 0.0.0.0 \
+  --port 10001 \
+  --enable-metrics \
+  --enable-cache-report \
+  --page-size 64 \
+  --hicache-ratio 2 \
+  --hicache-mem-layout page_first_direct \
+  --hicache-io-backend direct \
+  --hicache-write-policy write_through \
+  --hicache-storage-backend hf3fs \
+  --hicache-storage-prefetch-policy wait_complete \
+  --disaggregation-decode-enable-offload-kvcache \
+  --disaggregation-ib-device mlx5_0 \
+  --disaggregation-mode decode \
+  --disaggregation-transfer-backend mooncake</code></pre>
+
+        <h3>8.3 选择策略</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>工作负载</th>
+                <th>推荐缓存策略</th>
+                <th>原因</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>固定 system prompt + 短用户问题</td>
+                <td>RadixCache + router cache_aware；必要时 prefill-only HiCache</td>
+                <td>prefix 重复度高，本地或跨 prefill worker 复用即可。</td>
+              </tr>
+              <tr>
+                <td>长文档多轮 QA</td>
+                <td>HiCache + timeout/wait_complete prefetch</td>
+                <td>长 prefix KV 昂贵，L2/L3 可显著降低重复 prefill。</td>
+              </tr>
+              <tr>
+                <td>多轮对话很多，decode 生成内容也会成为下轮上下文</td>
+                <td>Prefill HiCache + decode offload</td>
+                <td>decode 新增 KV 可以回写到 L3，下轮 prefill 直接复用。</td>
+              </tr>
+              <tr>
+                <td>极低延迟在线聊天</td>
+                <td>RadixCache，小心使用 L3 wait_complete</td>
+                <td>L3 prefetch 等待可能拉高 TTFT；优先 best_effort 或 timeout。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="tuning">
+        <h2>9. 性能调优、压测与观测</h2>
+        <p>SGLang 的调优核心是让 GPU 尽可能满，又不把 KV cache 撑爆。观察点包括 <code>#running-req</code>、<code>#queue-req</code>、<code>token usage</code>、TTFT、TPOT、ITL、decode throughput、OOM/retract 日志、cache hit、router worker load。</p>
+
+        <h3>9.1 压测工具怎么选</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>工具</th>
+                <th>经过 HTTP?</th>
+                <th>经过 Scheduler?</th>
+                <th>用途</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>bench_serving</code></td>
+                <td>是</td>
+                <td>是</td>
+                <td>默认首选，测真实在线服务 TTFT/TPOT/ITL/throughput。</td>
+              </tr>
+              <tr>
+                <td><code>bench_one_batch_server</code></td>
+                <td>是</td>
+                <td>是</td>
+                <td>端到端单 batch 延迟，非稳态，适合快速比较。</td>
+              </tr>
+              <tr>
+                <td><code>bench_offline_throughput</code></td>
+                <td>否</td>
+                <td>是</td>
+                <td>绕过 HTTP，测 engine 最大吞吐。</td>
+              </tr>
+              <tr>
+                <td><code>bench_one_batch</code></td>
+                <td>否</td>
+                <td>否</td>
+                <td>直接调用 ModelRunner，做 kernel/forward profiling。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <pre><code class="language-bash"># 在线服务稳态压测
+python3 -m sglang.bench_serving \
+  --backend sglang \
+  --host 127.0.0.1 \
+  --port 30000 \
+  --dataset-name random \
+  --random-input-len 2048 \
+  --random-output-len 512 \
+  --num-prompts 1000 \
+  --max-concurrency 100
+
+# 低并发延迟敏感压测
+python3 -m sglang.bench_serving \
+  --backend sglang \
+  --host 127.0.0.1 \
+  --port 30000 \
+  --dataset-name random \
+  --num-prompts 10 \
+  --max-concurrency 1
+
+# Kernel/forward 级 profiling
+python3 -m sglang.bench_one_batch \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --batch-size 32 \
+  --input-len 256 \
+  --output-len 32 \
+  --profile</code></pre>
+
+        <h3>9.2 调参口诀</h3>
+        <div class="grid two">
+          <div class="card">
+            <h3>吞吐优先</h3>
+            <ul>
+              <li>提高并发，让 <code>#queue-req</code> 保持非零。</li>
+              <li>让 <code>token usage</code> 接近但不要长期爆满。</li>
+              <li>增大 <code>--mem-fraction-static</code> 扩 KV pool，但保留 5-8GB activation 空间作为经验起点。</li>
+              <li>能 DP 就优先 DP 或 router 多 worker；DeepSeek 高并发评估 DP Attention。</li>
+              <li>共享前缀多时尝试 <code>--schedule-policy lpm</code> 或 router <code>cache_aware</code>。</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>延迟优先</h3>
+            <ul>
+              <li>降低 <code>--max-running-requests</code>，避免过大 batch 拉高单请求延迟。</li>
+              <li>长 prompt OOM 时降 <code>--chunked-prefill-size</code>。</li>
+              <li>小 batch 可评估 CUDA Graph、torch.compile、EAGLE。</li>
+              <li>PD 场景分别压 prefill 和 decode，decode TPOT 比总 throughput 更重要。</li>
+              <li>HiCache L3 prefetch 用 best_effort 或 timeout，避免过度等待。</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>9.3 PD profiler</h3>
+        <pre><code class="language-bash"># Profile prefill workers
+python -m sglang.bench_serving \
+  --backend sglang \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --num-prompts 10 \
+  --sharegpt-output-len 100 \
+  --profile \
+  --pd-separated \
+  --profile-prefill-url http://127.0.0.1:30000
+
+# Profile decode workers
+python -m sglang.bench_serving \
+  --backend sglang \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --num-prompts 10 \
+  --sharegpt-output-len 100 \
+  --profile \
+  --pd-separated \
+  --profile-decode-url http://127.0.0.1:30001</code></pre>
+
+        <div class="callout warn">
+          <strong>prefill 和 decode profiler 不能混着抓</strong>
+          官方 profiling 文档强调，PD 模式由于 torch profiler 限制，prefill worker 和 decode worker 必须分别 profile；<code>--profile-prefill-url</code> 和 <code>--profile-decode-url</code> 互斥。
+        </div>
+      </section>
+
+      <section id="dev">
+        <h2>10. 二次开发：从哪里下刀</h2>
+        <p>二开 SGLang 最好按模块进入，不要一上来全局搜。你通常会改五类东西：新模型、新 attention/kernel、新 cache/storage backend、新调度/路由策略、新 parser/API。</p>
+
+        <h3>10.1 源码地图</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>目标</th>
+                <th>主要目录/文件</th>
+                <th>你会改什么</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>新增文本模型</td>
+                <td><code>python/sglang/srt/models/</code><br/><code>python/sglang/srt/models/registry.py</code></td>
+                <td>添加模型文件、实现 forward、EntryClass、使用 RadixAttention 和 SGLang layers。</td>
+              </tr>
+              <tr>
+                <td>新增多模态模型</td>
+                <td><code>srt/multimodal/processors/</code><br/><code>srt/configs/model_config.py</code><br/><code>srt/models/*_vl.py</code></td>
+                <td>注册 multimodal、处理 chat template、实现 processor、pad_input_ids、get_image_feature、VisionAttention。</td>
+              </tr>
+              <tr>
+                <td>新增 cache backend</td>
+                <td><code>srt/mem_cache/hicache_storage.py</code><br/><code>srt/mem_cache/storage/backend_factory.py</code></td>
+                <td>实现 batch_exists/get/set，或用 dynamic backend 指定 module/class。</td>
+              </tr>
+              <tr>
+                <td>改调度策略</td>
+                <td><code>srt/managers/scheduler.py</code><br/><code>srt/managers/schedule_policy.py</code><br/><code>srt/managers/schedule_batch.py</code></td>
+                <td>等待队列排序、batch 构造、preemption、priority、chunked prefill、decode 更新。</td>
+              </tr>
+              <tr>
+                <td>改模型执行</td>
+                <td><code>srt/model_executor/model_runner.py</code><br/><code>srt/layers/attention/</code></td>
+                <td>forward_extend/forward_decode、attention metadata、CUDA Graph、backend dispatch。</td>
+              </tr>
+              <tr>
+                <td>PD 传输扩展</td>
+                <td><code>srt/disaggregation/</code></td>
+                <td>transfer backend、bootstrap、decode prealloc、staging buffer、offload manager。</td>
+              </tr>
+              <tr>
+                <td>OpenAI/parser 扩展</td>
+                <td><code>srt/entrypoints/openai/</code><br/><code>srt/function_call/</code><br/><code>srt/parser/</code></td>
+                <td>reasoning parser、tool call parser、chat template、协议字段。</td>
+              </tr>
+              <tr>
+                <td>Router 策略</td>
+                <td>SGLang Model Gateway / <code>sglang_router</code></td>
+                <td>worker 注册、健康检查、cache-aware、power_of_two、PD 路由、IGW 多模型。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>10.2 新模型接入流程</h3>
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart TD
+  A["选择相似模型实现&lt;br/&gt;如 llama.py / qwen*.py / deepseek*.py"] --> B["复制到 srt/models/new_model.py"]
+  B --> C["替换 Attention 为 RadixAttention&lt;br/&gt;替换 logits processor / layers"]
+  C --> D["实现 forward / forward_batch&lt;br/&gt;支持 ForwardBatch"]
+  D --> E["添加 EntryClass / registry"]
+  E --> F["bench_one_batch --correct&lt;br/&gt;对齐 HF logits/output"]
+  F --> G["OpenAI server 测试"]
+  G --> H["加入 registered tests&lt;br/&gt;报告硬件、启动参数、准确率、吞吐"]
+          </pre>
+        </div>
+
+        <pre><code class="language-python"># 外部注册模型的最小思路：不改 SGLang 源码也可以先注册
+from sglang.srt.models.registry import ModelRegistry
+from sglang.srt.entrypoints.http_server import launch_server
+
+from my_model_impl import MyForCausalLM
+
+ModelRegistry.models["MyForCausalLM"] = MyForCausalLM
+
+# 然后用你的 ServerArgs 启动
+# launch_server(server_args)</code></pre>
+
+        <h3>10.3 自定义 HiCache storage backend</h3>
+        <p>如果你已有内部 KV 存储、对象存储或 RDMA cache 系统，可以实现 <code>HiCacheStorage</code>。最核心接口是 batch exists/get/set；如果不想硬编码进仓库，可使用 dynamic backend。</p>
+
+        <pre><code class="language-bash">python3 -m sglang.launch_server \
+  --model-path your-model \
+  --enable-hierarchical-cache \
+  --hicache-storage-backend dynamic \
+  --hicache-storage-backend-extra-config \
+    '{"backend_name":"corp_cache","module_path":"corp.sglang_cache","class_name":"CorpHiCacheStorage","interface_v1":0}'</code></pre>
+
+        <h3>10.4 修改调度的注意事项</h3>
+        <ul>
+          <li>Scheduler 的数据结构很多是为 overlap schedule、chunked prefill、spec decoding、PD mode 共同服务的，改 batch 生命周期时必须同时看 normal 和 overlap loop。</li>
+          <li>cache 相关字段如 <code>prefix_indices</code>、<code>kv_committed_len</code>、<code>cache_protected_len</code>、<code>last_node</code> 会影响 free/evict，不能只看 forward 结果。</li>
+          <li>PD decode 侧有 prebuilt batch 与 preallocated KV 的特殊路径，源码里明确避免重新 match prefix，因为树状态可能已变化，错误更新会导致释放范围不正确。</li>
+          <li>新增策略后至少跑：普通集中式、chunked prefill、RadixCache hit、PD prefill/decode、abort/timeout、priority、spec decoding 组合测试。</li>
+        </ul>
+
+        <h3>10.5 推荐测试命令</h3>
+        <pre><code class="language-bash"># 对齐 HF 输出和 prefill logits
+python3 scripts/playground/reference_hf.py \
+  --model-path /path/to/new-model \
+  --model-type text
+
+python3 -m sglang.bench_one_batch \
+  --correct \
+  --model /path/to/new-model
+
+# 注册模型测试示例
+ONLY_RUN=Qwen/Qwen2-1.5B \
+  python3 -m unittest test_generation_models.TestGenerationModels.test_others
+
+# 准确率评估
+python -m sglang.test.run_eval \
+  --eval-name mmlu \
+  --port 30000 \
+  --num-examples 1000 \
+  --max-tokens 8192</code></pre>
+      </section>
+
+      <section id="production">
+        <h2>11. 生产落地清单</h2>
+
+        <div class="grid two">
+          <div class="card">
+            <h3>上线前</h3>
+            <ul>
+              <li>固定 SGLang 版本、Docker tag、模型 revision、启动参数。</li>
+              <li>离线下载权重，校验 tokenizer、chat template、reasoning/tool parser。</li>
+              <li>先集中式压测，再决定是否拆 PD。</li>
+              <li>为每类请求设定 max input/output token、timeout、队列上限。</li>
+              <li>开启 metrics、cache report、结构化日志，保留 crash dump 策略。</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>上线后</h3>
+            <ul>
+              <li>持续看 TTFT、TPOT、ITL、E2E latency、queue length、token usage。</li>
+              <li>记录 cache hit、cached tokens、HiCache prefetch latency、L3 read/write 带宽。</li>
+              <li>PD 模式分别监控 prefill、decode、transfer backend、router。</li>
+              <li>OOM 时先区分 prefill OOM 还是 decode OOM，再调 chunked prefill、max-running、mem fraction。</li>
+              <li>新模型或新 backend 合入前必须给出 accuracy、latency、throughput、硬件环境和启动命令。</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>从 0 到生产的执行路线</h3>
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart LR
+  S0["0. 选模型/硬件"] --> S1["1. 单机集中式跑通"]
+  S1 --> S2["2. OpenAI API 兼容验收"]
+  S2 --> S3["3. bench_serving 压测"]
+  S3 --> S4["4. 调 mem / batch / attention backend"]
+  S4 --> S5["5. Radix/HiCache 验证"]
+  S5 --> S6["6. Router 多 worker"]
+  S6 --> S7{"prefill/decode 干扰明显?"}
+  S7 -->|否| S8["集中式生产化"]
+  S7 -->|是| S9["PD 分离试点"]
+  S9 --> S10["PD + HiCache + 完整观测"]
+  S10 --> S11["灰度上线"]
+          </pre>
+        </div>
+
+        <div class="callout good">
+          <strong>最小可行生产参数包</strong>
+          <code>--host 0.0.0.0</code>、<code>--port</code>、<code>--tp/--dp</code>、<code>--mem-fraction-static</code>、<code>--max-running-requests</code>、<code>--chunked-prefill-size</code>、<code>--enable-metrics</code>、<code>--enable-cache-report</code>、<code>--reasoning-parser</code>、<code>--tool-call-parser</code>、<code>--served-model-name</code>。先把这套管住，再加更高级优化。
+        </div>
+      </section>
+
+      <section id="references">
+        <h2>12. 参考资料</h2>
+        <p>本报告优先使用 SGLang 官方文档、官方 GitHub 仓库与 SGLang/LMSYS 官方博客图片。由于 SGLang 更新频繁，部署生产前建议以你要使用的具体 release branch 或 Docker tag 对应文档为准。</p>
+
+        <ol class="source-list">
+          <li><a href="https://github.com/sgl-project/sglang">SGLang GitHub repository</a>，本地调研快照 commit <code>6e8fe17</code>，2026-05-25。</li>
+          <li><a href="https://docs.sglang.io/get_started/install.html">SGLang Install documentation</a>：pip/uv、source、Docker、Kubernetes、云部署安装方式。</li>
+          <li><a href="https://docs.sglang.io/advanced_features/server_arguments.html">Server Arguments</a>：模型、HTTP、量化、内存、调度、并行、LoRA、API、metrics 参数。</li>
+          <li><a href="https://docs.sglang.io/basic_usage/deepseek_v3.html">DeepSeek V3/V3.1/R1 Usage</a>：MLA、DP Attention、FP8、DeepGEMM、MTP/EAGLE、函数调用与 reasoning parser。</li>
+          <li><a href="https://docs.sglang.io/basic_usage/deepseek_v32.html">DeepSeek V3.2 / GLM-5 Usage</a>：DSA、IndexCache、TP+DP Attention、PD 分离启动命令。</li>
+          <li><a href="https://docs.sglang.io/basic_usage/glm45.html">GLM-4.5 / GLM-4.6 / GLM-4.7 Usage</a>：GLM FP8、EAGLE、thinking budget、tool parser。</li>
+          <li><a href="https://docs.sglang.io/advanced_features/pd_disaggregation.html">PD Disaggregation</a>：Mooncake、NIXL、Ascend backend、环境变量、heterogeneous TP staging buffer。</li>
+          <li><a href="https://docs.sglang.io/advanced_features/hicache_design.html">HiCache System Design and Optimization</a>：HiRadixTree、local match、prefetch、write-back、L3 backend、PD 集成。</li>
+          <li><a href="https://docs.sglang.io/advanced_features/hicache_best_practices.html">SGLang HiCache Best Practices</a>：核心参数、PD 组合、HF3FS/Mooncake 示例、自定义 storage backend。</li>
+          <li><a href="https://docs.sglang.io/advanced_features/attention_backend.html">Attention Backend</a>：MHA/MLA/DSA backend 支持矩阵、page size、FP8/FP4、spec decoding 兼容性。</li>
+          <li><a href="https://docs.sglang.io/supported_models/text_generation/generative_models.html">Supported Text Generation Models</a>：DeepSeek、GLM、Qwen、Llama、Kimi、GPT-OSS 等模型族。</li>
+          <li><a href="https://docs.sglang.io/supported_models/text_generation/multimodal_language_models.html">Supported Multimodal Language Models</a>：Qwen-VL、DeepSeek-OCR、GLM-4.5V、Qwen3-ASR、GLM-OCR 等。</li>
+          <li><a href="https://docs.sglang.io/supported_models/extending/support_new_models.html">How to Support New Models</a>：新增 LLM/MLLM、从 vLLM port、外部注册、测试方法。</li>
+          <li><a href="https://docs.sglang.io/supported_models/extending/transformers_fallback.html">Transformers fallback in SGLang</a>：Transformers backend fallback 条件与远程代码支持。</li>
+          <li><a href="https://docs.sglang.io/advanced_features/sgl_model_gateway.html">SGLang Model Gateway</a>：router、PD routing、load balancing、worker 管理、IGW、观测与可靠性。</li>
+          <li><a href="https://docs.sglang.io/developer_guide/benchmark_and_profiling.html">Benchmark and Profiling</a>：bench_serving、bench_one_batch、PD profiler、HTTP profiling endpoints。</li>
+          <li><a href="https://docs.sglang.io/developer_guide/evaluating_new_models.html">Evaluating New Models with SGLang</a>：MMLU、GSM8K、GPQA、MMMU、latency/throughput benchmark。</li>
+          <li><a href="https://lmsys.org/blog/2024-09-04-sglang-v0-3/">SGLang v0.3 LMSYS blog</a>：DeepSeek MLA 优化图片来源。</li>
+          <li><a href="https://lmsys.org/blog/2024-12-04-sglang-v0-4/">SGLang v0.4 LMSYS blog</a>：DP Attention 图片来源。</li>
+          <li><a href="https://lmsys.org/blog/2025-09-10-sglang-hicache/">SGLang HiCache LMSYS blog</a>：HiCache overview/layout 图片来源。</li>
+        </ol>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        background: "#ffffff",
+        primaryColor: "#eef8f2",
+        primaryTextColor: "#1d2428",
+        primaryBorderColor: "#177245",
+        lineColor: "#667078",
+        secondaryColor: "#edf6f7",
+        tertiaryColor: "#fbf2df",
+        fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans SC, sans-serif"
+      }
+    });
+  </script>
+</body>
+</html>

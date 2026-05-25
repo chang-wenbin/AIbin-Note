@@ -504,7 +504,7 @@
   </p>
   <div class="hero-stats">
     <div class="stat-item">
-      <span class="stat-num" id="totalDocs">20</span>
+      <span class="stat-num" id="totalDocs">21</span>
       <span class="stat-label">技术文档</span>
     </div>
     <div class="stat-item">
@@ -525,7 +525,7 @@
   <div class="update-banner">
     <div class="update-dot"></div>
     <span>
-      📅 最近更新：<strong style="color: var(--text-primary)">2026-04-24</strong>
+      📅 最近更新：<strong style="color: var(--text-primary)">2026-05-25</strong>
       &nbsp;—&nbsp; 本仓库不定期更新，持续记录 AI 推理与 GPU 优化领域的技术探索。
     </span>
   </div>
@@ -772,13 +772,22 @@
       <div>
         <div class="section-title">Research</div>
       </div>
-      <span class="section-subtitle section-tag">1 篇文档</span>
+      <span class="section-subtitle section-tag">2 篇文档</span>
     </div>
     <div class="cards-grid">
 
       <a class="card" href="Research/2026-04-09_sglang-vllm-deepseek-glm5-optimization.html" target="_blank">
         <div class="card-emoji">📄</div>
         <div class="card-title">SGLang 与 vLLM 对 DeepSeek 和 GLM-5 模型的最新优化研究</div>
+        <div class="card-desc"></div>
+        <div class="card-footer">
+          <span class="card-tag">Notes</span>
+          <span class="card-arrow">→</span>
+        </div>
+      </a>
+      <a class="card" href="Research/2026-05-25_sglang-deployment-and-development-guide.html" target="_blank">
+        <div class="card-emoji">📄</div>
+        <div class="card-title">SGLang 模型推理部署与二次开发全景指南</div>
         <div class="card-desc"></div>
         <div class="card-footer">
           <span class="card-tag">Notes</span>
@@ -842,7 +851,7 @@
     });
 
     document.getElementById('noResults').style.display = totalVisible === 0 && query ? 'block' : 'none';
-    document.getElementById('totalDocs').textContent = query ? totalVisible : 20;
+    document.getElementById('totalDocs').textContent = query ? totalVisible : 21;
   }
 
   // ══════════════════════════════════════════════════════════
